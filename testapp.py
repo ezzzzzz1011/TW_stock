@@ -45,8 +45,7 @@ def get_safe_data(symbol):
         "last_date": default_date,
         "multiplier": 4,  # 預設
         "freq_label": "季", # 預設
-        "eps_data": None, # 新增 EPS 存儲
-        "ticker_obj": None # 存儲 Ticker 物件以便後續抓取財務報表
+        "eps_data": None  # 儲存 DataFrame 格式的 EPS
     }
     
     for suffix in [".TW", ".TWO"]:
@@ -57,7 +56,6 @@ def get_safe_data(symbol):
             
             if not hist.empty:
                 res["price_hist"] = hist
-                res["ticker_obj"] = t
                 try: res["last_date"] = hist.index[-1].strftime('%Y-%m-%d')
                 except: pass
 
@@ -80,11 +78,11 @@ def get_safe_data(symbol):
                     else: 
                         res["multiplier"], res["freq_label"] = 1, "年"
                 
-                # --- 獲取 EPS 數據 (根據連結網站的方法) ---
+                # --- 獲取 EPS 數據 (修正快取報錯，僅存數據不存物件) ---
                 try:
                     earnings = t.earnings
                     if not earnings.empty:
-                        res["eps_data"] = earnings
+                        res["eps_data"] = earnings # yfinance earnings 是 DataFrame，可被序列化
                 except:
                     pass
 
@@ -120,7 +118,7 @@ with main_col:
         st.write("")
         if st.button("開始計算", type="primary"):
             if symbol_input:
-                with st.spinner('偵測頻率與抓取數據中...'):
+                with st.spinner('數據處理中...'):
                     st.session_state.data = get_safe_data(symbol_input)
 
     # 顯示結果
@@ -204,20 +202,21 @@ with main_col:
         st.subheader("📈 核心獲利能力 (EPS)")
         if data.get("eps_data") is not None:
             eps_df = data["eps_data"]
-            # 格式化顯示
             eps_display = eps_df.copy()
-            eps_display.columns = ["年度 EPS"]
+            # 確保欄位名稱正確
+            if "Earnings" in eps_display.columns:
+                eps_display.columns = ["年度 EPS"]
             
             st.markdown('<div class="eps-box">', unsafe_allow_html=True)
             eps_cols = st.columns(len(eps_display))
             for i, (year, row) in enumerate(eps_display.iterrows()):
-                eps_cols[i].metric(f"{year} 年", f"{row['年度 EPS']:.2f}")
+                eps_cols[i].metric(f"{year} 年", f"{row.iloc[0]:.2f}")
             
-            avg_eps = eps_display["年度 EPS"].mean()
+            avg_eps = eps_display.iloc[:, 0].mean()
             st.markdown(f"<p style='margin-top:10px;'><b>近四年平均 EPS：</b> <span class='white-text'>{avg_eps:.2f} 元</span></p>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.warning("此標的（可能是部分 ETF）無年度 EPS 數據，或 yfinance 未提供財務報表。")
+            st.warning("此標的（可能是部分 ETF）無年度 EPS 數據。")
 
         st.markdown("---")
         st.subheader("💰 持有張數試算")
