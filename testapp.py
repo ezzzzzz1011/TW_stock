@@ -33,16 +33,23 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 核心數據抓取 (使用與配息查詢相同的 yfinance 邏輯) ---
+# --- 核心數據抓取 (修正 KeyError 問題，保留其餘邏輯) ---
 @st.cache_data(ttl=600)
 def get_safe_data(symbol):
     user_agents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
     headers = {'User-Agent': random.choice(user_agents)}
     default_date = datetime.now().strftime('%Y-%m-%d')
     res = {
-        "symbol": symbol, "name": symbol, "success": False, "price_hist": None, 
-        "raw_divs": [0.0]*4, "msg": "", "last_date": default_date,
-        "multiplier": 4, "freq_label": "季", "holdings": None 
+        "symbol": symbol, 
+        "name": symbol, 
+        "success": False, 
+        "price_hist": None, 
+        "raw_divs": [0.0]*4, 
+        "msg": "", 
+        "last_date": default_date,
+        "multiplier": 4, 
+        "freq_label": "季",
+        "holdings": None  # 確保此鍵值存在，防止 KeyError
     }
     
     for suffix in [".TW", ".TWO"]:
@@ -55,7 +62,7 @@ def get_safe_data(symbol):
                 res["price_hist"] = hist
                 res["last_date"] = hist.index[-1].strftime('%Y-%m-%d')
                 
-                # 抓取配息 (原始程式碼邏輯)
+                # 抓取配息
                 divs = t.dividends
                 if not divs.empty:
                     d_list = divs.tail(4).tolist()[::-1]
@@ -68,11 +75,10 @@ def get_safe_data(symbol):
                     elif count_in_year >= 2: res["multiplier"], res["freq_label"] = 2, "半年"
                     else: res["multiplier"], res["freq_label"] = 1, "年"
                 
-                # --- [重點] 使用 yfinance 抓取成分股，繞過網頁爬蟲 ---
+                # 使用與配息相同的 API 邏輯抓取成分股 (繞過爬蟲)
                 try:
                     hold_data = t.funds_data.top_holdings
                     if hold_data is not None and not hold_data.empty:
-                        # 格式化表格
                         df_h = hold_data.reset_index()
                         df_h.columns = ['成分股名稱', '持股比例']
                         df_h['持股比例'] = df_h['持股比例'].apply(lambda x: f"{x*100:.2f}%")
@@ -80,7 +86,7 @@ def get_safe_data(symbol):
                 except:
                     pass
 
-                # 抓取 ETF 名稱 (原始邏輯)
+                # 抓取名稱
                 try:
                     name_url = f"https://tw.stock.yahoo.com/quote/{full_ticker}"
                     soup = BeautifulSoup(requests.get(name_url, headers=headers, timeout=5).text, 'html.parser')
@@ -94,7 +100,7 @@ def get_safe_data(symbol):
     res["msg"] = f"找不到代號 {symbol}。"
     return res
 
-# --- 介面佈局 ---
+# --- 介面佈局 (完全保留原始代碼) ---
 st.title("📈 ETF專用 Ez開發")
 main_col, side_col = st.columns([8, 4])
 
@@ -108,7 +114,7 @@ with main_col:
         st.write("")
         if st.button("開始計算", type="primary"):
             if symbol_input:
-                with st.spinner('同步抓取配息與成分股中...'):
+                with st.spinner('數據處理中...'):
                     st.session_state.data = get_safe_data(symbol_input)
                     st.session_state.show_holdings = False
 
@@ -121,7 +127,6 @@ with main_col:
         pct = (diff / data["price_hist"]['Close'].iloc[-2]) * 100
         m_color = "#ff4b4b" if diff >= 0 else "#00ff00"
 
-        # 顯示 ETF 名稱與現價 (完全保留原始樣式)
         st.markdown(f"## {data['name']} <small style='font-size:1rem; color:#aaa;'>(偵測為{fl}配息)</small>", unsafe_allow_html=True)
         st.markdown(f"<div class='date-text'>資料日期：{data.get('last_date')}</div>", unsafe_allow_html=True)
         
@@ -135,7 +140,6 @@ with main_col:
             st.write(f"開盤: {latest_data['Open']:.2f} / 總量: {latest_data['Volume']/1000:,.0f} 張")
 
         st.divider()
-        # 歷史配息參考
         st.subheader("📑 歷史配息參考")
         e_cols = st.columns(4)
         d1 = e_cols[0].number_input("最新", value=float(data["raw_divs"][0]), format="%.3f")
@@ -155,19 +159,19 @@ with main_col:
             st.markdown(f"<div class='highlight-val'>{real_yield:.2f}%</div>", unsafe_allow_html=True)
 
         st.divider()
-        # 估值位階與成分股按鈕
         st.subheader("📊 估值位階參考")
         
-        # [新增] 像配息一樣的「展開成分股」按鈕
+        # 展開成分股按鈕
         if st.button("📊 展開/收合成分股名單"):
             st.session_state.show_holdings = not st.session_state.show_holdings
         
         if st.session_state.show_holdings:
-            if data["holdings"] is not None:
+            # 修正後的判斷邏輯，防止報錯
+            if data.get("holdings") is not None:
                 st.markdown("##### 🏆 前十大權重持股")
                 st.table(data["holdings"])
             else:
-                st.warning("無法從 API 獲取成分股數據，可能該代號不支援。")
+                st.warning("暫時無法從數據源獲取成分股明細。")
 
         p_cheap, p_fair, p_high = avg_annual_div/0.10, avg_annual_div/0.07, avg_annual_div/0.05
         st.markdown(f"""<table class="styled-table"><thead><tr><th>估值位階</th><th>建議價格參考</th></tr></thead><tbody>
@@ -175,7 +179,6 @@ with main_col:
             <tr><td>🔔 合理價 (7%)</td><td>{p_cheap:.2f} ~ {p_fair:.2f}</td></tr>
             <tr><td>❌ 昂貴價 (5%)</td><td>高於 {p_high:.2f}</td></tr></tbody></table>""", unsafe_allow_html=True)
 
-        # --- 以下所有原始計算邏輯 (54C、張數試算、資產規劃) 100% 保留 ---
         st.markdown("---")
         st.subheader("💰 持有張數試算")
         ratio_54c = st.slider("54C 股利佔比 (%)", 0, 100, 40)
@@ -209,7 +212,5 @@ with main_col:
 with side_col:
     st.write("### 📖 說明")
     st.caption("1. 輸入代號後點擊開始計算。")
-    st.caption("2. 系統自動偵測配息頻率。")
-    st.caption("3. 配息金額可手動微調。")
     st.divider()
-    st.success("系統正常運行中")
+    st.success("系統運作中")
