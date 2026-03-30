@@ -32,7 +32,7 @@ st.markdown("""
 
 # --- 強化版 EPS 抓取函數 ---
 def get_eps_final(symbol, ticker_obj):
-    # 方案 A: 鉅亨網季報 API
+    # 方案 A: 鉅亨網季報 API (最即時)
     try:
         url = f"https://ws.api.cnyes.com/ws/api/v1/stock/financial/profit/quarterly/{symbol}?isExtended=true"
         headers = {
@@ -45,26 +45,34 @@ def get_eps_final(symbol, ticker_obj):
         if data.get('statusCode') == 200:
             items = data['data']['items']
             periods = items.get('period', [])
-            eps_list = items.get('basicEarningsPerShare', []) or items.get('netEarningsPerShare', [])
+            # 優先嘗試 basicEarningsPerShare
+            eps_list = items.get('basicEarningsPerShare')
+            if eps_list is None:
+                eps_list = items.get('netEarningsPerShare', [])
             
             if eps_list and periods:
                 df = pd.DataFrame({'Period': periods, 'EPS': eps_list})
-                df = df.dropna().head(4) # 確保剔除 nan
-                if not df.empty:
-                    return df, "鉅亨網"
+                df = df.dropna().reset_index(drop=True)
+                # 鉅亨網回傳通常就是由新到舊，確保只取前四筆
+                return df.head(4), "鉅亨網"
     except:
         pass
 
     # 方案 B: yfinance 備援
     try:
         q_fin = ticker_obj.quarterly_financials
+        # 尋找包含 EPS 的索引，並過濾掉 Diluted (稀釋) 取 Basic
         eps_row_label = next((idx for idx in q_fin.index if "EPS" in idx and "Basic" in idx), None)
+        if not eps_row_label:
+            eps_row_label = next((idx for idx in q_fin.index if "EPS" in idx), None)
+            
         if eps_row_label:
-            eps_row = q_fin.loc[eps_row_label].dropna().head(4) # 剔除 nan
-            # 修正日期顯示問題：手動轉換季度格式
-            periods = [f"{d.year}-Q{(d.month-1)//3 + 1}" for d in eps_row.index]
-            df = pd.DataFrame({'Period': periods, 'EPS': eps_row.values})
-            return df, "Yahoo Finance"
+            # 確保按照日期降序排列 (最新的在前面)
+            eps_series = q_fin.loc[eps_row_label].sort_index(ascending=False).dropna()
+            if not eps_series.empty:
+                periods = [f"{d.year}-Q{(d.month-1)//3 + 1}" for d in eps_series.index]
+                df = pd.DataFrame({'Period': periods, 'EPS': eps_series.values})
+                return df.head(4), "Yahoo Finance"
     except:
         pass
     
@@ -100,6 +108,7 @@ def get_safe_data(symbol):
                 try: res["last_date"] = hist.index[-1].strftime('%Y-%m-%d')
                 except: pass
 
+                # 偵測配息頻率
                 divs = t.dividends
                 if not divs.empty:
                     d_list = divs.tail(4).tolist()[::-1]
@@ -118,7 +127,7 @@ def get_safe_data(symbol):
                     else: 
                         res["multiplier"], res["freq_label"] = 1, "年"
                 
-                # 呼叫修正後的 EPS 函數
+                # 獲取 EPS
                 eps_df, source = get_eps_final(symbol, t)
                 res["eps_data"] = eps_df
                 res["eps_source"] = source
@@ -247,7 +256,7 @@ with main_col:
             st.markdown(f"<p style='margin-top:10px;'><b>近四季累積 EPS：</b> <span class='white-text' style='font-size:1.5rem;'>{sum_eps:.2f} 元</span></p>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.warning("此標的目前無法取得 EPS 數據。")
+            st.warning("此標的目前無法取得 EPS 數據（個股建議重新查詢）。")
 
         st.markdown("---")
         st.subheader("💰 持有張數試算")
@@ -288,8 +297,8 @@ with main_col:
 with side_col:
     st.write("### 📖 說明")
     st.caption("1. 輸入代號後點擊開始計算。")
-    st.caption("2. 系統自動偵測配息頻率 (月/季/半年/年)。")
-    st.caption("3. 配息金額可於「歷史配息參考」手動微調。")
-    st.caption("4. 錯誤修復：解決日期格式顯示與 nan 數值問題。")
+    st.caption("2. **優先從鉅亨網抓取最新 EPS**。")
+    st.caption("3. 自動按時間由新到舊排序。")
+    st.caption("4. 解決 Yahoo Finance 台股財報更新遲緩問題。")
     st.divider()
     st.success("系統穩定運行中")
