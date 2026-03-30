@@ -1,70 +1,76 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import time
+import datetime
 
-st.set_page_config(page_title="股息成長投資分析器", layout="wide")
+st.set_page_config(page_title="台股股息成長分析", layout="wide")
 
-st.title("📈 股息成長投資 (DGI) 自動化分析")
-st.write("請上傳從 Portfolio Insight 下載的 Dividend Radar Excel 檔案。")
+st.title("🇹🇼 台股股息成長 (DGI) 自動分析")
+st.write("輸入台股代號（例如：2330），系統將自動計算配息連續成長年數。")
 
-# --- 第一步：上傳檔案 ---
-uploaded_file = st.file_uploader("選擇 Excel 檔案", type=["xlsx"])
+# --- 輸入區 ---
+stock_id = st.text_input("請輸入台股代號", value="2330")
+analyze_btn = st.button("開始分析")
 
-if uploaded_file:
-    # 讀取 Excel (通常是第二個分頁，Header 在第三行)
-    try:
-        df_radar = pd.read_excel(uploaded_file, sheet_name=1, header=2)
-        st.success("檔案讀取成功！")
+if analyze_btn:
+    # 台股代號需要加上 .TW
+    ticker_str = f"{stock_id}.TW"
+    ticker = yf.Ticker(ticker_str)
+    
+    with st.spinner('正在讀取歷史配息數據...'):
+        # 1. 取得股息歷史
+        dividends = ticker.actions
         
-        # 讓使用者選擇要分析的數量（避免一次跑太多被 Yahoo 封鎖）
-        num_to_analyze = st.slider("選擇要分析的前幾檔股票：", 5, 50, 10)
-        
-        if st.button(f"開始分析前 {num_to_analyze} 檔"):
-            results = []
-            progress_bar = st.progress(0)
+        if dividends.empty or 'Dividends' not in dividends:
+            st.error(f"找不到 {ticker_str} 的配息紀錄，請確認代號是否正確。")
+        else:
+            # 2. 整理年度配息金額
+            div_df = dividends[['Dividends']].resample('YE').sum()
+            div_df.index = div_df.index.year
+            div_df = div_df.sort_index(ascending=False)
             
-            # 選取前 N 筆
-            subset_df = df_radar.head(num_to_analyze)
+            # 3. 計算連續配息與成長年數
+            years = div_df.index.tolist()
+            amounts = div_df['Dividends'].tolist()
             
-            for index, row in subset_df.iterrows():
-                symbol = row['Symbol']
-                st.write(f"正在抓取 {symbol} ({row['Company']})...")
-                
-                try:
-                    ticker = yf.Ticker(symbol)
-                    info = ticker.info
-                    
-                    data = {
-                        "代號": symbol,
-                        "公司名稱": row['Company'],
-                        "連續增發年數": row['No Years'],
-                        "股息殖利率(%)": info.get("dividendYield", 0) * 100 if info.get("dividendYield") else 0,
-                        "EPS (前一年)": info.get("trailingEps", "N/A"),
-                        "自由現金流 (FCF)": info.get("freeCashflow", "N/A"),
-                        "本益比 (PE)": info.get("trailingPE", "N/A")
-                    }
-                    results.append(data)
-                except Exception as e:
-                    st.warning(f"無法獲取 {symbol} 的數據: {e}")
-                
-                # 更新進度條
-                progress_bar.progress((index + 1) / num_to_analyze)
-                time.sleep(0.5) # 稍微停頓
+            consecutive_years = 0
+            growth_years = 0
             
-            # --- 第三步：顯示結果 ---
-            st.subheader("分析結果")
-            final_df = pd.DataFrame(results)
-            st.dataframe(final_df)
+            # 計算邏輯 (由新往舊比)
+            for i in range(len(amounts) - 1):
+                # 如果今年配息 > 0，連續配息加一
+                if amounts[i] > 0:
+                    consecutive_years += 1
+                    # 如果今年配息 > 去年配息，成長加一
+                    if amounts[i] > amounts[i+1]:
+                        growth_years += 1
+                    else:
+                        # 成長中斷就停止計算成長年數
+                        pass 
+                else:
+                    break
             
-            # 提供下載
-            csv = final_df.to_csv(index=False).encode('utf-8-sig')
-            st.download_button(
-                label="下載分析報表 (CSV)",
-                data=csv,
-                file_name='dividend_analysis.csv',
-                mime='text/csv',
-            )
-            
-    except Exception as e:
-        st.error(f"檔案格式不正確，請確保上傳的是 Dividend Radar 原始檔。錯誤原因: {e}")
+            # --- 顯示結果 ---
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("連續配息年數", f"{consecutive_years} 年")
+            with col2:
+                st.metric("最新股息金額", f"${amounts[0]:.2f}")
+            with col3:
+                info = ticker.info
+                yield_val = info.get("dividendYield", 0) * 100 if info.get("dividendYield") else 0
+                st.metric("預估殖利率", f"{yield_val:.2f} %")
+
+            st.subheader("年度配息紀錄")
+            st.bar_chart(div_df)
+            st.table(div_df.head(10)) # 顯示最近10年
+
+            # 額外資訊：體質檢查
+            st.subheader("🔍 公司體質快檢")
+            st.write({
+                "公司簡稱": info.get("longName", "N/A"),
+                "產業": info.get("industry", "N/A"),
+                "本益比 (PE)": info.get("trailingPE", "N/A"),
+                "每股盈餘 (EPS)": info.get("trailingEps", "N/A"),
+                "現金流量": f"{info.get('freeCashflow', 0):,}"
+            })
