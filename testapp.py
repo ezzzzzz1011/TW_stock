@@ -91,13 +91,14 @@ def get_safe_data(symbol):
 
 # --- 初始化 ---
 if 'data' not in st.session_state: st.session_state.data = None
+if 'page' not in st.session_state: st.session_state.page = "main"
 
 st.title("📈 ETF專用 Ez開發")
 main_col, side_col = st.columns([8, 4])
 
 with main_col:
     st.markdown("### 🔍 查詢設定")
-    input_c1, input_c2 = st.columns([3, 1]) # 重新調整寬度比
+    input_c1, input_c2, input_c3 = st.columns([3, 1, 1]) 
     
     with input_c1: 
         symbol_input = st.text_input("股票代號", placeholder="例如:00919").strip().upper()
@@ -106,126 +107,163 @@ with main_col:
         st.write("")
         st.write("")
         if st.button("開始計算", type="primary"):
+            st.session_state.page = "main"
             if symbol_input:
                 with st.spinner('偵測頻率與抓取數據中...'):
                     st.session_state.data = get_safe_data(symbol_input)
 
-    # 顯示結果
+    with input_c3:
+        st.write("")
+        st.write("")
+        if st.button("🔍 成分股"):
+            st.session_state.page = "holdings"
+            if symbol_input:
+                with st.spinner('讀取成分股清單...'):
+                    st.session_state.data = get_safe_data(symbol_input)
+
+    # --- 頁面顯示邏輯 ---
     if st.session_state.data and st.session_state.data.get("success"):
         data = st.session_state.data
-        mult = data["multiplier"]
-        fl = data["freq_label"]
         
-        latest_data = data["price_hist"].iloc[-1]
-        curr_p = float(latest_data['Close'])
-        diff = curr_p - data["price_hist"]['Close'].iloc[-2]
-        pct = (diff / data["price_hist"]['Close'].iloc[-2]) * 100
-        m_color = "#ff4b4b" if diff >= 0 else "#00ff00"
+        # A. 主計算頁面
+        if st.session_state.page == "main":
+            mult = data["multiplier"]
+            fl = data["freq_label"]
+            latest_data = data["price_hist"].iloc[-1]
+            curr_p = float(latest_data['Close'])
+            diff = curr_p - data["price_hist"]['Close'].iloc[-2]
+            pct = (diff / data["price_hist"]['Close'].iloc[-2]) * 100
+            m_color = "#ff4b4b" if diff >= 0 else "#00ff00"
 
-        st.markdown(f"## {data['name']} <small style='font-size:1rem; color:#aaa;'>(偵測為{fl}配息)</small>", unsafe_allow_html=True)
-        st.markdown(f"<div class='date-text'>資料日期：{data.get('last_date')}</div>", unsafe_allow_html=True)
-        
-        info_c1, info_c2 = st.columns([2, 1])
-        with info_c1:
-            st.markdown(f"<div class='metric-val' style='color:{m_color}'>{curr_p:.2f}</div>", unsafe_allow_html=True)
-            st.markdown(f"<span style='color:{m_color}; font-weight:bold; font-size:1.5rem;'>{diff:+.2f} ({pct:+.2f}%)</span>", unsafe_allow_html=True)
-        with info_c2:
-            st.caption("今日行情細節")
-            st.write(f"最高: {latest_data['High']:.2f} / 最低: {latest_data['Low']:.2f}")
-            st.write(f"開盤: {latest_data['Open']:.2f} / 總量: {latest_data['Volume']/1000:,.0f} 張")
+            st.markdown(f"## {data['name']} <small style='font-size:1rem; color:#aaa;'>(偵測為{fl}配息)</small>", unsafe_allow_html=True)
+            st.markdown(f"<div class='date-text'>資料日期：{data.get('last_date')}</div>", unsafe_allow_html=True)
+            
+            info_c1, info_c2 = st.columns([2, 1])
+            with info_c1:
+                st.markdown(f"<div class='metric-val' style='color:{m_color}'>{curr_p:.2f}</div>", unsafe_allow_html=True)
+                st.markdown(f"<span style='color:{m_color}; font-weight:bold; font-size:1.5rem;'>{diff:+.2f} ({pct:+.2f}%)</span>", unsafe_allow_html=True)
+            with info_c2:
+                st.caption("今日行情細節")
+                st.write(f"最高: {latest_data['High']:.2f} / 最低: {latest_data['Low']:.2f}")
+                st.write(f"開盤: {latest_data['Open']:.2f} / 總量: {latest_data['Volume']/1000:,.0f} 張")
 
-        st.divider()
-        st.subheader("📑 歷史配息參考")
-        e_cols = st.columns(4)
-        d1 = e_cols[0].number_input("最新", value=float(data["raw_divs"][0]), format="%.3f")
-        d2 = e_cols[1].number_input("前一", value=float(data["raw_divs"][1]), format="%.3f")
-        d3 = e_cols[2].number_input("前二", value=float(data["raw_divs"][2]), format="%.3f")
-        d4 = e_cols[3].number_input("前三", value=float(data["raw_divs"][3]), format="%.3f")
-        
-        avg_annual_div = (sum([d1, d2, d3, d4]) / 4) * mult
-        real_yield = (avg_annual_div / curr_p) * 100
-        
-        st.write("")
-        stat_c1, stat_c2 = st.columns(2)
-        with stat_c1:
-            st.caption(f"預估年配息 (系統以{fl}配計算)")
-            st.markdown(f"<div class='highlight-val'>{avg_annual_div:.2f}</div>", unsafe_allow_html=True)
-        with stat_c2:
-            st.caption("實質殖利率")
-            st.markdown(f"<div class='highlight-val'>{real_yield:.2f}%</div>", unsafe_allow_html=True)
+            st.divider()
+            st.subheader("📑 歷史配息參考")
+            e_cols = st.columns(4)
+            d1 = e_cols[0].number_input("最新", value=float(data["raw_divs"][0]), format="%.3f")
+            d2 = e_cols[1].number_input("前一", value=float(data["raw_divs"][1]), format="%.3f")
+            d3 = e_cols[2].number_input("前二", value=float(data["raw_divs"][2]), format="%.3f")
+            d4 = e_cols[3].number_input("前三", value=float(data["raw_divs"][3]), format="%.3f")
+            
+            avg_annual_div = (sum([d1, d2, d3, d4]) / 4) * mult
+            real_yield = (avg_annual_div / curr_p) * 100
+            
+            st.write("")
+            stat_c1, stat_c2 = st.columns(2)
+            with stat_c1:
+                st.caption(f"預估年配息 (系統以{fl}配計算)")
+                st.markdown(f"<div class='highlight-val'>{avg_annual_div:.2f}</div>", unsafe_allow_html=True)
+            with stat_c2:
+                st.caption("實質殖利率")
+                st.markdown(f"<div class='highlight-val'>{real_yield:.2f}%</div>", unsafe_allow_html=True)
 
-        st.divider()
+            st.divider()
+            st.subheader("📊 估值位階參考")
+            p_cheap = avg_annual_div / 0.10
+            p_fair = avg_annual_div / 0.07
+            p_high = avg_annual_div / 0.05
 
-        # 估值位階
-        st.subheader("📊 估值位階參考")
-        p_cheap = avg_annual_div / 0.10
-        p_fair = avg_annual_div / 0.07
-        p_high = avg_annual_div / 0.05
+            if curr_p <= p_cheap: rec_text, rec_icon = "💎 便宜買入", "💸"
+            elif curr_p <= p_fair: rec_text, rec_icon = "✅ 合理持有", "✅"
+            else: rec_text, rec_icon = "❌ 昂貴不建議", "❌"
 
-        if curr_p <= p_cheap: rec_text, rec_icon = "💎 便宜買入", "💸"
-        elif curr_p <= p_fair: rec_text, rec_icon = "✅ 合理持有", "✅"
-        else: rec_text, rec_icon = "❌ 昂貴不建議", "❌"
+            st.markdown(f"""
+            <div style="background-color:#1e1e28; padding:10px; border-radius:10px; border:1px solid #444; display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                <span style="font-size: 1.5rem;">📢</span>
+                <span style="color: #ffffff; font-weight: bold; font-size: 1.2rem;">系統建議：</span>
+                <span style="color: #ffffff; font-weight: bold; font-size: 1.2rem;">{rec_icon} {rec_text}</span>
+            </div>
+            """, unsafe_allow_html=True)
 
-        st.markdown(f"""
-        <div style="background-color:#1e1e28; padding:10px; border-radius:10px; border:1px solid #444; display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-            <span style="font-size: 1.5rem;">📢</span>
-            <span style="color: #ffffff; font-weight: bold; font-size: 1.2rem;">系統建議：</span>
-            <span style="color: #ffffff; font-weight: bold; font-size: 1.2rem;">{rec_icon} {rec_text}</span>
-        </div>
-        """, unsafe_allow_html=True)
+            table_html = f"""
+            <table class="styled-table">
+                <thead><tr><th>估值位階</th><th>建議價格參考</th></tr></thead>
+                <tbody>
+                    <tr><td>💎 便宜價 (10%)</td><td>{p_cheap:.2f} 以下</td></tr>
+                    <tr><td>🔔 合理價 (7%)</td><td>{p_cheap:.2f} ~ {p_fair:.2f}</td></tr>
+                    <tr><td>❌ 昂貴價 (5%)</td><td>高於 {p_high:.2f}</td></tr>
+                </tbody>
+            </table>
+            """
+            st.markdown(table_html, unsafe_allow_html=True)
 
-        table_html = f"""
-        <table class="styled-table">
-            <thead><tr><th>估值位階</th><th>建議價格參考</th></tr></thead>
-            <tbody>
-                <tr><td>💎 便宜價 (10%)</td><td>{p_cheap:.2f} 以下</td></tr>
-                <tr><td>🔔 合理價 (7%)</td><td>{p_cheap:.2f} ~ {p_fair:.2f}</td></tr>
-                <tr><td>❌ 昂貴價 (5%)</td><td>高於 {p_high:.2f}</td></tr>
-            </tbody>
-        </table>
-        """
-        st.markdown(table_html, unsafe_allow_html=True)
+            st.divider()
+            st.subheader("💰 持有張數試算")
+            ratio_54c = st.slider("54C 股利佔比 (%)", 0, 100, 40)
+            calc_c1, calc_c2 = st.columns([1, 2])
+            with calc_c1: hold_lots = st.number_input("持有張數", min_value=0, value=10, step=1)
+            with calc_c2:
+                total_shares = hold_lots * 1000
+                total_raw = total_shares * d1
+                div_54c = total_raw * (ratio_54c/100)
+                nhi = div_54c * 0.0211 if div_54c >= 20000 else 0
+                st.markdown(f"""<div class="calc-box">
+                    以現價 {curr_p:.2f} 元計算，持有 {hold_lots} 張：<br>
+                    <span class="white-text">預估總投入：{(total_shares * curr_p * 1.001425):,.0f} 元</span><br>
+                    <span class="white-text">每{fl}實領：{(total_raw - nhi):,.0f} 元</span> <span class='tax-text'>{"(已扣二代健保)" if nhi > 0 else ""}</span><br>
+                    <span class="white-text">一年累計：{((total_raw - nhi) * mult):,.0f} 元</span>
+                </div>""", unsafe_allow_html=True)
 
-        st.markdown("---")
-        st.subheader("💰 持有張數試算")
-        ratio_54c = st.slider("54C 股利佔比 (%)", 0, 100, 40)
-        calc_c1, calc_c2 = st.columns([1, 2])
-        with calc_c1: hold_lots = st.number_input("持有張數", min_value=0, value=10, step=1)
-        with calc_c2:
-            total_shares = hold_lots * 1000
-            total_raw = total_shares * d1
-            div_54c = total_raw * (ratio_54c/100)
-            nhi = div_54c * 0.0211 if div_54c >= 20000 else 0
-            st.markdown(f"""<div class="calc-box">
-                以現價 {curr_p:.2f} 元計算，持有 {hold_lots} 張：<br>
-                <span class="white-text">預估總投入：{(total_shares * curr_p * 1.001425):,.0f} 元</span><br>
-                <span class="white-text">每{fl}實領：{(total_raw - nhi):,.0f} 元</span> <span class='tax-text'>{"(已扣二代健保)" if nhi > 0 else ""}</span><br>
-                <span class="white-text">一年累計：{((total_raw - nhi) * mult):,.0f} 元</span>
-            </div>""", unsafe_allow_html=True)
+            st.divider()
+            st.subheader("🎯 資產與殖利率規劃")
+            plan_c1, plan_c2 = st.columns(2)
+            with plan_c1:
+                plan_budget = st.number_input("預計投入總資產 (元)", min_value=0, value=1000000, step=100000)
+                plan_yield = st.slider("目標年殖利率 (%)", 3.0, 12.0, float(f"{real_yield:.2f}"), 0.1)
+            with plan_c2:
+                annual_income = plan_budget * (plan_yield / 100)
+                st.markdown(f"""<div class="plan-box">
+                    🎯 規劃結果：<br>
+                    1 年拿多少：<span class="white-text" style="font-size:1.6rem;">{annual_income:,.0f} 元</span><br>
+                    平均每個月：<span class="white-text">{ (annual_income/12):,.0f} 元</span><br>
+                    <hr style="border-top: 1px solid #444; margin:10px 0;">
+                    約需買入 {(plan_budget/curr_p/1000):.1f} 張
+                </div>""", unsafe_allow_html=True)
 
-        st.markdown("---")
-        st.subheader("🎯 資產與殖利率規劃")
-        plan_c1, plan_c2 = st.columns(2)
-        with plan_c1:
-            plan_budget = st.number_input("預計投入總資產 (元)", min_value=0, value=1000000, step=100000)
-            plan_yield = st.slider("目標年殖利率 (%)", 3.0, 12.0, float(f"{real_yield:.2f}"), 0.1)
-        with plan_c2:
-            annual_income = plan_budget * (plan_yield / 100)
-            st.markdown(f"""<div class="plan-box">
-                🎯 規劃結果：<br>
-                1 年拿多少：<span class="white-text" style="font-size:1.6rem;">{annual_income:,.0f} 元</span><br>
-                平均每個月：<span class="white-text">{ (annual_income/12):,.0f} 元</span><br>
-                <hr style="border-top: 1px solid #444; margin:10px 0;">
-                約需買入 {(plan_budget/curr_p/1000):.1f} 張
-            </div>""", unsafe_allow_html=True)
+        # B. 成分股頁面 (套用相同的股利計算邏輯)
+        elif st.session_state.page == "holdings":
+            if st.button("⬅️ 返回主試算頁"):
+                st.session_state.page = "main"
+                st.rerun()
+            
+            st.header(f"🎯 {data['name']} - 核心成分股估值")
+            st.caption("系統已自動偵測成分股之配息頻率，並換算為預估年化指標。")
+
+            # 範例成分股清單 (實務上可串接爬蟲獲取該ETF持股)
+            sample_holdings = ["2330", "2454", "2317", "2308", "2881", "2412", "2382", "3034"]
+            
+            for code in sample_holdings:
+                c_data = get_safe_data(code)
+                if c_data["success"]:
+                    c_p = c_data["price_hist"].iloc[-1]['Close']
+                    c_mult = c_data["multiplier"]
+                    c_avg_div = (sum(c_data["raw_divs"]) / 4) * c_mult
+                    c_yield = (c_avg_div / c_p) * 100
+                    
+                    with st.expander(f"{c_data['name']} ({code}) - 預估殖利率 {c_yield:.2f}%"):
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("目前價格", f"{c_p:.2f}")
+                        col2.metric("配息頻率", f"{c_data['freq_label']}配")
+                        col3.metric("預估年配息", f"{c_avg_div:.2f}")
+                        st.progress(min(c_yield / 15.0, 1.0)) # 視覺化呈現殖利率高低
 
     elif st.session_state.data and not st.session_state.data.get("success"):
         st.error(st.session_state.data.get("msg", "查詢失敗"))
 
 with side_col:
     st.write("### 📖 說明")
-    st.caption("1. 輸入代號後點擊開始計算。")
-    st.caption("2. 系統自動偵測配息頻率 (月/季/半年/年)。")
-    st.caption("3. 配息金額可於「歷史配息參考」手動微調。")
+    st.caption("1. 輸入代號後點擊「開始計算」進行主試算。")
+    st.caption("2. 點擊「🔍 成分股」查看持股的年化配息表現。")
+    st.caption("3. 系統自動偵測配息頻率 (月/季/半年/年)。")
     st.divider()
     st.success("系統正常運行中")
