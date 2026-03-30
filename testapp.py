@@ -22,16 +22,31 @@ st.markdown("""
     .tax-text { color: #ffffff; font-size: 1rem; font-weight: normal; opacity: 0.8; }
     .plan-box { background-color: #1e1e28; padding: 18px; border-radius: 10px; border: 1.5px solid #ffffff; }
     .highlight-val { font-size: 2.5rem; font-family: 'Consolas'; font-weight: bold; color: #ffffff; }
+    
+    /* 歷史價位表格樣式 (保留) */
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
     .styled-table th { background-color: #1e1e28; color: #ffffff; text-align: left; padding: 12px; border-bottom: 2px solid #ffffff; }
     .styled-table td { padding: 12px; border-bottom: 1px solid #444; color: #ffffff; }
     
-    /* EPS 表格專用樣式 - 嚴格比照圖 2 風格 */
-    .eps-container { background-color: #0e1117; padding: 10px; border-radius: 5px; margin-top: 10px; border: 1px solid #1e222d; }
-    .eps-table { width: 100%; border-collapse: collapse; background-color: #0e1117; }
-    .eps-table th { color: #808495; padding: 12px 15px; text-align: left; border: 1px solid #1e222d; font-weight: normal; font-size: 1rem; }
-    .eps-table td { padding: 16px 15px; border: 1px solid #1e222d; color: #ffffff; font-family: 'Consolas', monospace; font-size: 1.1rem; }
-    .eps-title { color: #ffffff; font-size: 1.2rem; font-weight: bold; margin: 15px 0; display: flex; align-items: center; gap: 8px; }
+    /* EPS 表格專用 UI - 嚴格對齊圖 2 (image_89d667.png) */
+    .eps-ui-container { background-color: #0e1117; border-radius: 4px; overflow: hidden; margin-top: 5px; }
+    .eps-ui-table { width: 100%; border-collapse: collapse; border: none; font-size: 0.95rem; }
+    .eps-ui-table th { 
+        background-color: #161a22; 
+        color: #808495; 
+        text-align: left; 
+        padding: 10px 15px; 
+        border: 1px solid #1e222d; 
+        font-weight: normal;
+    }
+    .eps-ui-table td { 
+        padding: 14px 15px; 
+        border: 1px solid #1e222d; 
+        color: #ffffff; 
+        font-family: 'Consolas', monospace;
+        background-color: #0e1117;
+    }
+    .eps-ui-title { color: #ffffff; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -98,7 +113,7 @@ def get_safe_data(symbol):
 
 @st.cache_data(ttl=3600)
 def get_eps_data(full_ticker):
-    """ 抓取近四季 EPS 與獲利數據，欄位名稱比照圖 2 """
+    """ 抓取近四季 EPS 數據，欄位對齊圖 2 """
     try:
         t = yf.Ticker(full_ticker)
         q_fin = t.quarterly_financials
@@ -119,7 +134,7 @@ def get_eps_data(full_ticker):
             eps = get_val(['Basic EPS', 'Diluted EPS', 'BasicEPS', 'DilutedEPS'])
             rev = get_val(['Total Revenue', 'TotalRevenue', 'Operating Revenue', 'OperatingRevenue'])
             gp = get_val(['Gross Profit', 'GrossProfit'])
-            ni = get_val(['Net Income Common Stockholders', 'Net Income', 'NetIncome', 'Net Income Continuous Operations'])
+            ni = get_val(['Net Income Common Stockholders', 'Net Income', 'NetIncome'])
             
             g_margin = (gp / rev * 100) if rev != 0 else 0
             n_margin = (ni / rev * 100) if rev != 0 else 0
@@ -196,14 +211,15 @@ with main_col:
             st.session_state.show_eps = not st.session_state.show_eps
             
         if st.session_state.show_eps:
-            with st.spinner("讀取獲利數據中..."):
+            with st.spinner("讀取數據中..."):
                 eps_list = get_eps_data(data["full_ticker"])
             
             if eps_list:
-                st.markdown('<div class="eps-title">💰 獲利與當季累積 EPS (依年度累計)</div>', unsafe_allow_html=True)
+                st.markdown('<div class="eps-ui-title">💰 獲利與當季累積 EPS (依年度累計)</div>', unsafe_allow_html=True)
+                
+                # 比照圖 2 構建純 HTML 表格 UI (無 index)
                 rows_html = ""
                 for item in eps_list:
-                    # 依據圖 2 格式化資料列，不顯示左側序號
                     rows_html += f"""
                     <tr>
                         <td>{item['日期']}</td>
@@ -215,8 +231,8 @@ with main_col:
                     """
                 
                 eps_table_html = f"""
-                <div class="eps-container">
-                    <table class="eps-table">
+                <div class="eps-ui-container">
+                    <table class="eps-ui-table">
                         <thead>
                             <tr>
                                 <th>日期</th>
@@ -234,7 +250,7 @@ with main_col:
                 """
                 st.markdown(eps_table_html, unsafe_allow_html=True)
             else:
-                st.warning("暫無此標的的 EPS 獲利數據。")
+                st.warning("暫無獲利數據。")
 
         st.divider()
         st.subheader("📑 歷史配息參考")
@@ -326,8 +342,7 @@ with main_col:
 with side_col:
     st.write("### 📖 說明")
     st.caption("1. 輸入代號後點擊開始計算。")
-    st.caption("2. 系統自動偵測配息頻率 (月/季/半年/年)。")
-    st.caption("3. 配息金額可於「歷史配息參考」手動微調。")
-    st.caption("4. 點擊「展開/收合獲利 EPS 明細」即可直接在下方查看財報。")
+    st.caption("2. 系統自動偵測配息頻率。")
+    st.caption("3. 展開/收合按鈕可直接查看最新財報。")
     st.divider()
     st.success("系統正常運行中")
