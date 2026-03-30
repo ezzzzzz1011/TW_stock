@@ -7,7 +7,7 @@ import random
 from datetime import datetime
 
 # --- 網頁設定 ---
-st.set_page_config(page_title="ETF專用 Ez開發", layout="wide")
+st.set_page_config(page_title="ETF專用 Ez開發測試版", layout="wide")
 
 # --- 自定義 CSS ---
 st.markdown("""
@@ -30,7 +30,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 強化版 EPS 抓取函數 (鉅亨網 + yfinance 備援) ---
+# --- 強化版 EPS 抓取函數 ---
 def get_eps_final(symbol, ticker_obj):
     # 方案 A: 鉅亨網季報 API
     try:
@@ -48,18 +48,22 @@ def get_eps_final(symbol, ticker_obj):
             eps_list = items.get('basicEarningsPerShare', []) or items.get('netEarningsPerShare', [])
             
             if eps_list and periods:
-                return pd.DataFrame({'Period': periods, 'EPS': eps_list}).head(4), "鉅亨網"
+                df = pd.DataFrame({'Period': periods, 'EPS': eps_list})
+                df = df.dropna().head(4) # 確保剔除 nan
+                if not df.empty:
+                    return df, "鉅亨網"
     except:
         pass
 
-    # 方案 B: yfinance 備援 (針對個股抓取 quarterly_financials)
+    # 方案 B: yfinance 備援
     try:
         q_fin = ticker_obj.quarterly_financials
-        # 尋找包含 EPS 關鍵字的欄位
         eps_row_label = next((idx for idx in q_fin.index if "EPS" in idx and "Basic" in idx), None)
         if eps_row_label:
-            eps_row = q_fin.loc[eps_row_label].head(4)
-            df = pd.DataFrame({'Period': eps_row.index.strftime('%Y-Q%q'), 'EPS': eps_row.values})
+            eps_row = q_fin.loc[eps_row_label].dropna().head(4) # 剔除 nan
+            # 修正日期顯示問題：手動轉換季度格式
+            periods = [f"{d.year}-Q{(d.month-1)//3 + 1}" for d in eps_row.index]
+            df = pd.DataFrame({'Period': periods, 'EPS': eps_row.values})
             return df, "Yahoo Finance"
     except:
         pass
@@ -96,7 +100,6 @@ def get_safe_data(symbol):
                 try: res["last_date"] = hist.index[-1].strftime('%Y-%m-%d')
                 except: pass
 
-                # --- 自動偵測配息頻率 ---
                 divs = t.dividends
                 if not divs.empty:
                     d_list = divs.tail(4).tolist()[::-1]
@@ -115,7 +118,7 @@ def get_safe_data(symbol):
                     else: 
                         res["multiplier"], res["freq_label"] = 1, "年"
                 
-                # --- 獲取 EPS 數據 ---
+                # 呼叫修正後的 EPS 函數
                 eps_df, source = get_eps_final(symbol, t)
                 res["eps_data"] = eps_df
                 res["eps_source"] = source
@@ -153,11 +156,9 @@ with main_col:
         if st.button("開始計算", type="primary"):
             if symbol_input:
                 with st.spinner('數據計算中...'):
-                    # 每次點擊按鈕強迫清除快取，避免 KeyError
                     st.cache_data.clear()
                     st.session_state.data = get_safe_data(symbol_input)
 
-    # 顯示結果
     if st.session_state.data and st.session_state.data.get("success"):
         data = st.session_state.data
         mult = data["multiplier"]
@@ -203,7 +204,6 @@ with main_col:
 
         st.divider()
 
-        # 估值位階
         st.subheader("📊 估值位階參考")
         p_cheap = avg_annual_div / 0.10
         p_fair = avg_annual_div / 0.07
@@ -233,7 +233,6 @@ with main_col:
         """
         st.markdown(table_html, unsafe_allow_html=True)
 
-        # --- EPS 查詢功能區塊 (安全性修正版) ---
         st.divider()
         source_name = data.get('eps_source', '未知')
         st.subheader(f"📈 核心獲利能力 (近四季 EPS - 來源: {source_name})")
@@ -248,7 +247,7 @@ with main_col:
             st.markdown(f"<p style='margin-top:10px;'><b>近四季累積 EPS：</b> <span class='white-text' style='font-size:1.5rem;'>{sum_eps:.2f} 元</span></p>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.warning("此標的目前無法取得 EPS 數據（個股建議重新查詢）。")
+            st.warning("此標的目前無法取得 EPS 數據。")
 
         st.markdown("---")
         st.subheader("💰 持有張數試算")
@@ -291,6 +290,6 @@ with side_col:
     st.caption("1. 輸入代號後點擊開始計算。")
     st.caption("2. 系統自動偵測配息頻率 (月/季/半年/年)。")
     st.caption("3. 配息金額可於「歷史配息參考」手動微調。")
-    st.caption("4. 錯誤修復：解決快取欄位遺失造成的 KeyError。")
+    st.caption("4. 錯誤修復：解決日期格式顯示與 nan 數值問題。")
     st.divider()
     st.success("系統穩定運行中")
