@@ -26,7 +26,7 @@ st.markdown("""
     .styled-table th { background-color: #1e1e28; color: #ffffff; text-align: left; padding: 12px; border-bottom: 2px solid #ffffff; }
     .styled-table td { padding: 12px; border-bottom: 1px solid #444; color: #ffffff; }
     
-    /* EPS 表格專用樣式 - 嚴格比照圖片風格 */
+    /* EPS 表格專用樣式 - 嚴格比照圖 2 風格 */
     .eps-container { background-color: #0e1117; padding: 10px; border-radius: 5px; margin-top: 10px; border: 1px solid #1e222d; }
     .eps-table { width: 100%; border-collapse: collapse; background-color: #0e1117; }
     .eps-table th { color: #808495; padding: 12px 15px; text-align: left; border: 1px solid #1e222d; font-weight: normal; font-size: 1rem; }
@@ -98,7 +98,7 @@ def get_safe_data(symbol):
 
 @st.cache_data(ttl=3600)
 def get_eps_data(full_ticker):
-    """ 抓取近四季 EPS 與獲利數據，確保國字標題且不出現 nan """
+    """ 抓取近四季 EPS 與獲利數據，欄位名稱比照圖 2 """
     try:
         t = yf.Ticker(full_ticker)
         q_fin = t.quarterly_financials
@@ -164,7 +164,7 @@ with main_col:
             if symbol_input:
                 with st.spinner('抓取數據中...'):
                     st.session_state.data = get_safe_data(symbol_input)
-                    st.session_state.show_eps = False # 重置展開狀態
+                    st.session_state.show_eps = False 
 
     if st.session_state.data and st.session_state.data.get("success"):
         data = st.session_state.data
@@ -191,7 +191,7 @@ with main_col:
 
         st.divider()
 
-        # --- 新增功能：展開/收合獲利 EPS 明細 ---
+        # --- 展開/收合獲利 EPS 明細 ---
         if st.button("📋 展開/收合獲利 EPS 明細"):
             st.session_state.show_eps = not st.session_state.show_eps
             
@@ -203,6 +203,7 @@ with main_col:
                 st.markdown('<div class="eps-title">💰 獲利與當季累積 EPS (依年度累計)</div>', unsafe_allow_html=True)
                 rows_html = ""
                 for item in eps_list:
+                    # 依據圖 2 格式化資料列，不顯示左側序號
                     rows_html += f"""
                     <tr>
                         <td>{item['日期']}</td>
