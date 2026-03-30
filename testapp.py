@@ -1,45 +1,42 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import requests
 
-# 設定網頁標題
 st.set_page_config(page_title="台股精準估價", page_icon="📈")
 
 st.title("📈 台股精準資訊與估價")
 
-# --- 輸入代號 ---
+# --- 核心數據抓取函數 (僅快取字典數據) ---
+@st.cache_data(ttl=3600)
+def fetch_stock_info(stock_code):
+    # 嘗試上市與上櫃後綴
+    for suffix in [".TW", ".TWO"]:
+        ticker_str = f"{stock_code}{suffix}"
+        ticker = yf.Ticker(ticker_str)
+        try:
+            # 測試是否能抓到股價
+            hist = ticker.history(period="1d")
+            if not hist.empty:
+                # 只回傳需要的純數據字典，避免快取錯誤
+                data = ticker.info
+                data['current_price'] = hist['Close'].iloc[-1]
+                data['actual_ticker'] = ticker_str
+                return data
+        except:
+            continue
+    return None
+
+# --- UI 介面 ---
 stock_code = st.text_input("請輸入台股代號 (例如: 2330)", value="2330")
 
 if stock_code:
-    # 嘗試不同的後綴 (上市 .TW, 上櫃 .TWO)
-    target_stock = f"{stock_code}.TW"
+    info = fetch_stock_info(stock_code)
     
-    @st.cache_data(ttl=3600) # 快取一小時，減少請求次數
-    def get_stock_data(ticker_str):
+    if info:
         try:
-            ticker = yf.Ticker(ticker_str)
-            # 使用 history 獲取最新價格，這比 fast_info 穩定
-            hist = ticker.history(period="1d")
-            if hist.empty:
-                return None, None
-            return ticker, hist['Close'].iloc[-1]
-        except:
-            return None, None
-
-    # 先試上市
-    stock_obj, current_price = get_stock_data(target_stock)
-    
-    # 若失敗，試上櫃
-    if stock_obj is None:
-        target_stock = f"{stock_code}.TWO"
-        stock_obj, current_price = get_stock_data(target_stock)
-
-    if stock_obj and current_price:
-        try:
-            info = stock_obj.info
+            current_price = info.get('current_price', 0)
             stock_name = info.get('shortName', stock_code)
-            st.success(f"✅ 已取得 **{stock_name} ({stock_code})** 最新股價：{current_price:.2f}")
+            st.success(f"✅ 已取得 **{stock_name} ({info['actual_ticker']})** 最新股價：{current_price:.2f}")
 
             # --- 資料處理 ---
             dy = info.get('dividendYield', 0) or 0
@@ -52,9 +49,9 @@ if stock_code:
             shares = (info.get('sharesOutstanding', 0) or 0)
             share_capital = (shares * 10) / 1e8
 
-            # --- 基本資料表格 ---
+            # --- 顯示基本資料表格 ---
             st.subheader("📊 股票基本資料")
-            basic_df = pd.DataFrame({
+            basic_data = {
                 "項目": ["目前股價", "產業分類", "本益比 (PE)", "股價淨值比 (PB)", "殖利率", "ROE", "市值 (億)", "股本 (億)"],
                 "數值": [
                     f"{current_price:.2f}",
@@ -66,8 +63,8 @@ if stock_code:
                     f"{mkt_cap:.2f}",
                     f"{share_capital:.2f}"
                 ]
-            })
-            st.table(basic_df)
+            }
+            st.table(pd.DataFrame(basic_data))
 
             st.divider()
 
@@ -90,6 +87,6 @@ if stock_code:
                 st.warning(f"🟡 目前股價 {current_price:.2f} 高於參考價。")
 
         except Exception as e:
-            st.error(f"解析資料時發生錯誤：{e}")
+            st.error(f"解析資料時發生錯誤，請重新整理頁面。")
     else:
-        st.error(f"❌ 抓取失敗。請檢查代號 '{stock_code}' 是否正確，或稍後再試。")
+        st.error(f"❌ 抓取失敗。請檢查代號 '{stock_code}' 是否正確（上市/上櫃）。")
