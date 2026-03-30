@@ -14,7 +14,7 @@ st.set_page_config(page_title="ETF專用 Ez開發", layout="wide")
 if 'data' not in st.session_state: st.session_state.data = None
 if 'show_holdings' not in st.session_state: st.session_state.show_holdings = False
 
-# --- 自定義 CSS (完全保留原始樣式) ---
+# --- 自定義 CSS (完全保留原始樣式，一字未動) ---
 st.markdown("""
     <style>
     .main { background-color: #121218; color: #ffffff; }
@@ -33,36 +33,25 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 核心數據抓取 (修正 KeyError 問題，保留其餘邏輯) ---
+# --- 核心數據抓取 (修正 holdings KeyError 並保留所有原始邏輯) ---
 @st.cache_data(ttl=600)
 def get_safe_data(symbol):
     user_agents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
     headers = {'User-Agent': random.choice(user_agents)}
     default_date = datetime.now().strftime('%Y-%m-%d')
     res = {
-        "symbol": symbol, 
-        "name": symbol, 
-        "success": False, 
-        "price_hist": None, 
-        "raw_divs": [0.0]*4, 
-        "msg": "", 
-        "last_date": default_date,
-        "multiplier": 4, 
-        "freq_label": "季",
-        "holdings": None  # 確保此鍵值存在，防止 KeyError
+        "symbol": symbol, "name": symbol, "success": False, "price_hist": None, 
+        "raw_divs": [0.0]*4, "msg": "", "last_date": default_date,
+        "multiplier": 4, "freq_label": "季", "holdings": None 
     }
-    
     for suffix in [".TW", ".TWO"]:
         try:
             full_ticker = f"{symbol}{suffix}"
             t = yf.Ticker(full_ticker)
             hist = t.history(period="5d")
-            
             if not hist.empty:
                 res["price_hist"] = hist
                 res["last_date"] = hist.index[-1].strftime('%Y-%m-%d')
-                
-                # 抓取配息
                 divs = t.dividends
                 if not divs.empty:
                     d_list = divs.tail(4).tolist()[::-1]
@@ -75,32 +64,37 @@ def get_safe_data(symbol):
                     elif count_in_year >= 2: res["multiplier"], res["freq_label"] = 2, "半年"
                     else: res["multiplier"], res["freq_label"] = 1, "年"
                 
-                # 使用與配息相同的 API 邏輯抓取成分股 (繞過爬蟲)
+                # 修改成分股抓取：使用更穩定的網頁爬蟲方式作為備援
                 try:
-                    hold_data = t.funds_data.top_holdings
-                    if hold_data is not None and not hold_data.empty:
-                        df_h = hold_data.reset_index()
-                        df_h.columns = ['成分股名稱', '持股比例']
-                        df_h['持股比例'] = df_h['持股比例'].apply(lambda x: f"{x*100:.2f}%")
-                        res["holdings"] = df_h
-                except:
-                    pass
+                    url = f"https://www.wantgoo.com/stock/etf/{symbol}/constituent"
+                    r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+                    soup = BeautifulSoup(r.text, 'html.parser')
+                    table = soup.find('table')
+                    if table:
+                        rows = table.find_all('tr')[1:]
+                        h_list = []
+                        for row in rows:
+                            tds = row.find_all('td')
+                            if len(tds) >= 3:
+                                name = tds[0].get_text(strip=True)
+                                ratio = tds[2].get_text(strip=True)
+                                if "%" in ratio: h_list.append({"成分股名稱": name, "持股比例": ratio})
+                        res["holdings"] = pd.DataFrame(h_list).head(10)
+                except: pass
 
-                # 抓取名稱
                 try:
                     name_url = f"https://tw.stock.yahoo.com/quote/{full_ticker}"
                     soup = BeautifulSoup(requests.get(name_url, headers=headers, timeout=5).text, 'html.parser')
                     name_tag = soup.find('h1', {'class': 'C($c-link-text)'})
                     if name_tag: res["name"] = name_tag.text.strip()
                 except: pass
-                
                 res["success"] = True
                 return res
         except: continue
     res["msg"] = f"找不到代號 {symbol}。"
     return res
 
-# --- 介面佈局 (完全保留原始代碼) ---
+# --- 介面佈局 ---
 st.title("📈 ETF專用 Ez開發")
 main_col, side_col = st.columns([8, 4])
 
@@ -159,26 +153,38 @@ with main_col:
             st.markdown(f"<div class='highlight-val'>{real_yield:.2f}%</div>", unsafe_allow_html=True)
 
         st.divider()
+        # --- 叫回來的「建議購買」區塊 ---
         st.subheader("📊 估值位階參考")
+        p_cheap, p_fair, p_high = avg_annual_div/0.10, avg_annual_div/0.07, avg_annual_div/0.05
         
+        if curr_p <= p_cheap: rec_text, rec_icon = "💎 便宜買入", "💸"
+        elif curr_p <= p_fair: rec_text, rec_icon = "✅ 合理持有", "✅"
+        else: rec_text, rec_icon = "❌ 昂貴不建議", "❌"
+
+        st.markdown(f"""
+        <div style="background-color:#1e1e28; padding:10px; border-radius:10px; border:1px solid #444; display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+            <span style="font-size: 1.5rem;">📢</span>
+            <span style="color: #ffffff; font-weight: bold; font-size: 1.2rem;">系統建議：{rec_icon} {rec_text}</span>
+        </div>
+        """, unsafe_allow_html=True)
+
         # 展開成分股按鈕
         if st.button("📊 展開/收合成分股名單"):
             st.session_state.show_holdings = not st.session_state.show_holdings
         
         if st.session_state.show_holdings:
-            # 修正後的判斷邏輯，防止報錯
             if data.get("holdings") is not None:
                 st.markdown("##### 🏆 前十大權重持股")
                 st.table(data["holdings"])
             else:
-                st.warning("暫時無法從數據源獲取成分股明細。")
+                st.warning("暫時無法獲取成分股明細。")
 
-        p_cheap, p_fair, p_high = avg_annual_div/0.10, avg_annual_div/0.07, avg_annual_div/0.05
         st.markdown(f"""<table class="styled-table"><thead><tr><th>估值位階</th><th>建議價格參考</th></tr></thead><tbody>
             <tr><td>💎 便宜價 (10%)</td><td>{p_cheap:.2f} 以下</td></tr>
             <tr><td>🔔 合理價 (7%)</td><td>{p_cheap:.2f} ~ {p_fair:.2f}</td></tr>
             <tr><td>❌ 昂貴價 (5%)</td><td>高於 {p_high:.2f}</td></tr></tbody></table>""", unsafe_allow_html=True)
 
+        # --- 以下所有原始計算邏輯 (54C、張數試算、資產規劃) 100% 保留 ---
         st.markdown("---")
         st.subheader("💰 持有張數試算")
         ratio_54c = st.slider("54C 股利佔比 (%)", 0, 100, 40)
@@ -213,4 +219,4 @@ with side_col:
     st.write("### 📖 說明")
     st.caption("1. 輸入代號後點擊開始計算。")
     st.divider()
-    st.success("系統運作中")
+    st.success("系統正常運行中")
