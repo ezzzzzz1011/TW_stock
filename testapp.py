@@ -89,36 +89,39 @@ def get_safe_data(symbol):
     res["msg"] = f"找不到代號 {symbol}。"
     return res
 
-# --- 抓取 EPS 與獲利數據 (終極校正版) ---
+# --- 抓取 EPS 與獲利數據 (精準校正版) ---
 def get_eps_data(symbol):
     for suffix in [".TW", ".TWO"]:
         try:
             t = yf.Ticker(f"{symbol}{suffix}")
             df = t.quarterly_financials
+            # 獲取股本資訊
             bs = t.quarterly_balance_sheet
             
             if df is None or df.empty: continue
             
-            # 多重標籤搜索函數
-            def fetch_row(names, target_df):
-                for name in names:
-                    if name in target_df.index: return target_df.loc[name]
+            # 安全抓取欄位
+            def get_f(names, source_df):
+                for n in names:
+                    if n in source_df.index: return source_df.loc[n]
                 return None
 
-            rev = fetch_row(['Total Revenue', 'Operating Revenue'], df)
-            gp = fetch_row(['Gross Profit'], df)
-            ni = fetch_row(['Net Income Common Stockholders', 'Net Income', 'Net Income Continuous Operations', 'Net Income From Continuing Operation Net Minority Interest'], df)
-            eps_raw = fetch_row(['Basic EPS', 'Diluted EPS'], df)
-            share_cap = fetch_row(['Ordinary Share Number', 'Share Capital', 'Common Stock Equity'], bs)
+            rev = get_f(['Total Revenue'], df)
+            gp = get_f(['Gross Profit'], df)
+            # 鎖定：歸屬於母公司業主之淨利
+            ni = get_f(['Net Income Common Stockholders', 'Net Income', 'Net Income Continuous Operations'], df)
+            # 鎖定：發行股數 (用於手動計算 EPS)
+            shares = get_f(['Ordinary Share Number', 'Share Capital'], bs)
+            # 備援 EPS
+            eps_yf = get_f(['Basic EPS', 'Diluted EPS'], df)
 
             raw_list = []
-            cols = df.columns[:4][::-1] # 取近四期正序
+            cols = df.columns[:4][::-1] # 近4期正序
             accum_eps = 0.0
             current_year = None
 
             for col in cols:
                 y, m = col.year, col.month
-                # 季度判斷優化
                 if m <= 3: q_lab = "Q1"
                 elif m <= 6: q_lab = "Q2"
                 elif m <= 9: q_lab = "Q3"
@@ -128,26 +131,27 @@ def get_eps_data(symbol):
                     accum_eps = 0.0
                     current_year = y
                 
-                # --- EPS 核心修正邏輯 ---
-                val_eps = 0.0
-                if eps_raw is not None and not pd.isna(eps_raw[col]) and eps_raw[col] != 0:
-                    val_eps = float(eps_raw[col])
-                elif ni is not None and share_cap is not None:
-                    # 備援計算: (淨利 / 發行股數)
-                    try: val_eps = (ni[col] / share_cap[col])
-                    except: val_eps = 0.0
+                # --- 強制精準 EPS 計算邏輯 ---
+                # 台股 EPS 公式 = (淨利 / 股數) * 10 (面額換算)
+                calc_eps = 0.0
+                if ni is not None and shares is not None and shares[col] != 0:
+                    calc_eps = (ni[col] / shares[col]) * 10
+                elif eps_yf is not None:
+                    # 如果手動計算失敗，嘗試抓取 yf 的 EPS 並修正量級
+                    val = eps_yf[col]
+                    calc_eps = val if abs(val) > 0.1 else val * 100 # 防止單位錯位
                 
                 # --- 淨利率修正 ---
                 margin_g = (gp[col] / rev[col] * 100) if rev is not None and gp is not None else 0
                 margin_n = (ni[col] / rev[col] * 100) if rev is not None and ni is not None else 0
                 
-                accum_eps += val_eps
+                accum_eps += calc_eps
                 
                 raw_list.append({
                     "日期": f"{y}{q_lab}",
-                    "毛利 (%)": f"{abs(margin_g):.2f}",
-                    "淨利 (%)": f"{margin_n:.2f}", # 這裡保留原始計算，檢視是否正確
-                    "當期 EPS": f"{val_eps:.2f}",
+                    "毛利 (%)": f"{margin_g:.2f}",
+                    "淨利 (%)": f"{margin_n:.2f}",
+                    "當期 EPS": f"{calc_eps:.2f}",
                     "累積 EPS": f"{accum_eps:.2f}"
                 })
             
@@ -155,7 +159,7 @@ def get_eps_data(symbol):
         except: continue
     return None
 
-# --- UI 邏輯維持不變 ---
+# --- 初始化 ---
 if 'data' not in st.session_state: st.session_state.data = None
 if 'show_eps' not in st.session_state: st.session_state.show_eps = False
 
@@ -165,13 +169,14 @@ main_col, side_col = st.columns([8, 4])
 with main_col:
     st.markdown("### 🔍 查詢設定")
     input_c1, input_c2 = st.columns([3, 1])
-    with input_c1: symbol_input = st.text_input("股票代號", placeholder="例如:00919").strip().upper()
+    with input_c1: 
+        symbol_input = st.text_input("股票代號", placeholder="例如:00919").strip().upper()
     with input_c2:
         st.write("")
         st.write("")
         if st.button("開始計算", type="primary"):
             if symbol_input:
-                with st.spinner('抓取中...'):
+                with st.spinner('數據抓取中...'):
                     st.session_state.data = get_safe_data(symbol_input)
                     st.session_state.show_eps = False 
 
@@ -204,16 +209,16 @@ with main_col:
         d3 = e_cols[2].number_input("前二", value=float(data["raw_divs"][2]), format="%.3f")
         d4 = e_cols[3].number_input("前三", value=float(data["raw_divs"][3]), format="%.3f")
         
-        # --- 查詢獲利按鈕 ---
+        # --- 查詢 EPS 按鈕 ---
         st.write("")
         if st.button("🔍 查詢獲利與當季累積 EPS"):
             st.session_state.show_eps = not st.session_state.show_eps 
             
         if st.session_state.show_eps:
-            with st.spinner('正在精準校正財報數據...'):
+            with st.spinner('正在精算財報數據...'):
                 eps_df = get_eps_data(data["symbol"])
                 if eps_df is not None: st.table(eps_df)
-                else: st.warning("無法取得此標的財報，可能是 ETF 或 yfinance 數據缺失")
+                else: st.warning("無法取得財報數據，ETF 通常不顯示 EPS")
         
         avg_annual_div = (sum([d1, d2, d3, d4]) / 4) * mult
         real_yield = (avg_annual_div / curr_p) * 100
@@ -230,10 +235,6 @@ with main_col:
         st.divider()
         st.subheader("📊 估值位階參考")
         p_cheap, p_fair, p_high = avg_annual_div / 0.10, avg_annual_div / 0.07, avg_annual_div / 0.05
-        if curr_p <= p_cheap: rec_text, rec_icon = "💎 便宜買入", "💸"
-        elif curr_p <= p_fair: rec_text, rec_icon = "✅ 合理持有", "✅"
-        else: rec_text, rec_icon = "❌ 昂貴不建議", "❌"
-        st.markdown(f"<div style='background-color:#1e1e28; padding:10px; border-radius:10px; border:1px solid #444; color:white;'>📢 建議：{rec_icon} {rec_text}</div>", unsafe_allow_html=True)
         st.table(pd.DataFrame({"估值位階":["💎 便宜(10%)","🔔 合理(7%)","❌ 昂貴(5%)"],"參考價":[f"{p_cheap:.2f} 以下", f"{p_cheap:.2f}~{p_fair:.2f}", f"高於 {p_high:.2f}"]}))
 
         st.divider()
@@ -249,4 +250,4 @@ with main_col:
 
 with side_col:
     st.write("### 📖 說明")
-    st.caption("EPS 計算已新增『淨利/股本』備援邏輯以確保不為 0。")
+    st.caption("EPS 已改為手動校正邏輯，解決 0.03 等單位錯誤。")
