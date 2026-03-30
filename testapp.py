@@ -1,62 +1,69 @@
 import streamlit as st
 import yfinance as yf
+import pandas as pd
 
-st.set_page_config(page_title="台股自動估價系統", page_icon="🔍")
+st.set_page_config(page_title="台股自動估價與資訊", page_icon="📈")
 
-st.title("🔍 台股自動估價系統")
+st.title("📈 台股個股資訊與估價")
 
-# --- 側邊欄或上方輸入代號 ---
+# --- 輸入代號 ---
 stock_code = st.text_input("請輸入台股代號 (例如: 2330)", value="2330")
 
 if stock_code:
-    # 台股代號處理邏輯
     full_code = f"{stock_code}.TW"
-    
     try:
         stock_data = yf.Ticker(full_code)
-        # 取得最新股價
+        info = stock_data.info
         current_price = stock_data.fast_info['last_price']
-        # 取得名稱 (若 Yahoo 有提供中文名稱)
-        stock_name = stock_data.info.get('shortName', stock_code)
+        stock_name = info.get('shortName', stock_code)
         
-        st.success(f"✅ 已取得 **{stock_name}** 最新股價：**{current_price:.2f}**")
+        st.success(f"✅ 已取得 **{stock_name}** 最新數據")
+
+        # --- 1. 個股基本資料表格 (模擬你提供的截圖) ---
+        st.subheader("📊 股票基本資料")
         
-        # --- 估價參數輸入 ---
-        col1, col2 = st.columns(2)
-        with col1:
-            eps = st.number_input("輸入該股 EPS", min_value=0.01, step=0.1, value=30.0)
-        with col2:
-            pe_target = st.number_input("自訂參考本益比 (PE)", value=20.0, step=0.1)
-
-        # --- 計算邏輯 ---
-        fair_price = eps * pe_target
-        current_pe = current_price / eps if eps > 0 else 0
-
-        # --- 結果顯示 ---
-        st.info(f"💡 目前市場實際本益比：**{current_pe:.2f} 倍**")
-
-        st.subheader("📊 換算結果")
-        st.metric(label="合理價參考", value=f"{fair_price:.2f}")
+        # 整理成表格數據
+        basic_info = {
+            "項目": [
+                "英文名稱", "產業分類", "個股本益比", "股價淨值比", 
+                "殖利率 (%)", "ROE (近四季)", "股本 (億)", "市值 (億)", "公司地址"
+            ],
+            "數值": [
+                info.get('longName', '-'),
+                f"{info.get('industry', '-')} ({info.get('sector', '-')})",
+                f"{info.get('trailingPE', 0):.2f}" if info.get('trailingPE') else "N/A",
+                f"{info.get('priceToBook', 0):.2f}" if info.get('priceToBook') else "N/A",
+                f"{(info.get('dividendYield', 0) * 100):.2f}%" if info.get('dividendYield') else "N/A",
+                f"{(info.get('returnOnEquity', 0) * 100):.2f}%" if info.get('returnOnEquity') else "N/A",
+                f"{(info.get('sharesOutstanding', 0) * current_price / 10**8 / info.get('trailingPE', 1)):.2f}" if info.get('trailingPE') else "-", # 概算股本
+                f"{(info.get('marketCap', 0) / 10**8):.2f}",
+                info.get('address1', '-')
+            ]
+        }
+        
+        df = pd.DataFrame(basic_info)
+        st.table(df) # 使用 table 顯示固定格式
 
         st.divider()
 
-        # 判斷邏輯
-        if current_price <= fair_price:
-            st.success(f"🟢 目前股價 {current_price:.2f} 低於目標參考價 {fair_price:.2f}。")
-        else:
-            st.warning(f"🟡 目前股價 {current_price:.2f} 已超過目標參考價 {fair_price:.2f}。")
+        # --- 2. 估價功能 ---
+        st.subheader("⚙️ 自訂估價計算")
+        col1, col2 = st.columns(2)
+        with col1:
+            # 嘗試自動抓取 EPS，抓不到則預設 30.0
+            default_eps = info.get('trailingEps', 30.0)
+            eps = st.number_input("輸入該股 EPS", value=float(default_eps), step=0.1)
+        with col2:
+            pe_target = st.number_input("自訂參考本益比 (PE)", value=20.0, step=0.1)
 
-        # --- 修改標籤名稱為：股票基本資料 ---
-        with st.expander("📊 股票基本資料"):
-            # 這裡顯示產業與基本分類
-            industry = stock_data.info.get('industry', '未知')
-            sector = stock_data.info.get('sector', '未知')
-            summary = stock_data.info.get('longBusinessSummary', '暫無詳細內容')
-            
-            st.write(f"**所屬產業：** {industry} ({sector})")
-            st.write("**業務重點 (英文摘要)：**")
-            st.write(summary)
-            st.caption("註：以上數據由 Yahoo Finance 提供。")
+        fair_price = eps * pe_target
+        
+        st.metric(label="合理價參考", value=f"{fair_price:.2f}")
+
+        if current_price <= fair_price:
+            st.success(f"🟢 目前股價 {current_price:.2f} 低於參考價。")
+        else:
+            st.warning(f"🟡 目前股價 {current_price:.2f} 高於參考價。")
 
     except Exception as e:
-        st.error(f"找不到該代號 '{stock_code}'，如果是上櫃請輸入 '代號.TWO'。")
+        st.error(f"代號錯誤或無權限抓取數據。如果是上櫃請輸入 '{stock_code}.TWO'")
