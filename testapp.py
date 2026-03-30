@@ -9,7 +9,7 @@ from datetime import datetime
 # --- 網頁設定 ---
 st.set_page_config(page_title="ETF專用 Ez開發", layout="wide")
 
-# --- 自定義 CSS ---
+# --- 自定義 CSS (完整還原) ---
 st.markdown("""
     <style>
     .main { background-color: #121218; color: #ffffff; }
@@ -89,18 +89,15 @@ def get_safe_data(symbol):
     res["msg"] = f"找不到代號 {symbol}。"
     return res
 
-# --- 抓取 EPS 與獲利數據 (精準校正版) ---
+# --- 抓取 EPS (校正版：解決 3.23 顯示錯誤問題) ---
 def get_eps_data(symbol):
     for suffix in [".TW", ".TWO"]:
         try:
             t = yf.Ticker(f"{symbol}{suffix}")
             df = t.quarterly_financials
-            # 獲取股本資訊
             bs = t.quarterly_balance_sheet
-            
             if df is None or df.empty: continue
             
-            # 安全抓取欄位
             def get_f(names, source_df):
                 for n in names:
                     if n in source_df.index: return source_df.loc[n]
@@ -108,43 +105,31 @@ def get_eps_data(symbol):
 
             rev = get_f(['Total Revenue'], df)
             gp = get_f(['Gross Profit'], df)
-            # 鎖定：歸屬於母公司業主之淨利
-            ni = get_f(['Net Income Common Stockholders', 'Net Income', 'Net Income Continuous Operations'], df)
-            # 鎖定：發行股數 (用於手動計算 EPS)
+            ni = get_f(['Net Income Common Stockholders', 'Net Income'], df)
             shares = get_f(['Ordinary Share Number', 'Share Capital'], bs)
-            # 備援 EPS
-            eps_yf = get_f(['Basic EPS', 'Diluted EPS'], df)
+            eps_yf = get_f(['Basic EPS'], df)
 
             raw_list = []
-            cols = df.columns[:4][::-1] # 近4期正序
+            cols = df.columns[:4][::-1] 
             accum_eps = 0.0
             current_year = None
 
             for col in cols:
                 y, m = col.year, col.month
-                if m <= 3: q_lab = "Q1"
-                elif m <= 6: q_lab = "Q2"
-                elif m <= 9: q_lab = "Q3"
-                else: q_lab = "Q4"
-                
+                q_lab = "Q1" if m<=3 else "Q2" if m<=6 else "Q3" if m<=9 else "Q4"
                 if current_year != y:
                     accum_eps = 0.0
                     current_year = y
                 
-                # --- 強制精準 EPS 計算邏輯 ---
-                # 台股 EPS 公式 = (淨利 / 股數) * 10 (面額換算)
+                # 校正 EPS: 優先用淨利計算確保 3.23 這種正確數值
                 calc_eps = 0.0
                 if ni is not None and shares is not None and shares[col] != 0:
                     calc_eps = (ni[col] / shares[col]) * 10
                 elif eps_yf is not None:
-                    # 如果手動計算失敗，嘗試抓取 yf 的 EPS 並修正量級
-                    val = eps_yf[col]
-                    calc_eps = val if abs(val) > 0.1 else val * 100 # 防止單位錯位
+                    calc_eps = eps_yf[col] if abs(eps_yf[col]) > 0.1 else eps_yf[col] * 100
                 
-                # --- 淨利率修正 ---
                 margin_g = (gp[col] / rev[col] * 100) if rev is not None and gp is not None else 0
                 margin_n = (ni[col] / rev[col] * 100) if rev is not None and ni is not None else 0
-                
                 accum_eps += calc_eps
                 
                 raw_list.append({
@@ -154,7 +139,6 @@ def get_eps_data(symbol):
                     "當期 EPS": f"{calc_eps:.2f}",
                     "累積 EPS": f"{accum_eps:.2f}"
                 })
-            
             return pd.DataFrame(raw_list[::-1])
         except: continue
     return None
@@ -169,8 +153,7 @@ main_col, side_col = st.columns([8, 4])
 with main_col:
     st.markdown("### 🔍 查詢設定")
     input_c1, input_c2 = st.columns([3, 1])
-    with input_c1: 
-        symbol_input = st.text_input("股票代號", placeholder="例如:00919").strip().upper()
+    with input_c1: symbol_input = st.text_input("股票代號", placeholder="例如:00919").strip().upper()
     with input_c2:
         st.write("")
         st.write("")
@@ -199,7 +182,7 @@ with main_col:
         with info_c2:
             st.caption("今日行情細節")
             st.write(f"最高: {latest_data['High']:.2f} / 最低: {latest_data['Low']:.2f}")
-            st.write(f"總量: {latest_data['Volume']/1000:,.0f} 張")
+            st.write(f"開盤: {latest_data['Open']:.2f} / 總量: {latest_data['Volume']/1000:,.0f} 張")
 
         st.divider()
         st.subheader("📑 歷史配息參考")
@@ -226,7 +209,7 @@ with main_col:
         st.write("")
         stat_c1, stat_c2 = st.columns(2)
         with stat_c1:
-            st.caption(f"預估年配息")
+            st.caption(f"預估年配息 (系統以{fl}配計算)")
             st.markdown(f"<div class='highlight-val'>{avg_annual_div:.2f}</div>", unsafe_allow_html=True)
         with stat_c2:
             st.caption("實質殖利率")
@@ -235,19 +218,51 @@ with main_col:
         st.divider()
         st.subheader("📊 估值位階參考")
         p_cheap, p_fair, p_high = avg_annual_div / 0.10, avg_annual_div / 0.07, avg_annual_div / 0.05
-        st.table(pd.DataFrame({"估值位階":["💎 便宜(10%)","🔔 合理(7%)","❌ 昂貴(5%)"],"參考價":[f"{p_cheap:.2f} 以下", f"{p_cheap:.2f}~{p_fair:.2f}", f"高於 {p_high:.2f}"]}))
+        if curr_p <= p_cheap: rec_text, rec_icon = "💎 便宜買入", "💸"
+        elif curr_p <= p_fair: rec_text, rec_icon = "✅ 合理持有", "✅"
+        else: rec_text, rec_icon = "❌ 昂貴不建議", "❌"
+
+        st.markdown(f"""<div style="background-color:#1e1e28; padding:10px; border-radius:10px; border:1px solid #444; display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+            <span style="font-size: 1.5rem;">📢</span><span style="color: #ffffff; font-weight: bold; font-size: 1.2rem;">系統建議：{rec_icon} {rec_text}</span></div>""", unsafe_allow_html=True)
+
+        st.markdown(f"""<table class="styled-table"><thead><tr><th>估值位階</th><th>建議價格參考</th></tr></thead><tbody>
+                <tr><td>💎 便宜價 (10%)</td><td>{p_cheap:.2f} 以下</td></tr>
+                <tr><td>🔔 合理價 (7%)</td><td>{p_cheap:.2f} ~ {p_fair:.2f}</td></tr>
+                <tr><td>❌ 昂貴價 (5%)</td><td>高於 {p_high:.2f}</td></tr></tbody></table>""", unsafe_allow_html=True)
 
         st.divider()
         st.subheader("💰 持有張數試算")
         ratio_54c = st.slider("54C 股利佔比 (%)", 0, 100, 40)
-        hold_lots = st.number_input("持有張數", min_value=0, value=10)
-        total_shares = hold_lots * 1000
-        div_54c = (total_shares * d1) * (ratio_54c/100)
-        nhi = div_54c * 0.0211 if div_54c >= 20000 else 0
-        st.info(f"以現價 {curr_p:.2f} 元計算，一年累計領息：{((total_shares * d1 - nhi) * mult):,.0f} 元")
+        calc_c1, calc_c2 = st.columns([1, 2])
+        with calc_c1: hold_lots = st.number_input("持有張數", min_value=0, value=10, step=1)
+        with calc_c2:
+            total_shares = hold_lots * 1000
+            total_raw = total_shares * d1
+            div_54c = total_raw * (ratio_54c/100)
+            nhi = div_54c * 0.0211 if div_54c >= 20000 else 0
+            st.markdown(f"""<div class="calc-box">以現價 {curr_p:.2f} 元計算，持有 {hold_lots} 張：<br>
+                <span class="white-text">預估總投入：{(total_shares * curr_p * 1.001425):,.0f} 元</span><br>
+                <span class="white-text">每{fl}實領：{(total_raw - nhi):,.0f} 元</span> <span class='tax-text'>{"(已扣二代健保)" if nhi > 0 else ""}</span><br>
+                <span class="white-text">一年累計：{((total_raw - nhi) * mult):,.0f} 元</span></div>""", unsafe_allow_html=True)
+
+        st.divider()
+        st.subheader("🎯 資產與殖利率規劃")
+        plan_c1, plan_c2 = st.columns(2)
+        with plan_c1:
+            plan_budget = st.number_input("預計投入總資產 (元)", min_value=0, value=1000000, step=100000)
+            plan_yield = st.slider("目標年殖利率 (%)", 3.0, 12.0, float(f"{real_yield:.2f}"), 0.1)
+        with plan_c2:
+            annual_income = plan_budget * (plan_yield / 100)
+            st.markdown(f"""<div class="plan-box">🎯 規劃結果：<br>
+                1 年拿多少：<span class="white-text" style="font-size:1.6rem;">{annual_income:,.0f} 元</span><br>
+                平均每個月：<span class="white-text">{ (annual_income/12):,.0f} 元</span><br>
+                <hr style="border-top: 1px solid #444; margin:10px 0;">約需買入 {(plan_budget/curr_p/1000):.1f} 張</div>""", unsafe_allow_html=True)
 
     elif st.session_state.data: st.error("查詢失敗")
 
 with side_col:
     st.write("### 📖 說明")
-    st.caption("EPS 已改為手動校正邏輯，解決 0.03 等單位錯誤。")
+    st.caption("1. 輸入代號後點擊開始計算。")
+    st.caption("2. 系統自動偵測配息頻率。")
+    st.divider()
+    st.success("系統正常運行中")
