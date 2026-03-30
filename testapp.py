@@ -55,14 +55,16 @@ def get_eps_final(symbol, ticker_obj):
     # 方案 B: yfinance 備援 (針對個股抓取 quarterly_financials)
     try:
         q_fin = ticker_obj.quarterly_financials
-        if "Basic EPS" in q_fin.index:
-            eps_row = q_fin.loc["Basic EPS"].head(4)
-            df = pd.DataFrame({'Period': eps_row.index.strftime('%Y-%m'), 'EPS': eps_row.values})
+        # 尋找包含 EPS 關鍵字的欄位
+        eps_row_label = next((idx for idx in q_fin.index if "EPS" in idx and "Basic" in idx), None)
+        if eps_row_label:
+            eps_row = q_fin.loc[eps_row_label].head(4)
+            df = pd.DataFrame({'Period': eps_row.index.strftime('%Y-Q%q'), 'EPS': eps_row.values})
             return df, "Yahoo Finance"
     except:
         pass
     
-    return None, None
+    return None, "未知"
 
 # --- 核心數據抓取 ---
 @st.cache_data(ttl=600)
@@ -80,7 +82,7 @@ def get_safe_data(symbol):
         "multiplier": 4, 
         "freq_label": "季",
         "eps_data": None,
-        "eps_source": ""
+        "eps_source": "未知"
     }
     
     for suffix in [".TW", ".TWO"]:
@@ -113,7 +115,7 @@ def get_safe_data(symbol):
                     else: 
                         res["multiplier"], res["freq_label"] = 1, "年"
                 
-                # --- 獲取 EPS 數據 (執行備援機制) ---
+                # --- 獲取 EPS 數據 ---
                 eps_df, source = get_eps_final(symbol, t)
                 res["eps_data"] = eps_df
                 res["eps_source"] = source
@@ -150,7 +152,9 @@ with main_col:
         st.write("")
         if st.button("開始計算", type="primary"):
             if symbol_input:
-                with st.spinner('數據同步中...'):
+                with st.spinner('數據計算中...'):
+                    # 每次點擊按鈕強迫清除快取，避免 KeyError
+                    st.cache_data.clear()
                     st.session_state.data = get_safe_data(symbol_input)
 
     # 顯示結果
@@ -229,9 +233,10 @@ with main_col:
         """
         st.markdown(table_html, unsafe_allow_html=True)
 
-        # --- EPS 查詢功能區塊 (自動備援顯示) ---
+        # --- EPS 查詢功能區塊 (安全性修正版) ---
         st.divider()
-        st.subheader(f"📈 核心獲利能力 (近四季 EPS - 來源: {data['eps_source']})")
+        source_name = data.get('eps_source', '未知')
+        st.subheader(f"📈 核心獲利能力 (近四季 EPS - 來源: {source_name})")
         if data.get("eps_data") is not None:
             eps_df = data["eps_data"]
             st.markdown('<div class="eps-box">', unsafe_allow_html=True)
@@ -243,7 +248,7 @@ with main_col:
             st.markdown(f"<p style='margin-top:10px;'><b>近四季累積 EPS：</b> <span class='white-text' style='font-size:1.5rem;'>{sum_eps:.2f} 元</span></p>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.warning("此標的目前無法從鉅亨網或 Yahoo 取得 EPS 數據。")
+            st.warning("此標的目前無法取得 EPS 數據（個股建議重新查詢）。")
 
         st.markdown("---")
         st.subheader("💰 持有張數試算")
@@ -286,6 +291,6 @@ with side_col:
     st.caption("1. 輸入代號後點擊開始計算。")
     st.caption("2. 系統自動偵測配息頻率 (月/季/半年/年)。")
     st.caption("3. 配息金額可於「歷史配息參考」手動微調。")
-    st.caption("4. 採用備援技術：鉅亨網失敗時自動切換 Yahoo 財報。")
+    st.caption("4. 錯誤修復：解決快取欄位遺失造成的 KeyError。")
     st.divider()
-    st.success("系統正常運行中")
+    st.success("系統穩定運行中")
