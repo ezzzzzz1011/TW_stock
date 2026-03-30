@@ -6,18 +6,14 @@ st.set_page_config(page_title="台股精準估價", page_icon="📈")
 
 st.title("📈 台股精準資訊與估價")
 
-# --- 核心數據抓取函數 (僅快取字典數據) ---
 @st.cache_data(ttl=3600)
 def fetch_stock_info(stock_code):
-    # 嘗試上市與上櫃後綴
     for suffix in [".TW", ".TWO"]:
         ticker_str = f"{stock_code}{suffix}"
         ticker = yf.Ticker(ticker_str)
         try:
-            # 測試是否能抓到股價
             hist = ticker.history(period="1d")
             if not hist.empty:
-                # 只回傳需要的純數據字典，避免快取錯誤
                 data = ticker.info
                 data['current_price'] = hist['Close'].iloc[-1]
                 data['actual_ticker'] = ticker_str
@@ -26,7 +22,6 @@ def fetch_stock_info(stock_code):
             continue
     return None
 
-# --- UI 介面 ---
 stock_code = st.text_input("請輸入台股代號 (例如: 2330)", value="2330")
 
 if stock_code:
@@ -38,18 +33,23 @@ if stock_code:
             stock_name = info.get('shortName', stock_code)
             st.success(f"✅ 已取得 **{stock_name} ({info['actual_ticker']})** 最新股價：{current_price:.2f}")
 
-            # --- 資料處理 ---
+            # --- 精確資料處理邏輯 ---
+            # 1. 殖利率與 ROE (修正數值異常)
             dy = info.get('dividendYield', 0) or 0
-            display_dy = f"{dy * 100:.2f}%" if dy < 1 else f"{dy:.2f}%"
+            display_dy = f"{dy * 100:.2f}%" if 0 < dy < 1 else f"{dy:.2f}%"
 
             roe = info.get('returnOnEquity', 0) or 0
-            display_roe = f"{roe * 100:.2f}%" if abs(roe) < 1 else f"{roe:.2f}%"
+            display_roe = f"{roe * 100:.2f}%" if 0 < abs(roe) < 1 else f"{roe:.2f}%"
 
-            mkt_cap = (info.get('marketCap', 0) or 0) / 1e8
-            shares = (info.get('sharesOutstanding', 0) or 0)
-            share_capital = (shares * 10) / 1e8
+            # 2. 市值 (億)：直接使用 Yahoo 的 marketCap 除以 1 億
+            mkt_cap_raw = info.get('marketCap', 0) or 0
+            mkt_cap_billion = mkt_cap_raw / 1e8
 
-            # --- 顯示基本資料表格 ---
+            # 3. 股本 (億)：台灣算法 = (發行股數 * 10元面額) / 1億
+            shares = info.get('sharesOutstanding', 0) or 0
+            share_capital_billion = (shares * 10) / 1e8
+
+            # --- 基本資料表格 ---
             st.subheader("📊 股票基本資料")
             basic_data = {
                 "項目": ["目前股價", "產業分類", "本益比 (PE)", "股價淨值比 (PB)", "殖利率", "ROE", "市值 (億)", "股本 (億)"],
@@ -60,8 +60,8 @@ if stock_code:
                     f"{info.get('priceToBook', 0):.2f}" if info.get('priceToBook') else "N/A",
                     display_dy,
                     display_roe,
-                    f"{mkt_cap:.2f}",
-                    f"{share_capital:.2f}"
+                    f"{mkt_cap_billion:,.2f}", # 加入千分位符號
+                    f"{share_capital_billion:,.2f}"
                 ]
             }
             st.table(pd.DataFrame(basic_data))
@@ -81,12 +81,13 @@ if stock_code:
             fair_price = eps * pe_target
             st.metric(label="合理價參考", value=f"{fair_price:.2f}")
 
+            # 比較結果
             if current_price <= fair_price:
-                st.success(f"🟢 目前股價 {current_price:.2f} 低於參考價。")
+                st.success(f"🟢 目前股價 {current_price:.2f} 低於參考價 {fair_price:.2f}。")
             else:
-                st.warning(f"🟡 目前股價 {current_price:.2f} 高於參考價。")
+                st.warning(f"🟡 目前股價 {current_price:.2f} 高於參考價 {fair_price:.2f}。")
 
         except Exception as e:
-            st.error(f"解析資料時發生錯誤，請重新整理頁面。")
+            st.error(f"解析資料時發生錯誤。")
     else:
-        st.error(f"❌ 抓取失敗。請檢查代號 '{stock_code}' 是否正確（上市/上櫃）。")
+        st.error(f"❌ 抓取失敗。請檢查代號 '{stock_code}'。")
