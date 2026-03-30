@@ -90,7 +90,7 @@ def get_safe_data(symbol):
     res["msg"] = f"找不到代號 {symbol}。"
     return res
 
-# --- 抓取 EPS 與獲利數據 ---
+# --- 抓取 EPS 與獲利數據 (修正淨利與累積邏輯) ---
 def get_eps_data(symbol):
     for suffix in [".TW", ".TWO"]:
         try:
@@ -98,25 +98,49 @@ def get_eps_data(symbol):
             df = t.quarterly_financials
             if df is None or df.empty: continue
             
+            # yf 欄位名稱映射
             rev = df.loc['Total Revenue'] if 'Total Revenue' in df.index else None
             gp = df.loc['Gross Profit'] if 'Gross Profit' in df.index else None
-            ni = df.loc['Net Income'] if 'Net Income' in df.index else None
+            ni = df.loc['Net Income Common Stockholders'] if 'Net Income Common Stockholders' in df.index else (df.loc['Net Income'] if 'Net Income' in df.index else None)
             eps = df.loc['Basic EPS'] if 'Basic EPS' in df.index else (df.loc['Diluted EPS'] if 'Diluted EPS' in df.index else None)
 
             if eps is not None:
-                eps_list = []
-                cols = df.columns[:4]
+                raw_list = []
+                # 取得最近 4 期並按時間正序排列（為了算累積）
+                cols = df.columns[:4][::-1] 
+                
+                accumulated_eps = 0.0
+                current_year = None
+
                 for col in cols:
+                    q_year = col.year
+                    q_month = col.month
+                    if q_month <= 3: q_label = "Q1"
+                    elif q_month <= 6: q_label = "Q2"
+                    elif q_month <= 9: q_label = "Q3"
+                    else: q_label = "Q4"
+                    
+                    # 跨年度重置累積
+                    if current_year != q_year:
+                        accumulated_eps = 0.0
+                        current_year = q_year
+                    
+                    val_eps = float(eps[col]) if not pd.isna(eps[col]) else 0.0
+                    accumulated_eps += val_eps
+                    
                     margin_g = (gp[col] / rev[col] * 100) if rev is not None and gp is not None else 0
                     margin_n = (ni[col] / rev[col] * 100) if rev is not None and ni is not None else 0
                     
-                    eps_list.append({
-                        "日期": col.strftime('%Y-Q%m').replace('-Q03','Q1').replace('-Q06','Q2').replace('-Q09','Q3').replace('-Q12','Q4'),
+                    raw_list.append({
+                        "日期": f"{q_year}{q_label}",
                         "毛利 (%)": f"{margin_g:.2f}",
                         "淨利 (%)": f"{margin_n:.2f}",
-                        "當期 EPS": f"{eps[col]:.2f}"
+                        "當期 EPS": f"{val_eps:.2f}",
+                        "累積 EPS": f"{accumulated_eps:.2f}"
                     })
-                return pd.DataFrame(eps_list)
+                
+                # 轉回倒序顯示 (最新在上面)
+                return pd.DataFrame(raw_list[::-1])
         except: continue
     return None
 
@@ -175,10 +199,10 @@ with main_col:
         d3 = e_cols[2].number_input("前二", value=float(data["raw_divs"][2]), format="%.3f")
         d4 = e_cols[3].number_input("前三", value=float(data["raw_divs"][3]), format="%.3f")
         
-        # --- 按鈕移動至此：預估年配息上方 ---
+        # --- 按鈕：查詢獲利與當季累積 EPS ---
         st.write("")
         if st.button("🔍 查詢獲利與當季累積 EPS"):
-            st.session_state.show_eps = not st.session_state.show_eps # 切換顯示
+            st.session_state.show_eps = not st.session_state.show_eps 
             
         if st.session_state.show_eps:
             with st.spinner('抓取財報數據中...'):
