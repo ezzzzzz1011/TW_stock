@@ -34,17 +34,17 @@ if stock_code:
             
             st.success(f"✅ 已取得數據：{info.get('shortName', stock_code)} ({info['actual_ticker']})")
 
-            # 計算即時本益比
+            # --- 核心計算：即時本益比 ---
             pe_calc = current_price / eps_ttm if eps_ttm > 0 else 0
 
-            # 數據修正邏輯
+            # 數據修正與格式化
             dy_raw = info.get('dividendYield', 0) or 0
             dy_fixed = (dy_raw / current_price * 100) if dy_raw >= 1 else (dy_raw * 100)
             shares = info.get('sharesOutstanding', 0) or 0
             share_capital = (shares * 10) / 1e8 
             mkt_cap = (info.get('marketCap', 0) or 0) / 1e8
 
-            # 表格顯示
+            # 顯示基本資料表格
             st.subheader("📊 股票基本資料")
             basic_data = {
                 "項目": ["目前股價", "最近四季累積 EPS", "即時本益比 (PE)", "殖利率", "ROE", "市值 (億)", "股本 (億)"],
@@ -62,7 +62,7 @@ if stock_code:
 
             st.divider()
 
-            # --- 估價功能 ---
+            # --- 估價功能 (連動即時本益比) ---
             st.subheader("⚙️ 自訂本益比估價")
             col1, col2 = st.columns(2)
             
@@ -71,9 +71,8 @@ if stock_code:
                 eps_input = st.number_input("參考 EPS (累積)", value=float(eps_ttm), step=0.1)
             
             with col2:
-                # 【關鍵修改點】將預設值固定在 15.0，這樣就不會一開始跑出目前的股價
-                # 你依然可以在網頁畫面上手動修改這個數字
-                pe_target = st.number_input("自訂目標本益比", value=15.0, step=0.1)
+                # 【修改處】這裡的 value 設為 pe_calc，所以它會跟上面的表格數值一模一樣
+                pe_target = st.number_input("自訂目標本益比", value=float(pe_calc), step=0.1)
 
             # 計算合理價
             fair_price = eps_input * pe_target
@@ -83,10 +82,11 @@ if stock_code:
             st.metric(
                 label="合理價參考", 
                 value=f"{fair_price:.2f}", 
-                delta=f"{diff:.2f} (與現價差距)"
+                delta=f"{diff:.2f} (與現價差距)",
+                delta_color="normal"
             )
             
-            st.info(f"💡 計算公式：參考 EPS ({eps_input:.2f}) × 目標本益比 ({pe_target:.2f}) = {fair_price:.2f}")
+            st.info(f"💡 公式：{eps_input:.2f} (EPS) × {pe_target:.2f} (目標本益比) = {fair_price:.2f}")
 
         except Exception as e:
             st.error(f"解析異常：{e}")
