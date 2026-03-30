@@ -71,10 +71,11 @@ if stock_code:
                 eps_input = st.number_input("參考 EPS (累積)", value=float(eps_ttm), step=0.1)
             
             with col2:
-                # 這裡預設帶入 pe_calc。注意：若你沒修改這格，合理價就會等於目前股價
-                pe_target = st.number_input("自訂目標本益比", value=float(pe_calc), step=0.1)
+                # 【關鍵修改點】將預設值固定在 15.0，這樣就不會一開始跑出目前的股價
+                # 你依然可以在網頁畫面上手動修改這個數字
+                pe_target = st.number_input("自訂目標本益比", value=15.0, step=0.1)
 
-            # 這是你要的算法：合理價 = EPS * 目標本益比
+            # 計算合理價
             fair_price = eps_input * pe_target
             
             # 顯示結果
@@ -85,7 +86,7 @@ if stock_code:
                 delta=f"{diff:.2f} (與現價差距)"
             )
             
-            st.info(f"💡 計算公式：參考 EPS ({eps_input}) × 目標本益比 ({pe_target}) = {fair_price:.2f}")
+            st.info(f"💡 計算公式：參考 EPS ({eps_input:.2f}) × 目標本益比 ({pe_target:.2f}) = {fair_price:.2f}")
 
         except Exception as e:
             st.error(f"解析異常：{e}")
