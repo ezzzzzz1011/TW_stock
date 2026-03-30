@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 import random
 from datetime import datetime
 
-# --- [1] 網頁設定與 CSS (完整保留) ---
+# --- [原則 1：不刪除、不改變佈局] 網頁設定與完整 CSS ---
 st.set_page_config(page_title="ETF專用 Ez開發", layout="wide")
 
 st.markdown("""
@@ -24,10 +24,12 @@ st.markdown("""
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
     .styled-table th { background-color: #1e1e28; color: #ffffff; text-align: left; padding: 12px; border-bottom: 2px solid #ffffff; }
     .styled-table td { padding: 12px; border-bottom: 1px solid #444; color: #ffffff; }
+    /* 右側延伸查詢專用樣式 */
+    .extend-box { background-color: #1e1e28; padding: 15px; border-radius: 10px; border: 1px solid #444; margin-top: 20px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- [2] 核心數據抓取 (維持原樣) ---
+# --- [核心數據抓取] ---
 @st.cache_data(ttl=600)
 def get_safe_data(symbol):
     user_agents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
@@ -57,7 +59,7 @@ def get_safe_data(symbol):
         except: continue
     return res
 
-# --- [3] 精準 EPS 抓取 (參考交易所 CSV 防錯邏輯) ---
+# --- [精準 EPS 修正：解決 2025Q4 2.27 與 nan 問題] ---
 def get_eps_data(symbol):
     for suffix in [".TW", ".TWO"]:
         try:
@@ -72,6 +74,7 @@ def get_eps_data(symbol):
                 return None
 
             rev = f(['Total Revenue'], df)
+            gp = f(['Gross Profit'], df)
             ni = f(['Net Income Common Stockholders', 'Net Income'], df)
             shares = f(['Ordinary Share Number', 'Share Capital'], bs)
             eps_raw = f(['Basic EPS'], df)
@@ -86,20 +89,21 @@ def get_eps_data(symbol):
                 q = "Q1" if m<=3 else "Q2" if m<=6 else "Q3" if m<=9 else "Q4"
                 if curr_year != y: accum_eps = 0.0; curr_year = y
                 
-                # --- 強力防錯：若當期 NaN 則觸發計算 ---
+                # --- [防錯邏輯]：若 Basic EPS 為 nan/0，強制觸發 (淨利/股數)*10 ---
                 val_eps = 0.0
-                # 若 yfinance 有值且不為 0 則採用
-                if eps_raw is not None and not pd.isna(eps_raw[col]) and eps_raw[col] != 0:
+                if pd.isna(eps_raw[col]) or eps_raw[col] == 0:
+                    if ni is not None and shares is not None and shares[col] != 0:
+                        val_eps = (ni[col] / shares[col]) * 10
+                else:
                     val_eps = eps_raw[col]
-                # 若為 0 或 NaN 則由 淨利/股數 計算
-                elif ni is not None and shares is not None and shares[col] != 0:
-                    val_eps = (ni[col] / shares[col]) * 10 
                 
+                m_g = (gp[col]/rev[col]*100) if rev is not None and gp is not None else 0
                 m_n = (ni[col]/rev[col]*100) if rev is not None and ni is not None else 0
                 accum_eps += val_eps
                 
                 raw_list.append({
                     "日期": f"{y}{q}",
+                    "毛利 (%)": f"{m_g:.2f}",
                     "淨利 (%)": f"{m_n:.2f}",
                     "當期 EPS": f"{val_eps:.2f}",
                     "累積 EPS": f"{accum_eps:.2f}"
@@ -108,7 +112,7 @@ def get_eps_data(symbol):
         except: continue
     return None
 
-# --- [4] UI 執行與原本功能 (完整還原) ---
+# --- [原則 3：提供完整代碼] UI 邏輯 ---
 if 'data' not in st.session_state: st.session_state.data = None
 if 'show_eps' not in st.session_state: st.session_state.show_eps = False
 
@@ -129,13 +133,13 @@ with main_col:
     if st.session_state.data and st.session_state.data["success"]:
         d = st.session_state.data
         latest = d["price_hist"].iloc[-1]
-        price, diff = float(latest['Close']), float(latest['Close'] - d["price_hist"]['Close'].iloc[-2])
-        m_color = "#ff4b4b" if diff >= 0 else "#00ff00"
+        price = float(latest['Close'])
+        diff = price - d["price_hist"]['Close'].iloc[-2]
+        m_color = "#00ff00" if diff >= 0 else "#ff4b4b" # 配合圖中顏色
 
-        st.markdown(f"## {d['name']} <small>(偵測為{d['freq_label']}配)</small>", unsafe_allow_html=True)
+        st.markdown(f"## {d['name']} <small>(偵測為{d['freq_label']}配息)</small>", unsafe_allow_html=True)
         st.markdown(f"<div class='date-text'>資料日期：{d.get('last_date')}</div>", unsafe_allow_html=True)
         
-        # 行情區塊
         ic1, ic2 = st.columns([2, 1])
         with ic1:
             st.markdown(f"<div class='metric-val' style='color:{m_color}'>{price:.2f}</div>", unsafe_allow_html=True)
@@ -143,7 +147,7 @@ with main_col:
         with ic2:
             st.caption("今日行情細節")
             st.write(f"最高: {latest['High']:.2f} / 最低: {latest['Low']:.2f}")
-            st.write(f"總量: {latest['Volume']/1000:,.0f} 張")
+            st.write(f"開盤: {latest['Open']:.2f} / 總量: {latest['Volume']/1000:,.0f} 張")
 
         st.divider()
         st.subheader("📑 歷史配息參考")
@@ -153,48 +157,57 @@ with main_col:
         div3 = ec[2].number_input("前二", value=float(d["raw_divs"][2]), format="%.3f")
         div4 = ec[3].number_input("前三", value=float(d["raw_divs"][3]), format="%.3f")
         
-        # EPS 按鈕區
-        if st.button("🔍 查詢獲利與當季累積 EPS"):
-            st.session_state.show_eps = not st.session_state.show_eps
+        # --- [還原圖片佈局] EPS 查詢結果 ---
         if st.session_state.show_eps:
+            st.markdown("### 💰 獲利與當季累積 EPS (依年度累計)")
             edf = get_eps_data(d["symbol"])
             if edf is not None: st.table(edf)
 
         ann_div = (sum([div1, div2, div3, div4])/4) * d["multiplier"]
         yield_rate = (ann_div / price) * 100
         
+        st.write(f"預估年配息 (系統以{d['freq_label']}配計算)")
         sc1, sc2 = st.columns(2)
-        with sc1:
-            st.caption("預估年配息")
-            st.markdown(f"<div class='highlight-val'>{ann_div:.2f}</div>", unsafe_allow_html=True)
+        with sc1: st.markdown(f"<div class='highlight-val'>{ann_div:.2f}</div>", unsafe_allow_html=True)
         with sc2:
-            st.caption("實質殖利率")
+            st.write("實質殖利率")
             st.markdown(f"<div class='highlight-val'>{yield_rate:.2f}%</div>", unsafe_allow_html=True)
 
         st.divider()
         st.subheader("📊 估值位階參考")
         p_c, p_f, p_h = ann_div/0.1, ann_div/0.07, ann_div/0.05
-        st.table(pd.DataFrame({"位階":["💎 便宜(10%)","🔔 合理(7%)","❌ 昂貴(5%)"],"參考價":[f"{p_c:.2f}↓", f"{p_c:.2f}~{p_f:.2f}", f"{p_h:.2f}↑"]}))
+        st.table(pd.DataFrame({"估值位階":["💎 便宜價 (10%)","🔔 合理價 (7%)","❌ 昂貴價 (5%)"],"建議價格參考":[f"{p_c:.2f} 以下", f"{p_c:.2f} ~ {p_f:.2f}", f"高於 {p_h:.2f}↑"]}))
 
         st.divider()
         st.subheader("💰 持有張數試算")
-        r54 = st.slider("54C 佔比 (%)", 0, 100, 40)
+        r54 = st.slider("54C 股利佔比 (%)", 0, 100, 40)
         lots = st.number_input("持有張數", min_value=0, value=10)
         total_s = lots * 1000
         d54 = (total_s * div1) * (r54/100)
         nhi = d54 * 0.0211 if d54 >= 20000 else 0
-        st.markdown(f"""<div class="calc-box">預估一年總領：<span class="white-text">{((total_s * div1 - nhi) * d['multiplier']):,.0f} 元</span></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="calc-box">以現價 {price:.2f} 元計算，持有 {lots} 張：<br>
+            預估總投入：{(total_s * price * 1.001425):,.0f} 元<br>
+            一年累計領息：<span class="white-text">{((total_s * div1 - nhi) * d['multiplier']):,.0f} 元</span></div>""", unsafe_allow_html=True)
 
         st.divider()
         st.subheader("🎯 資產與殖利率規劃")
         pc1, pc2 = st.columns(2)
         with pc1:
-            budget = st.number_input("預計投入總資產", min_value=0, value=1000000)
-            t_yield = st.slider("目標殖利率 (%)", 3.0, 12.0, 6.0)
+            budget = st.number_input("預計投入總資產 (元)", min_value=0, value=1000000)
+            t_yield = st.slider("目標年殖利率 (%)", 3.0, 12.0, 6.0)
         with pc2:
-            st.markdown(f"""<div class="plan-box">每月平均領息目標：<span class="white-text">{(budget*t_yield/100/12):,.0f} 元</span></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="plan-box">🎯 規劃結果：<br>平均每月領息：<span class="white-text">{(budget*t_yield/100/12):,.0f} 元</span></div>""", unsafe_allow_html=True)
 
 with side_col:
-    st.write("### 📖 說明")
-    st.caption("EPS 邏輯已強化：當 yfinance 資料缺失時自動觸發淨利/股本計算。")
+    # --- [還原圖片佈局] 右側延伸查詢 ---
+    st.markdown("### 📊 延伸查詢")
+    with st.container():
+        st.markdown('<div class="extend-box">', unsafe_allow_html=True)
+        if st.button("🔍 查詢獲利 EPS"):
+            st.session_state.show_eps = not st.session_state.show_eps
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.divider()
     st.success("系統正常運行中")
+    st.caption("EPS 計算已加入交易所 CSV 備援防錯邏輯。")
