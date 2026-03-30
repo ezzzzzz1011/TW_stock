@@ -25,19 +25,19 @@ st.markdown("""
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
     .styled-table th { background-color: #1e1e28; color: #ffffff; text-align: left; padding: 12px; border-bottom: 2px solid #ffffff; }
     .styled-table td { padding: 12px; border-bottom: 1px solid #444; color: #ffffff; }
-    /* 新增 EPS 專用樣式 */
+    /* EPS 專用樣式 */
     .eps-box { background-color: #252532; padding: 15px; border-radius: 10px; border-left: 5px solid #ffffff; margin-top: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 鉅亨網 EPS 抓取函數 (升級版：抓取近四季數據) ---
-def get_anue_eps(symbol):
+# --- 強化版 EPS 抓取函數 (鉅亨網 + yfinance 備援) ---
+def get_eps_final(symbol, ticker_obj):
+    # 方案 A: 鉅亨網季報 API
     try:
-        # 改用季報 API，因為年度 API 有時會抓不到，且季報更即時
         url = f"https://ws.api.cnyes.com/ws/api/v1/stock/financial/profit/quarterly/{symbol}?isExtended=true"
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://invest.cnyes.com/'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': f'https://invest.cnyes.com/twstock/TWS/{symbol}/financial/profit/quarterly'
         }
         response = requests.get(url, headers=headers, timeout=5)
         data = response.json()
@@ -45,18 +45,24 @@ def get_anue_eps(symbol):
         if data.get('statusCode') == 200:
             items = data['data']['items']
             periods = items.get('period', [])
-            # 優先嘗試 basicEarningsPerShare
-            eps_list = items.get('basicEarningsPerShare', [])
-            if not eps_list:
-                eps_list = items.get('netEarningsPerShare', [])
+            eps_list = items.get('basicEarningsPerShare', []) or items.get('netEarningsPerShare', [])
             
             if eps_list and periods:
-                # 取最近四個季度
-                df = pd.DataFrame({'Period': periods, 'EPS': eps_list}).head(4)
-                return df
-    except Exception as e:
+                return pd.DataFrame({'Period': periods, 'EPS': eps_list}).head(4), "鉅亨網"
+    except:
         pass
-    return None
+
+    # 方案 B: yfinance 備援 (針對個股抓取 quarterly_financials)
+    try:
+        q_fin = ticker_obj.quarterly_financials
+        if "Basic EPS" in q_fin.index:
+            eps_row = q_fin.loc["Basic EPS"].head(4)
+            df = pd.DataFrame({'Period': eps_row.index.strftime('%Y-%m'), 'EPS': eps_row.values})
+            return df, "Yahoo Finance"
+    except:
+        pass
+    
+    return None, None
 
 # --- 核心數據抓取 ---
 @st.cache_data(ttl=600)
@@ -73,7 +79,8 @@ def get_safe_data(symbol):
         "last_date": default_date,
         "multiplier": 4, 
         "freq_label": "季",
-        "eps_data": None 
+        "eps_data": None,
+        "eps_source": ""
     }
     
     for suffix in [".TW", ".TWO"]:
@@ -106,8 +113,10 @@ def get_safe_data(symbol):
                     else: 
                         res["multiplier"], res["freq_label"] = 1, "年"
                 
-                # --- 獲取 EPS 數據 (改用近四季 API) ---
-                res["eps_data"] = get_anue_eps(symbol)
+                # --- 獲取 EPS 數據 (執行備援機制) ---
+                eps_df, source = get_eps_final(symbol, t)
+                res["eps_data"] = eps_df
+                res["eps_source"] = source
 
                 try:
                     name_url = f"https://tw.stock.yahoo.com/quote/{full_ticker}"
@@ -134,14 +143,14 @@ with main_col:
     input_c1, input_c2 = st.columns([3, 1]) 
     
     with input_c1: 
-        symbol_input = st.text_input("股票代號", placeholder="例如:00919 或 2317").strip().upper()
+        symbol_input = st.text_input("股票代號", placeholder="例如:2317 或 00919").strip().upper()
     
     with input_c2:
         st.write("")
         st.write("")
         if st.button("開始計算", type="primary"):
             if symbol_input:
-                with st.spinner('從鉅亨網抓取近四季 EPS 中...'):
+                with st.spinner('數據同步中...'):
                     st.session_state.data = get_safe_data(symbol_input)
 
     # 顯示結果
@@ -220,14 +229,12 @@ with main_col:
         """
         st.markdown(table_html, unsafe_allow_html=True)
 
-        # --- EPS 查詢功能區塊 (鉅亨網近四季數據) ---
+        # --- EPS 查詢功能區塊 (自動備援顯示) ---
         st.divider()
-        st.subheader("📈 核心獲利能力 (近四季 EPS - 數據源: 鉅亨網)")
+        st.subheader(f"📈 核心獲利能力 (近四季 EPS - 來源: {data['eps_source']})")
         if data.get("eps_data") is not None:
             eps_df = data["eps_data"]
-            
             st.markdown('<div class="eps-box">', unsafe_allow_html=True)
-            # 使用列表顯示最近四季
             eps_cols = st.columns(len(eps_df))
             for i, (_, row) in enumerate(eps_df.iterrows()):
                 eps_cols[i].metric(f"{row['Period']}", f"{row['EPS']:.2f}")
@@ -236,7 +243,7 @@ with main_col:
             st.markdown(f"<p style='margin-top:10px;'><b>近四季累積 EPS：</b> <span class='white-text' style='font-size:1.5rem;'>{sum_eps:.2f} 元</span></p>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.warning("此標的目前無法從鉅亨網取得 EPS 數據（如果是新上市或 ETF 則無此數據）。")
+            st.warning("此標的目前無法從鉅亨網或 Yahoo 取得 EPS 數據。")
 
         st.markdown("---")
         st.subheader("💰 持有張數試算")
@@ -279,6 +286,6 @@ with side_col:
     st.caption("1. 輸入代號後點擊開始計算。")
     st.caption("2. 系統自動偵測配息頻率 (月/季/半年/年)。")
     st.caption("3. 配息金額可於「歷史配息參考」手動微調。")
-    st.caption("4. EPS 數據切換至鉅亨網「季報」API，顯示近四季累積 EPS。")
+    st.caption("4. 採用備援技術：鉅亨網失敗時自動切換 Yahoo 財報。")
     st.divider()
     st.success("系統正常運行中")
