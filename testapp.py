@@ -16,7 +16,7 @@ if stock_code:
         stock_data = yf.Ticker(full_code)
         # 取得最新股價
         current_price = stock_data.fast_info['last_price']
-        # 取得中文名稱 (若 Yahoo 有提供短名稱)
+        # 取得名稱 (若 Yahoo 有提供中文名稱)
         stock_name = stock_data.info.get('shortName', stock_code)
         
         st.success(f"✅ 已取得 **{stock_name}** 最新股價：**{current_price:.2f}**")
@@ -24,7 +24,7 @@ if stock_code:
         # --- 估價參數輸入 ---
         col1, col2 = st.columns(2)
         with col1:
-            eps = st.number_input("輸入該股 EPS (建議參考最近四季累積)", min_value=0.01, step=0.1, value=30.0)
+            eps = st.number_input("輸入該股 EPS", min_value=0.01, step=0.1, value=30.0)
         with col2:
             pe_target = st.number_input("自訂參考本益比 (PE)", value=20.0, step=0.1)
 
@@ -46,17 +46,17 @@ if stock_code:
         else:
             st.warning(f"🟡 目前股價 {current_price:.2f} 已超過目標參考價 {fair_price:.2f}。")
 
-        # --- 公司簡介 (改為中文標題) ---
-        with st.expander("📖 查看公司詳細資訊"):
-            # 顯示產業與業務，雖然內容是英文，但標籤改為中文方便閱讀
+        # --- 修改標籤名稱為：股票基本資料 ---
+        with st.expander("📊 股票基本資料"):
+            # 這裡顯示產業與基本分類
             industry = stock_data.info.get('industry', '未知')
             sector = stock_data.info.get('sector', '未知')
             summary = stock_data.info.get('longBusinessSummary', '暫無詳細內容')
             
             st.write(f"**所屬產業：** {industry} ({sector})")
-            st.write("**業務重點：**")
+            st.write("**業務重點 (英文摘要)：**")
             st.write(summary)
-            st.caption("註：業務摘要目前由 Yahoo Finance 提供，內容多為英文。")
+            st.caption("註：以上數據由 Yahoo Finance 提供。")
 
     except Exception as e:
         st.error(f"找不到該代號 '{stock_code}'，如果是上櫃請輸入 '代號.TWO'。")
