@@ -39,14 +39,9 @@ if stock_code:
             st.success(f"✅ 已取得 **{stock_name} ({info['actual_ticker']})** 數據")
 
             # 2. 數據精確修正邏輯
-            # 殖利率修正
             dy_raw = info.get('dividendYield', 0) or 0
             dy_fixed = (dy_raw / current_price * 100) if dy_raw >= 1 else (dy_raw * 100)
-
-            # 即時本益比換算
             pe_calc = current_price / eps_ttm if eps_ttm > 0 else 0
-
-            # 股本與市值 (億)
             shares = info.get('sharesOutstanding', 0) or 0
             share_capital = (shares * 10) / 1e8 
             mkt_cap = (info.get('marketCap', 0) or 0) / 1e8
@@ -69,26 +64,26 @@ if stock_code:
 
             st.divider()
 
-            # --- 換算目標股價結果 (直接連動上方的 eps_ttm) ---
+            # --- 換算目標股價結果：直接連動並設定本益比 ---
             st.subheader("⚙️ 換算目標股價結果")
             
-            # 使用 columns 顯示本益比設定框
-            col1, col2, col3 = st.columns(3)
-            with col1:
+            # 將本益比設定框直接放在這裡，並連動 EPS
+            col_pe1, col_pe2, col_pe3 = st.columns(3)
+            with col_pe1:
                 low_pe = st.number_input("便宜價本益比", value=12.0, step=0.5)
-            with col2:
+            with col_pe2:
                 mid_pe = st.number_input("合理價本益比", value=15.0, step=0.5)
-            with col3:
+            with col_pe3:
                 high_pe = st.number_input("昂貴價本益比", value=20.0, step=0.5)
 
-            # 計算價格：直接乘以基本資料抓到的 eps_ttm
+            # 計算價格
             prices = {
                 "便宜價": eps_ttm * low_pe,
                 "合理價": eps_ttm * mid_pe,
                 "昂貴價": eps_ttm * high_pe
             }
 
-            # 顯示換算結果
+            # 顯示結果
             res_col1, res_col2, res_col3 = st.columns(3)
             res_col1.metric("便宜價參考", f"{prices['便宜價']:.2f}")
             res_col2.metric("合理價參考", f"{prices['合理價']:.2f}")
@@ -103,6 +98,6 @@ if stock_code:
                 st.warning(f"🟡 當前股價 {current_price:.2f} 已超過「合理價」。")
 
         except Exception as e:
-            st.error(f"資料處理發生錯誤。")
+            st.error("資料處理發生錯誤。")
     else:
         st.error(f"❌ 抓取失敗。請檢查代號 '{stock_code}' 是否正確。")
