@@ -9,137 +9,275 @@ from datetime import datetime
 # --- 網頁設定 ---
 st.set_page_config(page_title="ETF專用 Ez開發", layout="wide")
 
+# --- 初始化 Session State ---
+if 'data' not in st.session_state: st.session_state.data = None
+if 'page' not in st.session_state: st.session_state.page = "main"
+
 # --- 自定義 CSS ---
 st.markdown("""
     <style>
     .main { background-color: #121218; color: #ffffff; }
     .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; height: 3.5em; background-color: #ffffff; color: black; border: none; }
+    .metric-val { font-family: 'Consolas'; font-size: 3.5rem; font-weight: bold; line-height: 1.1; }
+    .stTextInput>div>div>input, .stNumberInput>div>div>input { background-color: #1e1e28 !important; color: white !important; border-radius: 8px !important; }
     .white-text { color: #ffffff !important; font-weight: bold; }
-    /* 表格樣式優化 */
-    .comp-table { width: 100%; color: white; border-collapse: collapse; margin-top: 20px; }
-    .comp-table th { background-color: #1e1e28; padding: 12px; text-align: left; border-bottom: 2px solid #444; }
-    .comp-table td { padding: 12px; border-bottom: 1px solid #333; }
-    .yield-high { color: #ff4b4b; font-weight: bold; }
+    .date-text { color: #ffffff; opacity: 0.9; font-size: 1.1rem; margin-bottom: 10px; font-weight: bold; }
+    .calc-box { background-color: #1e1e28; padding: 20px; border-radius: 15px; border: 1px solid #444; margin-top: 10px; }
+    .tax-text { color: #ffffff; font-size: 1rem; font-weight: normal; opacity: 0.8; }
+    .plan-box { background-color: #1e1e28; padding: 18px; border-radius: 10px; border: 1.5px solid #ffffff; }
+    .highlight-val { font-size: 2.5rem; font-family: 'Consolas'; font-weight: bold; color: #ffffff; }
+    .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
+    .styled-table th { background-color: #1e1e28; color: #ffffff; text-align: left; padding: 12px; border-bottom: 2px solid #ffffff; }
+    .styled-table td { padding: 12px; border-bottom: 1px solid #444; color: #ffffff; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 核心：精準抓取成分股與比例 (圖二數據源邏輯) ---
-@st.cache_data(ttl=3600)
-def get_etf_full_components(symbol):
+# --- 核心數據抓取 ---
+@st.cache_data(ttl=600)
+def get_safe_data(symbol):
     user_agents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
     headers = {'User-Agent': random.choice(user_agents)}
-    results = []
-    try:
-        # 使用玩股網成分股頁面
-        url = f"https://www.wantgoo.com/stock/etf/{symbol}/constituent"
-        resp = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        
-        # 鎖定表格行
-        table_rows = soup.select('table tbody tr')
-        for row in table_rows:
-            cols = row.find_all('td')
-            if len(cols) >= 3:
-                # 抓取代號與名稱
-                name_code = cols[0].text.strip().split()
-                if len(name_code) >= 2:
-                    code = name_code[0]
-                    name = name_code[1]
-                    weight = cols[2].text.strip() # 權重比例
+    default_date = datetime.now().strftime('%Y-%m-%d')
+    res = {
+        "symbol": symbol,
+        "name": symbol, 
+        "success": False, 
+        "price_hist": None, 
+        "raw_divs": [0.0]*4, 
+        "msg": "", 
+        "last_date": default_date,
+        "multiplier": 4,  
+        "freq_label": "季" 
+    }
+    
+    for suffix in [".TW", ".TWO"]:
+        try:
+            full_ticker = f"{symbol}{suffix}"
+            t = yf.Ticker(full_ticker)
+            hist = t.history(period="5d")
+            
+            if not hist.empty:
+                res["price_hist"] = hist
+                try: res["last_date"] = hist.index[-1].strftime('%Y-%m-%d')
+                except: pass
+
+                divs = t.dividends
+                if not divs.empty:
+                    d_list = divs.tail(4).tolist()[::-1]
+                    while len(d_list) < 4: d_list.append(0.0)
+                    res["raw_divs"] = d_list
                     
-                    # 過濾：只要個股 (4碼數字)，排除 ETF
-                    if code.isdigit() and len(code) == 4:
-                        results.append({"code": code, "name": name, "weight": weight})
-        return results
-    except:
-        return []
-
-# --- 數據抓取函式 (套用你的配息邏輯) ---
-def get_safe_data(symbol):
-    try:
-        full_ticker = f"{symbol}.TW"
-        t = yf.Ticker(full_ticker)
-        hist = t.history(period="5d")
-        divs = t.dividends
-        
-        # 初始化預設值
-        res = {"success": False, "price": 0.0, "yield": 0.0, "freq": "季", "multiplier": 4}
-        
-        if not hist.empty:
-            curr_p = hist.iloc[-1]['Close']
-            res["price"] = curr_p
-            if not divs.empty:
-                # 自動偵測頻率邏輯
-                last_year = divs[divs.index > (divs.index[-1] - pd.DateOffset(years=1))]
-                count = len(last_year)
-                mult = 12 if count >= 10 else 4 if count >= 3 else 2 if count >= 2 else 1
-                label = "月" if count >= 10 else "季" if count >= 3 else "半年" if count >= 2 else "年"
+                    last_year_date = divs.index[-1] - pd.DateOffset(years=1)
+                    count_in_year = len(divs[divs.index > last_year_date])
+                    
+                    if count_in_year >= 10: res["multiplier"], res["freq_label"] = 12, "月"
+                    elif count_in_year >= 3: res["multiplier"], res["freq_label"] = 4, "季"
+                    elif count_in_year >= 2: res["multiplier"], res["freq_label"] = 2, "半年"
+                    else: res["multiplier"], res["freq_label"] = 1, "年"
                 
-                avg_div = (sum(divs.tail(4)) / 4) * mult
-                res["yield"] = (avg_div / curr_p) * 100
-                res["freq"] = label
+                try:
+                    name_url = f"https://tw.stock.yahoo.com/quote/{full_ticker}"
+                    soup = BeautifulSoup(requests.get(name_url, headers=headers, timeout=5).text, 'html.parser')
+                    name_tag = soup.find('h1', {'class': 'C($c-link-text)'})
+                    if name_tag: res["name"] = name_tag.text.strip()
+                except: pass
+                
                 res["success"] = True
-        return res
+                return res
+        except: continue
+    
+    res["msg"] = f"找不到代號 {symbol}。"
+    return res
+
+@st.cache_data(ttl=3600)
+def get_etf_holdings(symbol):
+    """ 抓取 ETF 成分股邏輯 """
+    try:
+        url = f"https://tw.stock.yahoo.com/quote/{symbol}.TW/holding"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 尋找表格內容
+        rows = soup.find_all('li', {'class': 'List(n)'})
+        holdings = []
+        for row in rows[1:]: # 跳過標頭
+            cols = row.find_all('div')
+            if len(cols) >= 3:
+                name = cols[0].text.strip()
+                ratio = cols[2].text.strip()
+                holdings.append({"成分股名稱": name, "持股比例": ratio})
+        
+        return pd.DataFrame(holdings) if holdings else None
     except:
-        return {"success": False}
+        return None
 
-# --- 初始化 ---
-if 'page' not in st.session_state: st.session_state.page = "main"
+# --- 頁面邏輯切換 ---
+if st.session_state.page == "main":
+    # --- 主計算機畫面 ---
+    st.title("📈 ETF專用 Ez開發")
+    main_col, side_col = st.columns([8, 4])
 
-st.title("📊 ETF 成分股深度分析")
-input_c1, input_c2, input_c3 = st.columns([4, 1, 1])
-with input_c1:
-    symbol_input = st.text_input("輸入 ETF 代號", placeholder="例如: 00919").strip()
-with input_c2:
-    st.write(""); st.write("")
-    if st.button("開始試算"): st.session_state.page = "main"
-with input_c3:
-    st.write(""); st.write("")
-    if st.button("🔍 查看成分股"): st.session_state.page = "holdings"
+    with main_col:
+        st.markdown("### 🔍 查詢設定")
+        input_c1, input_c2 = st.columns([3, 1]) 
+        
+        with input_c1: 
+            symbol_input = st.text_input("股票代號", placeholder="例如:00919", key="search_input").strip().upper()
+        
+        with input_c2:
+            st.write("")
+            st.write("")
+            if st.button("開始計算", type="primary"):
+                if symbol_input:
+                    with st.spinner('偵測頻率與抓取數據中...'):
+                        st.session_state.data = get_safe_data(symbol_input)
 
-# --- 頁面切換 ---
-if st.session_state.page == "holdings" and symbol_input:
-    if st.button("⬅️ 返回主頁"):
+        if st.session_state.data and st.session_state.data.get("success"):
+            data = st.session_state.data
+            mult = data["multiplier"]
+            fl = data["freq_label"]
+            
+            latest_data = data["price_hist"].iloc[-1]
+            curr_p = float(latest_data['Close'])
+            diff = curr_p - data["price_hist"]['Close'].iloc[-2]
+            pct = (diff / data["price_hist"]['Close'].iloc[-2]) * 100
+            m_color = "#ff4b4b" if diff >= 0 else "#00ff00"
+
+            # 頂部資訊區與跳轉按鈕
+            title_c1, title_c2 = st.columns([6, 2])
+            with title_c1:
+                st.markdown(f"## {data['name']} <small style='font-size:1rem; color:#aaa;'>(偵測為{fl}配息)</small>", unsafe_allow_html=True)
+                st.markdown(f"<div class='date-text'>資料日期：{data.get('last_date')}</div>", unsafe_allow_html=True)
+            with title_c2:
+                st.write("")
+                st.write("")
+                if st.button("📊 查看成分股"):
+                    st.session_state.page = "composition"
+                    st.rerun()
+            
+            info_c1, info_c2 = st.columns([2, 1])
+            with info_c1:
+                st.markdown(f"<div class='metric-val' style='color:{m_color}'>{curr_p:.2f}</div>", unsafe_allow_html=True)
+                st.markdown(f"<span style='color:{m_color}; font-weight:bold; font-size:1.5rem;'>{diff:+.2f} ({pct:+.2f}%)</span>", unsafe_allow_html=True)
+            with info_c2:
+                st.caption("今日行情細節")
+                st.write(f"最高: {latest_data['High']:.2f} / 最低: {latest_data['Low']:.2f}")
+                st.write(f"開盤: {latest_data['Open']:.2f} / 總量: {latest_data['Volume']/1000:,.0f} 張")
+
+            st.divider()
+            st.subheader("📑 歷史配息參考")
+            e_cols = st.columns(4)
+            d1 = e_cols[0].number_input("最新", value=float(data["raw_divs"][0]), format="%.3f")
+            d2 = e_cols[1].number_input("前一", value=float(data["raw_divs"][1]), format="%.3f")
+            d3 = e_cols[2].number_input("前二", value=float(data["raw_divs"][2]), format="%.3f")
+            d4 = e_cols[3].number_input("前三", value=float(data["raw_divs"][3]), format="%.3f")
+            
+            avg_annual_div = (sum([d1, d2, d3, d4]) / 4) * mult
+            real_yield = (avg_annual_div / curr_p) * 100
+            
+            st.write("")
+            stat_c1, stat_c2 = st.columns(2)
+            with stat_c1:
+                st.caption(f"預估年配息 (系統以{fl}配計算)")
+                st.markdown(f"<div class='highlight-val'>{avg_annual_div:.2f}</div>", unsafe_allow_html=True)
+            with stat_c2:
+                st.caption("實質殖利率")
+                st.markdown(f"<div class='highlight-val'>{real_yield:.2f}%</div>", unsafe_allow_html=True)
+
+            st.divider()
+            st.subheader("📊 估值位階參考")
+            p_cheap = avg_annual_div / 0.10
+            p_fair = avg_annual_div / 0.07
+            p_high = avg_annual_div / 0.05
+
+            if curr_p <= p_cheap: rec_text, rec_icon = "💎 便宜買入", "💸"
+            elif curr_p <= p_fair: rec_text, rec_icon = "✅ 合理持有", "✅"
+            else: rec_text, rec_icon = "❌ 昂貴不建議", "❌"
+
+            st.markdown(f"""
+            <div style="background-color:#1e1e28; padding:10px; border-radius:10px; border:1px solid #444; display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                <span style="font-size: 1.5rem;">📢</span>
+                <span style="color: #ffffff; font-weight: bold; font-size: 1.2rem;">系統建議：</span>
+                <span style="color: #ffffff; font-weight: bold; font-size: 1.2rem;">{rec_icon} {rec_text}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+            table_html = f"""
+            <table class="styled-table">
+                <thead><tr><th>估值位階</th><th>建議價格參考</th></tr></thead>
+                <tbody>
+                    <tr><td>💎 便宜價 (10%)</td><td>{p_cheap:.2f} 以下</td></tr>
+                    <tr><td>🔔 合理價 (7%)</td><td>{p_cheap:.2f} ~ {p_fair:.2f}</td></tr>
+                    <tr><td>❌ 昂貴價 (5%)</td><td>高於 {p_high:.2f}</td></tr>
+                </tbody>
+            </table>
+            """
+            st.markdown(table_html, unsafe_allow_html=True)
+
+            st.markdown("---")
+            st.subheader("💰 持有張數試算")
+            ratio_54c = st.slider("54C 股利佔比 (%)", 0, 100, 40)
+            calc_c1, calc_c2 = st.columns([1, 2])
+            with calc_c1: hold_lots = st.number_input("持有張數", min_value=0, value=10, step=1)
+            with calc_c2:
+                total_shares = hold_lots * 1000
+                total_raw = total_shares * d1
+                div_54c = total_raw * (ratio_54c/100)
+                nhi = div_54c * 0.0211 if div_54c >= 20000 else 0
+                st.markdown(f"""<div class="calc-box">
+                    以現價 {curr_p:.2f} 元計算，持有 {hold_lots} 張：<br>
+                    <span class="white-text">預估總投入：{(total_shares * curr_p * 1.001425):,.0f} 元</span><br>
+                    <span class="white-text">每{fl}實領：{(total_raw - nhi):,.0f} 元</span> <span class='tax-text'>{"(已扣二代健保)" if nhi > 0 else ""}</span><br>
+                    <span class="white-text">一年累計：{((total_raw - nhi) * mult):,.0f} 元</span>
+                </div>""", unsafe_allow_html=True)
+
+            st.markdown("---")
+            st.subheader("🎯 資產與殖利率規劃")
+            plan_c1, plan_c2 = st.columns(2)
+            with plan_c1:
+                plan_budget = st.number_input("預計投入總資產 (元)", min_value=0, value=1000000, step=100000)
+                plan_yield = st.slider("目標年殖利率 (%)", 3.0, 12.0, float(f"{real_yield:.2f}"), 0.1)
+            with plan_c2:
+                annual_income = plan_budget * (plan_yield / 100)
+                st.markdown(f"""<div class="plan-box">
+                    🎯 規劃結果：<br>
+                    1 年拿多少：<span class="white-text" style="font-size:1.6rem;">{annual_income:,.0f} 元</span><br>
+                    平均每個月：<span class="white-text">{ (annual_income/12):,.0f} 元</span><br>
+                    <hr style="border-top: 1px solid #444; margin:10px 0;">
+                    約需買入 {(plan_budget/curr_p/1000):.1f} 張
+                </div>""", unsafe_allow_html=True)
+
+        elif st.session_state.data and not st.session_state.data.get("success"):
+            st.error(st.session_state.data.get("msg", "查詢失敗"))
+
+    with side_col:
+        st.write("### 📖 說明")
+        st.caption("1. 輸入代號後點擊開始計算。")
+        st.caption("2. 系統自動偵測配息頻率 (月/季/半年/年)。")
+        st.caption("3. 配息金額可於「歷史配息參考」手動微調。")
+        st.caption("4. 點擊「查看成分股」可切換畫面瀏覽持股細節。")
+        st.divider()
+        st.success("系統正常運行中")
+
+elif st.session_state.page == "composition":
+    # --- 成分股畫面 ---
+    data = st.session_state.data
+    st.title(f"📊 {data['name']} - 成分股細節")
+    
+    if st.button("⬅️ 返回計算機"):
         st.session_state.page = "main"
         st.rerun()
-
-    with st.spinner('正在讀取清單並計算殖利率...'):
-        comp_data = get_etf_full_components(symbol_input)
+    
+    st.divider()
+    
+    with st.spinner('正在獲取最新成分股資料...'):
+        holdings_df = get_etf_holdings(data['symbol'])
         
-        if not comp_data:
-            st.error("無法抓取成分股，請確認代號是否正確。")
+        if holdings_df is not None:
+            st.markdown("### 🏆 前十大權重持股")
+            st.table(holdings_df)
+            
+            st.info("註：此資料抓取自 Yahoo 財經，權重比例僅供參考，實際持股以投信官網公佈為準。")
         else:
-            st.subheader(f"🎯 ETF 代號 {symbol_input} - 真實成分股清單")
-            
-            # 建立表格 HTML
-            html = """
-            <table class="comp-table">
-                <thead>
-                    <tr>
-                        <th>代號</th><th>名稱</th><th>權重</th><th>目前股價</th><th>配息頻率</th><th>預估殖利率</th>
-                    </tr>
-                </thead>
-                <tbody>
-            """
-            
-            for item in comp_data:
-                # 調用你的配息計算邏輯
-                detail = get_safe_data(item['code'])
-                if detail["success"]:
-                    y_style = 'class="yield-high"' if detail['yield'] > 7 else ""
-                    html += f"""
-                    <tr>
-                        <td>{item['code']}</td>
-                        <td>{item['name']}</td>
-                        <td>{item['weight']}</td>
-                        <td>{detail['price']:.2f}</td>
-                        <td>{detail['freq']}配</td>
-                        <td {y_style}>{detail['yield']:.2f}%</td>
-                    </tr>
-                    """
-            
-            html += "</tbody></table>"
-            st.markdown(html, unsafe_allow_html=True)
-
-else:
-    st.info("請輸入 ETF 代號並點擊「查看成分股」來開始。")
+            st.warning("暫時無法取得該 ETF 的成分股資料，請確認該代號是否為 ETF。")
