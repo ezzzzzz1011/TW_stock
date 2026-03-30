@@ -1,75 +1,76 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
+import requests
+from bs4 import BeautifulSoup
 import time
-import random
 
 st.set_page_config(page_title="台股股息成長分析", layout="wide")
 
 st.title("🇹🇼 台股股息成長 (DGI) 自動分析")
 
-# --- 使用快取機制來避免重複請求引發封鎖 ---
-@st.cache_data(ttl=3600)  # 資料會快取一小時，這期間抓同代號不會重複請求 Yahoo
-def get_stock_data(stock_id):
-    ticker_str = f"{stock_id}.TW"
-    ticker = yf.Ticker(ticker_str)
+@st.cache_data(ttl=3600)
+def get_tw_dividend_data(stock_id):
+    # 使用 Yahoo 奇摩股市的網頁，對台灣使用者更友善且不易封鎖
+    url = f"https://tw.stock.yahoo.com/quote/{stock_id}/dividend"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
     
-    # 增加一個隨機微小延遲，模擬真人行為
-    time.sleep(random.uniform(0.5, 1.5))
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        return None
     
-    # 獲取配息與基本資料
-    divs = ticker.actions
-    info = ticker.info
-    return divs, info
-
-# --- 輸入區 ---
-stock_id = st.text_input("請輸入台股代號 (如: 2330, 878, 56)", value="2330")
-analyze_btn = st.button("開始分析")
-
-if analyze_btn:
+    soup = BeautifulSoup(response.text, 'html.parser')
+    
+    # 這裡抓取表格中的年度與配息數據
+    # 注意：Yahoo 的網頁結構可能會變動，以下是針對目前的結構抓取
     try:
-        with st.spinner(f'正在分析 {stock_id}，請稍候...'):
-            dividends, info = get_stock_data(stock_id)
+        table = soup.find('ul', {'class': 'M(0) P(0) List(n)'})
+        items = table.find_all('li', recursive=False)
+        
+        data = []
+        for item in items[1:]: # 跳過標題
+            cols = item.find_all('div')
+            year = cols[0].text.strip()
+            div_sum = cols[5].text.strip() # 現金股利總計
+            data.append({"年度": year, "現金股利": float(div_sum)})
             
-            if dividends is None or dividends.empty:
-                st.warning("⚠️ 找不到該代號的配息紀錄。")
-            else:
-                # 處理配息數據
-                div_df = dividends[['Dividends']].resample('YE').sum()
-                div_df.index = div_df.index.year
-                div_df = div_df.sort_index(ascending=False)
-                
-                # 計算連續配息年數
-                amounts = div_df['Dividends'].tolist()
-                consecutive_years = 0
-                for amt in amounts:
-                    if amt > 0:
-                        consecutive_years += 1
-                    else:
-                        break
-                
-                # --- 介面顯示 ---
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("連續配息年數", f"{consecutive_years} 年")
-                with col2:
-                    current_div = amounts[0] if len(amounts) > 0 else 0
-                    st.metric("最新年度股息", f"${current_div:.2f}")
-                with col3:
-                    yld = info.get("dividendYield", 0)
-                    st.metric("預估殖利率", f"{yld * 100:.2f} %" if yld else "N/A")
+        return pd.DataFrame(data)
+    except:
+        return None
 
-                st.subheader("年度配息紀錄圖表")
-                st.bar_chart(div_df)
-                
-                with st.expander("查看原始數據"):
-                    st.table(div_df)
+# --- UI 介面 ---
+stock_id = st.text_input("請輸入台股代號 (如: 2330, 878, 0056)", value="2330")
 
-    except Exception as e:
-        if "RateLimitError" in str(e):
-            st.error("🚨 哎呀！Yahoo Finance 暫時限制了訪問。請等待 10 分鐘後再試，或嘗試輸入不同代號。")
+if st.button("開始分析"):
+    with st.spinner('正在從 Yahoo 奇摩股市獲取數據...'):
+        df = get_tw_dividend_data(stock_id)
+        
+        if df is not None and not df.empty:
+            # 整理數據
+            df = df.sort_values("年度", ascending=False)
+            
+            # 計算連續配息
+            consecutive_years = 0
+            for val in df['現金股利']:
+                if val > 0:
+                    consecutive_years += 1
+                else:
+                    break
+            
+            # --- 顯示亮點指標 ---
+            col1, col2 = st.columns(2)
+            col1.metric("連續配息年數", f"{consecutive_years} 年")
+            col2.metric("最新年度股利", f"${df.iloc[0]['現金股利']:.2f}")
+
+            # --- 圖表 ---
+            st.subheader("歷史配息走勢")
+            chart_df = df.set_index("年度")
+            st.bar_chart(chart_df)
+            
+            with st.expander("查看原始配息明細"):
+                st.table(df)
         else:
-            st.error(f"發生錯誤: {e}")
+            st.error("❌ 無法獲取資料。可能是代號輸入錯誤，或是網頁結構已更新。")
 
-st.divider()
-st.caption("提示：如果遇到封鎖，請嘗試點擊右上角三點選單中的 'Clear cache' 後重整網頁。")
+st.info("💡 這個版本直接抓取台灣 Yahoo 股市網頁，繞過了容易報錯的 API 限制。")
