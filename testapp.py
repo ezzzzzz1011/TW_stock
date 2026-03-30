@@ -25,10 +25,12 @@ st.markdown("""
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
     .styled-table th { background-color: #1e1e28; color: #ffffff; text-align: left; padding: 12px; border-bottom: 2px solid #ffffff; }
     .styled-table td { padding: 12px; border-bottom: 1px solid #444; color: #ffffff; }
-    /* EPS 表格專用樣式 */
-    .eps-table { width: 100%; border-collapse: collapse; background-color: #121218; color: #ffffff; }
-    .eps-table th { background-color: #1e1e28; padding: 15px; text-align: left; border-bottom: 1px solid #444; color: #aaa; }
-    .eps-table td { padding: 15px; border-bottom: 1px solid #222; }
+    
+    /* EPS 表格專用樣式 - 依據圖片優化 */
+    .eps-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    .eps-table th { background-color: #1e1e28; color: #aaa; padding: 15px; text-align: left; border-bottom: 1px solid #333; font-weight: normal; }
+    .eps-table td { padding: 15px; border-bottom: 1px solid #222; color: #ffffff; font-family: 'Consolas'; }
+    .eps-table tr:hover { background-color: #1e1e28; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -45,8 +47,8 @@ def get_safe_data(symbol):
         "raw_divs": [0.0]*4, 
         "msg": "", 
         "last_date": default_date,
-        "multiplier": 4,  # 預設
-        "freq_label": "季" # 預設
+        "multiplier": 4,  
+        "freq_label": "季" 
     }
     
     for suffix in [".TW", ".TWO"]:
@@ -60,7 +62,6 @@ def get_safe_data(symbol):
                 try: res["last_date"] = hist.index[-1].strftime('%Y-%m-%d')
                 except: pass
 
-                # --- 自動偵測配息頻率 ---
                 divs = t.dividends
                 if not divs.empty:
                     d_list = divs.tail(4).tolist()[::-1]
@@ -99,27 +100,21 @@ def get_eps_data(full_ticker):
     """ 抓取近四季 EPS 與獲利數據 """
     try:
         t = yf.Ticker(full_ticker)
-        # 取得季報表
         q_financials = t.quarterly_financials
         if q_financials.empty: return None
         
-        # 轉置並選取近四季
         df = q_financials.T.head(4)
         
-        # 提取所需欄位 (Yahoo Finance 欄位名稱可能變動，需做彈性處理)
-        # EPS 常用 Basic EPS, 毛利用 Gross Profit, 淨利用 Net Income Common Stockholders
-        # 營收用 Total Revenue 計算比例
-        
         results = []
-        accumulated_eps = 0
-        
-        # 由於 yfinance 數據有時不包含毛利率，我們從財報數據手動計算
         for index, row in df.iterrows():
-            date_str = index.strftime('%YQ') + str((index.month-1)//3 + 1)
-            eps = row.get('Basic EPS', 0)
+            # 格式化日期為 2025Q4 樣式
+            quarter = (index.month-1)//3 + 1
+            date_str = f"{index.year}Q{quarter}"
+            
+            eps = row.get('Basic EPS', row.get('Diluted EPS', 0))
             rev = row.get('Total Revenue', 0)
             gp = row.get('Gross Profit', 0)
-            ni = row.get('Net Income Common Stockholders', 0)
+            ni = row.get('Net Income Common Stockholders', row.get('Net Income', 0))
             
             g_margin = (gp / rev * 100) if rev != 0 else 0
             n_margin = (ni / rev * 100) if rev != 0 else 0
@@ -131,14 +126,13 @@ def get_eps_data(full_ticker):
                 "EPS": round(eps, 2)
             })
             
-        # 計算累計 EPS (簡單加總近四期作為示意)
-        # 反轉列表以從舊到新計算累計
+        # 計算累計 EPS (從舊到新累計)
         results.reverse()
         total = 0
         for item in results:
             total += item["EPS"]
             item["累計EPS"] = round(total, 2)
-        results.reverse() # 再轉回來顯示最新在上面
+        results.reverse() # 最新顯示在上方
         
         return results
     except:
@@ -155,22 +149,21 @@ if st.session_state.view == "eps_page" and st.session_state.data:
         st.rerun()
     
     data = st.session_state.data
-    st.title(f"📊 {data['name']} - 獲利表現")
+    st.markdown(f"## {data['name']} - 獲利表現")
     
     with st.spinner("正在加載最新 EPS 數據..."):
         eps_list = get_eps_data(data["full_ticker"])
         
     if eps_list:
-        # 構建 HTML 表格
         rows_html = ""
         for item in eps_list:
             rows_html += f"""
             <tr>
                 <td>{item['日期']}</td>
-                <td>{item['毛利 (%)']}</td>
-                <td>{item['淨利 (%)']}</td>
-                <td>{item['EPS']}</td>
-                <td>{item['累計EPS']}</td>
+                <td>{item['毛利 (%)']:.2f}</td>
+                <td>{item['淨利 (%)']:.2f}</td>
+                <td>{item['EPS']:.2f}</td>
+                <td>{item['累計EPS']:.2f}</td>
             </tr>
             """
             
@@ -192,8 +185,8 @@ if st.session_state.view == "eps_page" and st.session_state.data:
         """
         st.markdown(table_content, unsafe_allow_html=True)
     else:
-        st.warning("暫時無法獲取該標的的詳細季報數據。")
-    st.stop() # 停止渲染後續主頁面內容
+        st.error("無法取得該代號的詳細財務數據，可能該標的（如部分ETF）不提供季度獲利報告。")
+    st.stop()
 
 # --- 主頁面 ---
 st.title("📈 ETF專用 Ez開發")
@@ -226,7 +219,6 @@ with main_col:
                         st.session_state.view = "eps_page"
                         st.rerun()
 
-    # 顯示結果
     if st.session_state.data and st.session_state.data.get("success"):
         data = st.session_state.data
         mult = data["multiplier"]
@@ -272,7 +264,6 @@ with main_col:
 
         st.divider()
 
-        # 估值位階
         st.subheader("📊 估值位階參考")
         p_cheap = avg_annual_div / 0.10
         p_fair = avg_annual_div / 0.07
