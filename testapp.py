@@ -42,8 +42,8 @@ def get_safe_data(symbol):
         "raw_divs": [0.0]*4, 
         "msg": "", 
         "last_date": default_date,
-        "multiplier": 4,  # 預設
-        "freq_label": "季" # 預設
+        "multiplier": 4,  
+        "freq_label": "季" 
     }
     
     for suffix in [".TW", ".TWO"]:
@@ -57,7 +57,6 @@ def get_safe_data(symbol):
                 try: res["last_date"] = hist.index[-1].strftime('%Y-%m-%d')
                 except: pass
 
-                # --- 自動偵測配息頻率 ---
                 divs = t.dividends
                 if not divs.empty:
                     d_list = divs.tail(4).tolist()[::-1]
@@ -90,7 +89,7 @@ def get_safe_data(symbol):
     res["msg"] = f"找不到代號 {symbol}。"
     return res
 
-# --- 抓取 EPS 與獲利數據 (修正淨利與累積邏輯) ---
+# --- 抓取 EPS 與獲利數據 (強力修正版) ---
 def get_eps_data(symbol):
     for suffix in [".TW", ".TWO"]:
         try:
@@ -98,38 +97,47 @@ def get_eps_data(symbol):
             df = t.quarterly_financials
             if df is None or df.empty: continue
             
-            # yf 欄位名稱映射
-            rev = df.loc['Total Revenue'] if 'Total Revenue' in df.index else None
-            gp = df.loc['Gross Profit'] if 'Gross Profit' in df.index else None
-            ni = df.loc['Net Income Common Stockholders'] if 'Net Income Common Stockholders' in df.index else (df.loc['Net Income'] if 'Net Income' in df.index else None)
-            eps = df.loc['Basic EPS'] if 'Basic EPS' in df.index else (df.loc['Diluted EPS'] if 'Diluted EPS' in df.index else None)
+            # 提高對欄位抓取的相容性
+            def get_val(names):
+                for name in names:
+                    if name in df.index: return df.loc[name]
+                return None
 
-            if eps is not None:
+            rev = get_val(['Total Revenue'])
+            gp = get_val(['Gross Profit'])
+            # 優先取稅後淨利
+            ni = get_val(['Net Income Common Stockholders', 'Net Income', 'Net Income Continuous Operations'])
+            eps = get_val(['Basic EPS', 'Diluted EPS'])
+
+            if ni is not None:
                 raw_list = []
-                # 取得最近 4 期並按時間正序排列（為了算累積）
+                # 取得最近 4 期並正序處理累積邏輯
                 cols = df.columns[:4][::-1] 
-                
                 accumulated_eps = 0.0
                 current_year = None
 
                 for col in cols:
                     q_year = col.year
+                    # 依月份判斷季度 (台灣財報通常為 3,6,9,12 月底)
                     q_month = col.month
                     if q_month <= 3: q_label = "Q1"
                     elif q_month <= 6: q_label = "Q2"
                     elif q_month <= 9: q_label = "Q3"
                     else: q_label = "Q4"
                     
-                    # 跨年度重置累積
                     if current_year != q_year:
                         accumulated_eps = 0.0
                         current_year = q_year
                     
-                    val_eps = float(eps[col]) if not pd.isna(eps[col]) else 0.0
-                    accumulated_eps += val_eps
+                    # 修正 EPS 數值：若 Basic EPS 異常，則顯示 N/A 或嘗試校正
+                    val_eps = float(eps[col]) if eps is not None and not pd.isna(eps[col]) and eps[col] != 0 else 0.0
                     
+                    # 修正淨利計算：淨利率 = 淨利 / 營收
                     margin_g = (gp[col] / rev[col] * 100) if rev is not None and gp is not None else 0
                     margin_n = (ni[col] / rev[col] * 100) if rev is not None and ni is not None else 0
+                    
+                    # 累積邏輯
+                    accumulated_eps += val_eps
                     
                     raw_list.append({
                         "日期": f"{q_year}{q_label}",
@@ -139,7 +147,6 @@ def get_eps_data(symbol):
                         "累積 EPS": f"{accumulated_eps:.2f}"
                     })
                 
-                # 轉回倒序顯示 (最新在上面)
                 return pd.DataFrame(raw_list[::-1])
         except: continue
     return None
@@ -167,7 +174,6 @@ with main_col:
                     st.session_state.data = get_safe_data(symbol_input)
                     st.session_state.show_eps = False 
 
-    # 顯示結果
     if st.session_state.data and st.session_state.data.get("success"):
         data = st.session_state.data
         mult = data["multiplier"]
@@ -199,7 +205,6 @@ with main_col:
         d3 = e_cols[2].number_input("前二", value=float(data["raw_divs"][2]), format="%.3f")
         d4 = e_cols[3].number_input("前三", value=float(data["raw_divs"][3]), format="%.3f")
         
-        # --- 按鈕：查詢獲利與當季累積 EPS ---
         st.write("")
         if st.button("🔍 查詢獲利與當季累積 EPS"):
             st.session_state.show_eps = not st.session_state.show_eps 
@@ -225,8 +230,6 @@ with main_col:
             st.markdown(f"<div class='highlight-val'>{real_yield:.2f}%</div>", unsafe_allow_html=True)
 
         st.divider()
-
-        # 估值位階
         st.subheader("📊 估值位階參考")
         p_cheap = avg_annual_div / 0.10
         p_fair = avg_annual_div / 0.07
