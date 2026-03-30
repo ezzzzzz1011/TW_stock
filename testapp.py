@@ -26,11 +26,11 @@ st.markdown("""
     .styled-table th { background-color: #1e1e28; color: #ffffff; text-align: left; padding: 12px; border-bottom: 2px solid #ffffff; }
     .styled-table td { padding: 12px; border-bottom: 1px solid #444; color: #ffffff; }
     
-    /* EPS 表格專用樣式 - 依據圖片優化 */
-    .eps-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    .eps-table th { background-color: #1e1e28; color: #aaa; padding: 15px; text-align: left; border-bottom: 1px solid #333; font-weight: normal; }
-    .eps-table td { padding: 15px; border-bottom: 1px solid #222; color: #ffffff; font-family: 'Consolas'; }
-    .eps-table tr:hover { background-color: #1e1e28; }
+    /* EPS 表格專用樣式 - 嚴格比照圖片風格 */
+    .eps-container { background-color: #0e1117; padding: 10px; border-radius: 5px; }
+    .eps-table { width: 100%; border-collapse: collapse; background-color: #0e1117; }
+    .eps-table th { color: #808495; padding: 12px 15px; text-align: left; border-bottom: 1px solid #1e222d; font-weight: normal; font-size: 1rem; }
+    .eps-table td { padding: 16px 15px; border-bottom: 1px solid #1e222d; color: #ffffff; font-family: 'Consolas', monospace; font-size: 1.1rem; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -97,10 +97,9 @@ def get_safe_data(symbol):
 
 @st.cache_data(ttl=3600)
 def get_eps_data(full_ticker):
-    """ 抓取近四季 EPS 與獲利數據，優化欄位匹配以防出現 nan """
+    """ 抓取近四季 EPS 與獲利數據，解決 nan 問題並確保國字欄位 """
     try:
         t = yf.Ticker(full_ticker)
-        # 同時抓取損益表
         q_fin = t.quarterly_financials
         if q_fin.empty: return None
         
@@ -111,16 +110,15 @@ def get_eps_data(full_ticker):
             quarter = (index.month-1)//3 + 1
             date_str = f"{index.year}Q{quarter}"
             
-            # 彈性匹配欄位 (針對 yfinance 不同的 Key 名稱)
             def get_val(keys):
                 for k in keys:
                     if k in row and not pd.isna(row[k]): return row[k]
                 return 0
 
             eps = get_val(['Basic EPS', 'Diluted EPS', 'BasicEPS', 'DilutedEPS'])
-            rev = get_val(['Total Revenue', 'TotalRevenue', 'Operating Revenue'])
+            rev = get_val(['Total Revenue', 'TotalRevenue', 'Operating Revenue', 'OperatingRevenue'])
             gp = get_val(['Gross Profit', 'GrossProfit'])
-            ni = get_val(['Net Income Common Stockholders', 'Net Income', 'NetIncome'])
+            ni = get_val(['Net Income Common Stockholders', 'Net Income', 'NetIncome', 'Net Income Continuous Operations'])
             
             g_margin = (gp / rev * 100) if rev != 0 else 0
             n_margin = (ni / rev * 100) if rev != 0 else 0
@@ -173,20 +171,22 @@ if st.session_state.view == "eps_page" and st.session_state.data:
             """
             
         table_content = f"""
-        <table class="eps-table">
-            <thead>
-                <tr>
-                    <th>日期</th>
-                    <th>毛利 (%)</th>
-                    <th>淨利 (%)</th>
-                    <th>EPS</th>
-                    <th>累計EPS</th>
-                </tr>
-            </thead>
-            <tbody>
-                {rows_html}
-            </tbody>
-        </table>
+        <div class="eps-container">
+            <table class="eps-table">
+                <thead>
+                    <tr>
+                        <th>日期</th>
+                        <th>毛利 (%)</th>
+                        <th>淨利 (%)</th>
+                        <th>EPS</th>
+                        <th>累計EPS</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows_html}
+                </tbody>
+            </table>
+        </div>
         """
         st.markdown(table_content, unsafe_allow_html=True)
     else:
