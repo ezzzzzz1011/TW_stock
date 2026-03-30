@@ -57,7 +57,7 @@ if stock_code:
                 "項目": ["目前股價", "最近四季累積 EPS", "即時本益比 (PE)", "殖利率", "ROE", "市值 (億)", "股本 (億)"],
                 "數值": [
                     f"{current_price:.2f}",
-                    f"{eps_ttm:.2f}", # 這裡就是你要的累積 EPS
+                    f"{eps_ttm:.2f}",
                     f"{pe_calc:.2f}",
                     f"{dy_fixed:.2f}%",
                     f"{(info.get('returnOnEquity', 0) or 0)*100:.2f}%",
@@ -76,12 +76,13 @@ if stock_code:
                 # 預設直接帶入抓到的累積 EPS
                 eps_input = st.number_input("參考 EPS (累積)", value=float(eps_ttm), step=0.1)
             with col2:
-                pe_target = st.number_input("自訂目標本益比", value=15.0, step=0.1)
+                # 已修改：預設帶入計算出的「即時本益比」，仍可手動修改
+                pe_target = st.number_input("自訂目標本益比", value=float(pe_calc), step=0.1)
 
             fair_price = eps_input * pe_target
             st.metric(label="合理價參考", value=f"{fair_price:.2f}")
 
         except Exception as e:
-            st.error("解析異常，請確認代號正確。")
+            st.error(f"解析異常：{e}")
     else:
         st.error("❌ 找不到該股票，請檢查代號是否正確。")
