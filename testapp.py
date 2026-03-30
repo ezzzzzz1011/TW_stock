@@ -97,24 +97,30 @@ def get_safe_data(symbol):
 
 @st.cache_data(ttl=3600)
 def get_eps_data(full_ticker):
-    """ 抓取近四季 EPS 與獲利數據 """
+    """ 抓取近四季 EPS 與獲利數據，優化欄位匹配以防出現 nan """
     try:
         t = yf.Ticker(full_ticker)
-        q_financials = t.quarterly_financials
-        if q_financials.empty: return None
+        # 同時抓取損益表
+        q_fin = t.quarterly_financials
+        if q_fin.empty: return None
         
-        df = q_financials.T.head(4)
-        
+        df = q_fin.T.head(4)
         results = []
+        
         for index, row in df.iterrows():
-            # 格式化日期為 2025Q4 樣式
             quarter = (index.month-1)//3 + 1
             date_str = f"{index.year}Q{quarter}"
             
-            eps = row.get('Basic EPS', row.get('Diluted EPS', 0))
-            rev = row.get('Total Revenue', 0)
-            gp = row.get('Gross Profit', 0)
-            ni = row.get('Net Income Common Stockholders', row.get('Net Income', 0))
+            # 彈性匹配欄位 (針對 yfinance 不同的 Key 名稱)
+            def get_val(keys):
+                for k in keys:
+                    if k in row and not pd.isna(row[k]): return row[k]
+                return 0
+
+            eps = get_val(['Basic EPS', 'Diluted EPS', 'BasicEPS', 'DilutedEPS'])
+            rev = get_val(['Total Revenue', 'TotalRevenue', 'Operating Revenue'])
+            gp = get_val(['Gross Profit', 'GrossProfit'])
+            ni = get_val(['Net Income Common Stockholders', 'Net Income', 'NetIncome'])
             
             g_margin = (gp / rev * 100) if rev != 0 else 0
             n_margin = (ni / rev * 100) if rev != 0 else 0
@@ -132,7 +138,7 @@ def get_eps_data(full_ticker):
         for item in results:
             total += item["EPS"]
             item["累計EPS"] = round(total, 2)
-        results.reverse() # 最新顯示在上方
+        results.reverse()
         
         return results
     except:
@@ -151,8 +157,7 @@ if st.session_state.view == "eps_page" and st.session_state.data:
     data = st.session_state.data
     st.markdown(f"## {data['name']} - 獲利表現")
     
-    with st.spinner("正在加載最新 EPS 數據..."):
-        eps_list = get_eps_data(data["full_ticker"])
+    eps_list = get_eps_data(data["full_ticker"])
         
     if eps_list:
         rows_html = ""
@@ -185,7 +190,7 @@ if st.session_state.view == "eps_page" and st.session_state.data:
         """
         st.markdown(table_content, unsafe_allow_html=True)
     else:
-        st.error("無法取得該代號的詳細財務數據，可能該標的（如部分ETF）不提供季度獲利報告。")
+        st.error("無法取得該代號的財務數據。請確認該代號是否有公佈季報（ETF通常無EPS數據）。")
     st.stop()
 
 # --- 主頁面 ---
