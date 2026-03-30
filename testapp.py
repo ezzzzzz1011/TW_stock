@@ -5,6 +5,7 @@ import requests
 from bs4 import BeautifulSoup
 import random
 from datetime import datetime
+import re # 新增：用於清洗數據
 
 # --- 網頁設定 ---
 st.set_page_config(page_title="ETF專用 Ez開發", layout="wide")
@@ -29,6 +30,9 @@ st.markdown("""
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
     .styled-table th { background-color: #1e1e28; color: #ffffff; text-align: left; padding: 12px; border-bottom: 2px solid #ffffff; }
     .styled-table td { padding: 12px; border-bottom: 1px solid #444; color: #ffffff; }
+    /* 用於優化 streamlit 原生表格的樣式 */
+    [data-testid="stTable"] table { background-color: #1e1e28; }
+    [data-testid="stTable"] th { color: white !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -91,24 +95,43 @@ def get_safe_data(symbol):
 
 @st.cache_data(ttl=3600)
 def get_etf_holdings(symbol):
-    """ 抓取 ETF 成分股邏輯 """
+    """ 抓取 ETF 成分股邏輯 (優化版) """
     try:
-        url = f"https://tw.stock.yahoo.com/quote/{symbol}.TW/holding"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # 尋找表格內容
-        rows = soup.find_all('li', {'class': 'List(n)'})
-        holdings = []
-        for row in rows[1:]: # 跳過標頭
-            cols = row.find_all('div')
-            if len(cols) >= 3:
-                name = cols[0].text.strip()
-                ratio = cols[2].text.strip()
-                holdings.append({"成分股名稱": name, "持股比例": ratio})
-        
-        return pd.DataFrame(holdings) if holdings else None
+        # 優化選擇器：Yahoo 有時需要 .TW, 有時不用
+        for suffix in [".TW", ""]:
+            url = f"https://tw.stock.yahoo.com/quote/{symbol}{suffix}/holding"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.get(url, headers=headers, timeout=10)
+            if response.status_code != 200: continue
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # 優化選擇器：抓取列表內容，跳過標頭
+            rows = soup.select('div.P\(y\)12px.Bdb\(1px\) > li.List\(n\) > div.D\(f\)')
+            
+            holdings = []
+            for row in rows:
+                cols = row.find_all('div')
+                if len(cols) >= 3:
+                    # 洗滌數據：去除多餘代號、空格與百分比符號
+                    raw_name = cols[0].text.strip()
+                    clean_name = re.sub(r'[.\da-zA-Z]+\s*$', '', raw_name).strip()
+                    
+                    raw_ratio = cols[2].text.strip()
+                    clean_ratio = raw_ratio.replace('%', '').strip()
+                    
+                    holdings.append({"成分股名稱": clean_name, "持股比例": clean_ratio})
+            
+            if holdings:
+                df = pd.DataFrame(holdings)
+                # 確保持股比例是數字，方便排序
+                df["持股比例"] = pd.to_numeric(df["持股比例"], errors='coerce')
+                df = df.dropna().sort_values(by="持股比例", ascending=False).head(10).reset_index(drop=True)
+                # 再格式化回百分比顯示
+                df["持股比例"] = df["持股比例"].apply(lambda x: f"{x:.2f}%")
+                return df
+                
+        return None
     except:
         return None
 
@@ -144,7 +167,6 @@ if st.session_state.page == "main":
             pct = (diff / data["price_hist"]['Close'].iloc[-2]) * 100
             m_color = "#ff4b4b" if diff >= 0 else "#00ff00"
 
-            # 頂部資訊區與跳轉按鈕
             title_c1, title_c2 = st.columns([6, 2])
             with title_c1:
                 st.markdown(f"## {data['name']} <small style='font-size:1rem; color:#aaa;'>(偵測為{fl}配息)</small>", unsafe_allow_html=True)
@@ -263,11 +285,17 @@ if st.session_state.page == "main":
 elif st.session_state.page == "composition":
     # --- 成分股畫面 ---
     data = st.session_state.data
-    st.title(f"📊 {data['name']} - 成分股細節")
     
-    if st.button("⬅️ 返回計算機"):
-        st.session_state.page = "main"
-        st.rerun()
+    # 標題與返回按鈕
+    title_c1, title_c2 = st.columns([6, 2])
+    with title_c1:
+        st.markdown(f"## 📊 {data['name']} - 成分股細節", unsafe_allow_html=True)
+        st.markdown(f"<div class='date-text'>查詢代號：{data.get('symbol')}</div>", unsafe_allow_html=True)
+    with title_c2:
+        st.write("")
+        if st.button("⬅️ 返回計算機"):
+            st.session_state.page = "main"
+            st.rerun()
     
     st.divider()
     
@@ -276,8 +304,9 @@ elif st.session_state.page == "composition":
         
         if holdings_df is not None:
             st.markdown("### 🏆 前十大權重持股")
+            # 使用原生表格並套用 CSS，確保樣式整齊且數據準確
             st.table(holdings_df)
             
             st.info("註：此資料抓取自 Yahoo 財經，權重比例僅供參考，實際持股以投信官網公佈為準。")
         else:
-            st.warning("暫時無法取得該 ETF 的成分股資料，請確認該代號是否為 ETF。")
+            st.warning("暫時無法取得該 ETF 的成分股資料。這可能是因為代號輸入錯誤，或該 ETF 的持股資料在網頁上格式不相符。")
