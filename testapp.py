@@ -25,8 +25,6 @@ st.markdown("""
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
     .styled-table th { background-color: #1e1e28; color: #ffffff; text-align: left; padding: 12px; border-bottom: 2px solid #ffffff; }
     .styled-table td { padding: 12px; border-bottom: 1px solid #444; color: #ffffff; }
-    /* 新增 EPS 表格專用樣式 */
-    .eps-table { width: 100%; background-color: #1e1e28; border-radius: 10px; overflow: hidden; margin-top: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -92,7 +90,7 @@ def get_safe_data(symbol):
     res["msg"] = f"找不到代號 {symbol}。"
     return res
 
-# --- 新增：抓取 EPS 與獲利數據 ---
+# --- 抓取 EPS 與獲利數據 ---
 def get_eps_data(symbol):
     for suffix in [".TW", ".TWO"]:
         try:
@@ -100,8 +98,6 @@ def get_eps_data(symbol):
             df = t.quarterly_financials
             if df is None or df.empty: continue
             
-            # 提取需要的科目
-            # yfinance 欄位名稱可能隨版本微調，使用 get 確保安全
             rev = df.loc['Total Revenue'] if 'Total Revenue' in df.index else None
             gp = df.loc['Gross Profit'] if 'Gross Profit' in df.index else None
             ni = df.loc['Net Income'] if 'Net Income' in df.index else None
@@ -109,11 +105,8 @@ def get_eps_data(symbol):
 
             if eps is not None:
                 eps_list = []
-                # 取前 4 期
                 cols = df.columns[:4]
                 for col in cols:
-                    date_str = col.strftime('%Y Q%q').replace('Q1','Q1').replace('Q2','Q2').replace('Q3','Q3').replace('Q4','Q4')
-                    # 計算毛利率與淨利率
                     margin_g = (gp[col] / rev[col] * 100) if rev is not None and gp is not None else 0
                     margin_n = (ni[col] / rev[col] * 100) if rev is not None and ni is not None else 0
                     
@@ -148,7 +141,7 @@ with main_col:
             if symbol_input:
                 with st.spinner('偵測頻率與抓取數據中...'):
                     st.session_state.data = get_safe_data(symbol_input)
-                    st.session_state.show_eps = False # 重置 EPS 顯示狀態
+                    st.session_state.show_eps = False 
 
     # 顯示結果
     if st.session_state.data and st.session_state.data.get("success"):
@@ -181,6 +174,19 @@ with main_col:
         d2 = e_cols[1].number_input("前一", value=float(data["raw_divs"][1]), format="%.3f")
         d3 = e_cols[2].number_input("前二", value=float(data["raw_divs"][2]), format="%.3f")
         d4 = e_cols[3].number_input("前三", value=float(data["raw_divs"][3]), format="%.3f")
+        
+        # --- 按鈕移動至此：預估年配息上方 ---
+        st.write("")
+        if st.button("🔍 查詢獲利與當季累積 EPS"):
+            st.session_state.show_eps = not st.session_state.show_eps # 切換顯示
+            
+        if st.session_state.show_eps:
+            with st.spinner('抓取財報數據中...'):
+                eps_df = get_eps_data(data["symbol"])
+                if eps_df is not None:
+                    st.table(eps_df)
+                else:
+                    st.warning("此標的暫無季度財報數據或不支援 (部分 ETF 不提供 EPS)")
         
         avg_annual_div = (sum([d1, d2, d3, d4]) / 4) * mult
         real_yield = (avg_annual_div / curr_p) * 100
@@ -226,17 +232,6 @@ with main_col:
         """
         st.markdown(table_html, unsafe_allow_html=True)
 
-        # --- 新增 EPS 顯示區域 ---
-        if st.session_state.show_eps:
-            st.divider()
-            st.subheader("💰 獲利與當季累積 EPS (近四期)")
-            with st.spinner('抓取財報數據中...'):
-                eps_df = get_eps_data(data["symbol"])
-                if eps_df is not None:
-                    st.table(eps_df)
-                else:
-                    st.warning("此標的暫無季度財報數據或不支援 (部分 ETF 不提供 EPS)")
-
         st.divider()
         st.subheader("💰 持有張數試算")
         ratio_54c = st.slider("54C 股利佔比 (%)", 0, 100, 40)
@@ -278,16 +273,5 @@ with side_col:
     st.caption("1. 輸入代號後點擊開始計算。")
     st.caption("2. 系統自動偵測配息頻率 (月/季/半年/年)。")
     st.caption("3. 配息金額可於「歷史配息參考」手動微調。")
-    st.divider()
-    
-    # --- 新增功能：查詢 EPS 按鈕 ---
-    st.write("### 📊 延伸查詢")
-    if st.button("🔍 查詢獲利 EPS"):
-        if st.session_state.data and st.session_state.data.get("success"):
-            st.session_state.show_eps = True
-            st.rerun()
-        else:
-            st.warning("請先完成上方股票代號查詢")
-            
     st.divider()
     st.success("系統正常運行中")
