@@ -4,7 +4,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- 1. 網頁全域設定 ---
 st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
@@ -99,7 +99,7 @@ def get_safe_data_etf(symbol):
         "change": info["change"], "pct": info["pct"], "high": info["high"],
         "low": info["low"], "open": info["open"], "vol": info["vol"],
         "raw_divs": raw_divs, "multiplier": multiplier, "freq_label": freq_label,
-        "last_date": last_date, "price_hist": info["hist"]
+        "last_date": last_date, "price_hist": info["hist"], "full_ticker": info["full_ticker"]
     }
 
 # --- 5. 導覽邏輯 ---
@@ -265,6 +265,67 @@ elif st.session_state.page == "etf_query":
                     每{d['freq_label']}實領：{(total_raw - nhi):,.0f} 元<br>
                     一年累計：{((total_raw - nhi) * d['multiplier']):,.0f} 元
                 </div>""", unsafe_allow_html=True)
+            
+            # --- 新增功能：定期定額回測 ---
+            st.divider()
+            st.subheader("⏳ 定期定額回測 (歷史模擬)")
+            with st.expander("展開回測設定區塊", expanded=True):
+                bt_col1, bt_col2, bt_col3 = st.columns(3)
+                with bt_col1:
+                    bt_monthly = st.number_input("每月投入金額", min_value=1000, value=10000, step=1000)
+                with bt_col2:
+                    bt_start = st.date_input("開始日期", value=datetime.now() - timedelta(days=1095)) # 預設三年前
+                with bt_col3:
+                    bt_reinvest = st.checkbox("股息再投入 (複利)", value=True)
+                
+                if st.button("🚀 執行回測模擬", use_container_width=True):
+                    ticker = yf.Ticker(d["full_ticker"])
+                    bt_hist = ticker.history(start=bt_start)
+                    bt_divs = ticker.dividends[bt_start:]
+                    
+                    if not bt_hist.empty:
+                        # 找出每個月的第一個交易日
+                        monthly_idx = bt_hist.resample('MS').first().index
+                        total_invested = 0
+                        shares_held = 0
+                        cash_pool = 0
+                        
+                        for date in monthly_idx:
+                            if date in bt_hist.index:
+                                price = bt_hist.loc[date, 'Close']
+                                # 投入本金
+                                total_invested += bt_monthly
+                                
+                                # 檢查除息 (簡化模擬：當天領息當天決定投入)
+                                # 實際回測會抓取日期區間內的股息
+                                current_divs = bt_divs[bt_divs.index <= date].sum()
+                                # 這裡做一個差值處理，確保只計算新領到的股息
+                                if 'last_div_total' not in locals(): last_div_total = 0
+                                new_div = (current_divs - last_div_total) * shares_held
+                                last_div_total = current_divs
+                                
+                                buy_power = bt_monthly
+                                if bt_reinvest:
+                                    buy_power += new_div
+                                else:
+                                    cash_pool += new_div
+                                
+                                shares_held += (buy_power / price)
+                        
+                        final_price = bt_hist['Close'].iloc[-1]
+                        stock_value = shares_held * final_price
+                        total_assets = stock_value + (0 if bt_reinvest else cash_pool)
+                        profit = total_assets - total_invested
+                        total_roi = (profit / total_invested) * 100
+                        
+                        r_c1, r_c2, r_c3 = st.columns(3)
+                        r_c1.metric("累積投入本金", f"{total_invested:,.0f}")
+                        r_c2.metric("最終資產價值", f"{total_assets:,.0f}")
+                        r_c3.metric("總報酬率", f"{total_roi:.2f}%", delta=f"{profit:,.0f}")
+                        
+                        st.info(f"💡 模擬結果：從 {bt_start.strftime('%Y-%m')} 至今，累積持有約 {shares_held:.2f} 股。")
+                    else:
+                        st.warning("查無此區間的歷史數據，請縮短日期範圍。")
 
     with side_col:
         st.write("### 📖 說明")
