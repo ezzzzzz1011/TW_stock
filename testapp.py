@@ -15,7 +15,7 @@ if 'page' not in st.session_state:
 if 'data' not in st.session_state: 
     st.session_state.data = None
 
-# --- 3. 自定義 CSS (整合新版樣式) ---
+# --- 3. 自定義 CSS ---
 st.markdown("""
     <style>
     .main { background-color: #121218; color: #ffffff; }
@@ -35,7 +35,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. 核心數據抓取函數 (整合新版 get_safe_data 邏輯) ---
+# --- 4. 核心數據抓取函數 ---
 def get_stock_info(symbol):
     user_agents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
     headers = {'User-Agent': random.choice(user_agents)}
@@ -108,7 +108,7 @@ def go_to(page_name):
     st.rerun()
 
 # ==========================================
-# 首頁：功能導覽
+# 首頁
 # ==========================================
 if st.session_state.page == "home":
     st.title("🚀 台股投資工具箱")
@@ -130,44 +130,55 @@ if st.session_state.page == "home":
             go_to("pk_tool")
 
 # ==========================================
-# 頁面 A：個股查詢系統
+# 頁面 A：個股查詢系統 (已更新說明文字)
 # ==========================================
 elif st.session_state.page == "stock_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("🔍 台股自動估價系統 (個股)")
-    stock_code = st.text_input("請輸入台股代碼 (例如: 2330)", value="")
-    current_price = 0.0
-    if stock_code:
-        info = get_stock_info(stock_code)
-        if info:
-            current_price = info['price']
-            st.markdown(f"## {info['name']}")
-            st.caption(f"資料日期：{datetime.now().strftime('%Y-%m-%d')}")
-            cp1, cp2 = st.columns([2, 1])
-            with cp1:
-                color = "#ff4b4b" if info['change'] > 0 else "#00ff00" if info['change'] < 0 else "#FFFFFF"
-                st.markdown(f"<h1 style='color: {color}; margin-bottom: 0;'>{current_price:.2f}</h1>", unsafe_allow_html=True)
-                st.markdown(f"<h3 style='color: {color}; margin-top: 0;'>{info['change']:+.2f} ({info['pct']:+.2f}%)</h3>", unsafe_allow_html=True)
-            with cp2:
-                st.write("**今日行情細節**")
-                st.write(f"最高: {info['high']:.2f} / 最低: {info['low']:.2f}")
-                st.write(f"開盤: {info['open']:.2f} / 總量: {int(info['vol']/1000):,} 張")
-            st.divider()
-
-    col_eps, col_pe = st.columns(2)
-    with col_eps: eps = st.number_input("輸入該股 EPS (4季累積)", min_value=0.01, step=0.1, value=10.0)
-    with col_pe: pe_target = st.number_input("自訂參考本益比 (PE)", value=15.0, step=0.1)
     
-    if current_price > 0:
-        fair_price = eps * pe_target
-        st.subheader("📊 換算結果")
-        st.metric(label="合理價參考", value=f"{fair_price:.2f}")
-        if current_price <= fair_price: st.success(f"✅ 目前股價 {current_price:.2f} 低於目標參考價")
-        else: st.warning(f"⚠️ 目前股價 {current_price:.2f} 已超過目標參考價")
+    main_col, side_col = st.columns([8, 4])
+    with main_col:
+        stock_code = st.text_input("請輸入台股代碼 (例如: 2330)", value="")
+        current_price = 0.0
+        if stock_code:
+            info = get_stock_info(stock_code)
+            if info:
+                current_price = info['price']
+                st.markdown(f"## {info['name']}")
+                st.markdown(f"<div class='date-text'>資料日期：{datetime.now().strftime('%Y-%m-%d')}</div>", unsafe_allow_html=True)
+                
+                cp1, cp2 = st.columns([2, 1])
+                with cp1:
+                    color = "#ff4b4b" if info['change'] > 0 else "#00ff00" if info['change'] < 0 else "#FFFFFF"
+                    st.markdown(f"<div class='metric-val' style='color:{color}'>{current_price:.2f}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<span style='color:{color}; font-weight:bold; font-size:1.5rem;'>{info['change']:+.2f} ({info['pct']:+.2f}%)</span>", unsafe_allow_html=True)
+                with cp2:
+                    st.caption("今日行情細節")
+                    st.write(f"最高: {info['high']:.2f} / 最低: {info['low']:.2f}")
+                    st.write(f"開盤: {info['open']:.2f} / 總量: {int(info['vol']/1000):,} 張")
+                st.divider()
+
+        col_eps, col_pe = st.columns(2)
+        with col_eps: eps = st.number_input("輸入該股 EPS (4季累積)", min_value=0.01, step=0.1, value=10.0)
+        with col_pe: pe_target = st.number_input("自訂參考本益比 (PE)", value=15.0, step=0.1)
+        
+        if current_price > 0:
+            fair_price = eps * pe_target
+            st.subheader("📊 換算結果")
+            st.markdown(f"<div class='calc-box'>合理價參考：<span class='highlight-val'>{fair_price:.2f}</span></div>", unsafe_allow_html=True)
+            if current_price <= fair_price: st.success(f"✅ 目前股價 {current_price:.2f} 低於目標參考價")
+            else: st.warning(f"⚠️ 目前股價 {current_price:.2f} 已超過目標參考價")
+
+    with side_col:
+        st.write("### 📖 說明")
+        st.caption("1. 輸入股票代碼。")
+        st.caption("2. 輸入股票4季累積EPS。")
+        st.caption("3. 輸入個股本益比。")
         st.divider()
+        st.info("計算公式：EPS × 自訂本益比 = 參考價")
 
 # ==========================================
-# 頁面 B：ETF 分析系統 (已替換為新版邏輯)
+# 頁面 B：ETF 分析系統
 # ==========================================
 elif st.session_state.page == "etf_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -225,14 +236,7 @@ elif st.session_state.page == "etf_query":
             st.subheader("📊 估值位階參考")
             p_cheap, p_fair, p_high = avg_annual/0.10, avg_annual/0.07, avg_annual/0.05
             rec = "💎 便宜買入" if d['price'] <= p_cheap else "✅ 合理持有" if d['price'] <= p_fair else "❌ 昂貴不建議"
-            rec_icon = "💎" if d['price'] <= p_cheap else "✅" if d['price'] <= p_fair else "❌"
-            
-            st.markdown(f"""
-            <div style="background-color:#1e1e28; padding:10px; border-radius:10px; border:1px solid #444; display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                <span style="font-size: 1.5rem;">📢</span>
-                <span style="color: #ffffff; font-weight: bold; font-size: 1.2rem;">系統建議：{rec_icon} {rec}</span>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"<div class='calc-box'>系統建議：<b>{rec}</b></div>", unsafe_allow_html=True)
 
             table_html = f"""
             <table class="styled-table">
@@ -257,26 +261,9 @@ elif st.session_state.page == "etf_query":
                 div_54c = total_raw * (ratio_54c/100)
                 nhi = div_54c * 0.0211 if div_54c >= 20000 else 0
                 st.markdown(f"""<div class="calc-box">
-                    以現價 {d['price']:.2f} 元計算，持有 {hold_lots} 張：<br>
-                    <span class="white-text">預估總投入：{(total_shares * d['price'] * 1.001425):,.0f} 元</span><br>
-                    <span class="white-text">每{d['freq_label']}實領：{(total_raw - nhi):,.0f} 元</span> <span class='tax-text'>{"(已扣二代健保)" if nhi > 0 else ""}</span><br>
-                    <span class="white-text">一年累計：{((total_raw - nhi) * d['multiplier']):,.0f} 元</span>
-                </div>""", unsafe_allow_html=True)
-
-            st.divider()
-            st.subheader("🎯 資產與殖利率規劃")
-            plan_c1, plan_c2 = st.columns(2)
-            with plan_c1:
-                plan_budget = st.number_input("預計投入總資產 (元)", min_value=0, value=1000000, step=100000)
-                plan_yield = st.slider("目標年殖利率 (%)", 3.0, 12.0, float(f"{real_yield:.2f}"), 0.1)
-            with plan_c2:
-                annual_income = plan_budget * (plan_yield / 100)
-                st.markdown(f"""<div class="plan-box">
-                    🎯 規劃結果：<br>
-                    1 年拿多少：<span class="white-text" style="font-size:1.6rem;">{annual_income:,.0f} 元</span><br>
-                    平均每個月：<span class="white-text">{ (annual_income/12):,.0f} 元</span><br>
-                    <hr style="border-top: 1px solid #444; margin:10px 0;">
-                    約需買入 {(plan_budget/d['price']/1000):.1f} 張
+                    預估總投入：{(total_shares * d['price'] * 1.001425):,.0f} 元<br>
+                    每{d['freq_label']}實領：{(total_raw - nhi):,.0f} 元<br>
+                    一年累計：{((total_raw - nhi) * d['multiplier']):,.0f} 元
                 </div>""", unsafe_allow_html=True)
 
     with side_col:
@@ -288,7 +275,7 @@ elif st.session_state.page == "etf_query":
         st.success("系統正常運行中")
 
 # ==========================================
-# 頁面 C：PK 對比工具 (同步使用最新邏輯)
+# 頁面 C：PK 對比工具
 # ==========================================
 elif st.session_state.page == "pk_tool":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -306,8 +293,6 @@ elif st.session_state.page == "pk_tool":
             if r1["success"] and r2["success"]:
                 st.divider()
                 c1, c2 = st.columns(2)
-                
-                # 計算年化指標
                 analysis = []
                 for r in [r1, r2]:
                     avg_annual = (sum(r["raw_divs"]) / 4) * r["multiplier"]
@@ -336,6 +321,3 @@ elif st.session_state.page == "pk_tool":
                     ]
                 })
                 st.table(df)
-            else:
-                error_msg = r1["msg"] if not r1["success"] else r2["msg"]
-                st.error(f"查詢失敗：{error_msg}")
