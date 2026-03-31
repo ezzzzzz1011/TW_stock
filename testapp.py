@@ -262,12 +262,21 @@ elif st.session_state.page == "etf_query":
             with calc_c2:
                 total_shares = hold_lots * 1000
                 total_raw = total_shares * d1
-                div_54c = total_raw * (ratio_54c/100)
-                nhi = div_54c * 0.0211 if div_54c >= 20000 else 0
+                
+                # --- 稅費計算邏輯 ---
+                div_54c_part = total_raw * (ratio_54c/100)
+                # 1. 二代健保 (2.11%) - 單筆 54C 達 20,000 元
+                nhi = div_54c_part * 0.0211 if div_54c_part >= 20000 else 0
+                # 2. 所得稅預扣 (5%) - 單筆 54C 達 2,000 元 (通常超過此門檻會先行扣繳)
+                tax_54c = div_54c_part * 0.05 if div_54c_part >= 2000 else 0
+                
+                # 實領金額 = 總配息 - 健保費 - 預扣稅
+                net_per_period = total_raw - nhi - tax_54c
+                
                 st.markdown(f"""<div class="calc-box">
                     預估總投入：{(total_shares * d['price'] * 1.001425):,.0f} 元<br>
-                    每{d['freq_label']}實領：{(total_raw - nhi):,.0f} 元<br>
-                    一年累計：{((total_raw - nhi) * d['multiplier']):,.0f} 元
+                    每{d['freq_label']}實領：{net_per_period:,.0f} 元 <small>(已扣除 54C 相關稅費)</small><br>
+                    一年累計：{(net_per_period * d['multiplier']):,.0f} 元
                 </div>""", unsafe_allow_html=True)
 
             # --- 新增功能：存股未來複利試算 ---
@@ -291,7 +300,6 @@ elif st.session_state.page == "etf_query":
                 n = custom_years * 12          # 總月份
                 
                 if r > 0:
-                    # 本金複利 + 定期定額複利
                     fv_initial = custom_initial * ((1 + r)**n)
                     fv_monthly = custom_monthly * (((1 + r)**n - 1) / r) * (1 + r)
                     fv = fv_initial + fv_monthly
