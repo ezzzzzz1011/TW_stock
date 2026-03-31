@@ -125,8 +125,8 @@ if st.session_state.page == "home":
         if st.button("ETF 試算與規劃", use_container_width=True, type="primary"):
             go_to("etf_query")
     with col_c:
-        st.subheader("⚔️ PK 對比")
-        if st.button("雙股/ETF PK 工具", use_container_width=True, type="primary"):
+        st.subheader("⚔️ ETF對比")
+        if st.button("ETF對比工具", use_container_width=True, type="primary"):
             go_to("pk_tool")
 
 # ==========================================
