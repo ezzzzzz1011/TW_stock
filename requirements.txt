@@ -6,3 +6,5 @@ beautifulsoup4
 pytz
 plotly
 extra-streamlit-components
+gspread
+google-auth
