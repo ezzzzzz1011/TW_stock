@@ -11,17 +11,16 @@ import extra_streamlit_components as stx
 
 # --- 0. 帳號與獨立儲存系統邏輯 ---
 
-# 初始化 Cookie 管理器 (不要放進 cache 函式中)
-cookie_manager = stx.CookieManager()
+# 1. 將 Cookie 管理器放在最前面，確保全域唯一
+cookie_manager = stx.CookieManager(key="global_cookie_manager")
 
 @st.cache_resource
 def get_user_db():
     # 儲存 帳號:密碼
-    return {"admin": "8888"}
+    return {"admin": "8888", "eason": "1234"} # 這裡可以預設一些帳號
 
 @st.cache_resource
 def get_all_portfolios():
-    # 儲存 帳號:DataFrame (模擬資料庫儲存每個人的內容)
     return {}
 
 user_db = get_user_db()
@@ -34,11 +33,11 @@ if 'current_user' not in st.session_state:
     st.session_state.current_user = None
 
 # --- [自動登入檢查邏輯] ---
+# 只有在尚未登入時才去抓 Cookie
 if not st.session_state.logged_in:
     saved_user = cookie_manager.get(cookie="saved_user")
     saved_pw = cookie_manager.get(cookie="saved_pw")
     
-    # 只有當 Cookie 存在且帳密正確時自動登入
     if saved_user and saved_pw:
         if saved_user in user_db and user_db[saved_user] == saved_pw:
             st.session_state.logged_in = True
@@ -52,7 +51,7 @@ def login_ui():
         <style>
         .auth-container {
             max-width: 400px;
-            margin: 100px auto;
+            margin: 50px auto;
             padding: 30px;
             background-color: #1e1e28;
             border-radius: 15px;
@@ -68,16 +67,17 @@ def login_ui():
     tab1, tab2 = st.tabs(["帳號登入", "新用戶註冊"])
     
     with tab1:
-        u_id = st.text_input("帳號", key="l_user")
-        u_pw = st.text_input("密碼", type="password", key="l_pw")
-        remember_me = st.checkbox("下次自動登入", value=True)
+        u_id = st.text_input("帳號", key="login_user_input")
+        u_pw = st.text_input("密碼", type="password", key="login_pw_input")
+        remember_me = st.checkbox("下次自動登入", value=True, key="remember_me_checkbox")
         
-        if st.button("登入系統", use_container_width=True, type="primary"):
+        if st.button("登入系統", use_container_width=True, type="primary", key="login_btn"):
             if u_id in user_db and user_db[u_id] == u_pw:
                 if remember_me:
-                    # 儲存 Cookie，有效期 30 天
-                    cookie_manager.set("saved_user", u_id, expires_at=datetime.now() + pd.Timedelta(days=30))
-                    cookie_manager.set("saved_pw", u_pw, expires_at=datetime.now() + pd.Timedelta(days=30))
+                    # 儲存 Cookie
+                    expires = datetime.now() + pd.Timedelta(days=30)
+                    cookie_manager.set("saved_user", u_id, expires_at=expires)
+                    cookie_manager.set("saved_pw", u_pw, expires_at=expires)
                 
                 st.session_state.logged_in = True
                 st.session_state.current_user = u_id
@@ -89,10 +89,10 @@ def login_ui():
                 st.error("帳號或密碼錯誤")
                 
     with tab2:
-        new_u = st.text_input("設定帳號", key="r_user")
-        new_p = st.text_input("設定密碼", type="password", key="r_pw")
-        confirm_p = st.text_input("確認密碼", type="password", key="r_confirm")
-        if st.button("完成註冊", use_container_width=True):
+        new_u = st.text_input("設定帳號", key="reg_user_input")
+        new_p = st.text_input("設定密碼", type="password", key="reg_pw_input")
+        confirm_p = st.text_input("確認密碼", type="password", key="reg_confirm_input")
+        if st.button("完成註冊", use_container_width=True, key="reg_btn"):
             if new_u in user_db:
                 st.warning("此帳號已存在")
             elif new_p != confirm_p:
@@ -111,8 +111,9 @@ if not st.session_state.logged_in:
     login_ui()
     st.stop()
 
-# --- 1. 網頁全域設定 ---
+# --- 之後是原本的 1. 網頁全域設定 ... ---
 st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
+# ... 其餘代碼保持不變 ...
 
 # 設定台灣時區
 tw_tz = pytz.timezone('Asia/Taipei')
