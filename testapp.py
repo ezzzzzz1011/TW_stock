@@ -448,36 +448,43 @@ elif st.session_state.page == "pk_tool":
                 st.table(df)
 
 # ==========================================
-# 頁面 D：個人投資組合 (修正輸入消失問題)
+# 頁面 D：個人投資組合 (設定預設顯示 20 行)
 # ==========================================
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
     
     st.markdown("### 📝 編輯並儲存清單")
-    
-    # 【核心改進】：
-    # 使用 data_editor 的 key="portfolio_editor" 讓 Streamlit 管理臨時輸入狀態。
-    # 不要在此處手動寫回 st.session_state.portfolio，否則輸入中途會導致頁面重整並遺失數據。
+
+    # 【核心修改】：初始化時直接建立 20 行空白列
+    if st.session_state.portfolio is None or st.session_state.portfolio.empty:
+        # 建立 20 筆空白資料
+        default_rows = [{"代碼": "", "張數": 0.0} for _ in range(20)]
+        st.session_state.portfolio = pd.DataFrame(default_rows)
+
+    # 使用 data_editor
     edited_df = st.data_editor(
         st.session_state.portfolio, 
-        num_rows="dynamic", 
+        num_rows="dynamic", # 依然保留動態增減功能
         use_container_width=True,
-        key="portfolio_editor"
+        key="portfolio_editor",
+        column_config={
+            "代碼": st.column_config.TextColumn("代碼 (輸入完請按 Enter)", placeholder="例如: 00919"),
+            "張數": st.column_config.NumberColumn("張數", min_value=0.0, step=1.0, format="%.2f")
+        }
     )
 
     if st.button("💾 更新並永久儲存至帳號", type="primary"):
-        # 按下按鈕才一次性將編輯器的結果寫入 Session 和 資料庫
-        st.session_state.portfolio = edited_df
-        all_portfolios[st.session_state.current_user] = edited_df
+        # 存檔時「務必」過濾掉代碼為空的行數，才不會影響後續計算
+        final_df = edited_df.copy()
+        # 確保代碼欄位是字串並去除空白，過濾掉空值
+        final_df["代碼"] = final_df["代碼"].astype(str).str.strip()
+        final_df = final_df[final_df["代碼"] != ""]
+        final_df = final_df[final_df["代碼"] != "NONE"] # 防呆過濾
+        final_df = final_df.dropna(subset=["代碼"])
         
-        results = []
-        total_market_val = 0
-        total_annual_div = 0
-        
-        # 排除掉空的列
-        valid_df = edited_df.dropna(subset=["代碼", "張數"])
-        valid_df = valid_df[valid_df["代碼"].astype(str).str.strip() != ""]
+        st.session_state.portfolio = final_df
+        all_portfolios[st.session_state.current_user] = final_df
         
         if not valid_df.empty:
             with st.spinner("同步市場最新價格中..."):
