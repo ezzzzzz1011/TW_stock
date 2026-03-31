@@ -7,59 +7,32 @@ import random
 from datetime import datetime
 import pytz
 import plotly.express as px
-import extra_streamlit_components as stx
 
 # --- 0. 帳號與獨立儲存系統邏輯 ---
-# --- 0. 帳號與獨立儲存系統邏輯 ---
-
-# 關鍵修正：必須給 CookieManager 一個唯一的 key，並確保它在最外層只被初始化一次
-if 'cookie_manager' not in st.session_state:
-    st.session_state.cookie_manager = stx.CookieManager(key="global_cookie_manager_v1")
-
-cookie_manager = st.session_state.cookie_manager
-
 @st.cache_resource
 def get_user_db():
     # 儲存 帳號:密碼
-    return {"admin": "8888", "eason0": "0000"}
+    return {"admin": "8888"}
 
 @st.cache_resource
 def get_all_portfolios():
+    # 儲存 帳號:DataFrame (這會模擬資料庫儲存每個人的內容)
     return {}
 
 user_db = get_user_db()
 all_portfolios = get_all_portfolios()
 
-# 初始化登入狀態
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'current_user' not in st.session_state:
     st.session_state.current_user = None
-
-# --- [自動登入檢查邏輯] ---
-# 確保只在未登入狀態下執行一次檢查
-if not st.session_state.logged_in:
-    try:
-        saved_user = cookie_manager.get(cookie="saved_user")
-        saved_pw = cookie_manager.get(cookie="saved_pw")
-        
-        if saved_user and saved_pw:
-            if saved_user in user_db and user_db[saved_user] == saved_pw:
-                st.session_state.logged_in = True
-                st.session_state.current_user = saved_user
-                if saved_user not in all_portfolios:
-                    all_portfolios[saved_user] = pd.DataFrame(columns=["代碼", "張數"])
-                st.session_state.portfolio = all_portfolios[saved_user]
-                st.rerun()
-    except:
-        pass # 防止 CookieManager 尚未準備好時報錯
 
 def login_ui():
     st.markdown("""
         <style>
         .auth-container {
             max-width: 400px;
-            margin: 50px auto;
+            margin: 100px auto;
             padding: 30px;
             background-color: #1e1e28;
             border-radius: 15px;
@@ -75,20 +48,13 @@ def login_ui():
     tab1, tab2 = st.tabs(["帳號登入", "新用戶註冊"])
     
     with tab1:
-        # 這裡的 key 也要確保唯一，避免與 tab2 衝突
-        u_id = st.text_input("帳號", key="login_user_field")
-        u_pw = st.text_input("密碼", type="password", key="login_pw_field")
-        remember_me = st.checkbox("下次自動登入", value=True, key="login_remember_checkbox")
-        
-        if st.button("登入系統", use_container_width=True, type="primary", key="login_submit_btn"):
+        u_id = st.text_input("帳號", key="l_user")
+        u_pw = st.text_input("密碼", type="password", key="l_pw")
+        if st.button("登入系統", use_container_width=True, type="primary"):
             if u_id in user_db and user_db[u_id] == u_pw:
-                if remember_me:
-                    expires = datetime.now() + pd.Timedelta(days=30)
-                    cookie_manager.set("saved_user", u_id, expires_at=expires)
-                    cookie_manager.set("saved_pw", u_pw, expires_at=expires)
-                
                 st.session_state.logged_in = True
                 st.session_state.current_user = u_id
+                # 登入時載入該帳號的資料，若無則給空表
                 if u_id not in all_portfolios:
                     all_portfolios[u_id] = pd.DataFrame(columns=["代碼", "張數"])
                 st.session_state.portfolio = all_portfolios[u_id]
@@ -97,10 +63,10 @@ def login_ui():
                 st.error("帳號或密碼錯誤")
                 
     with tab2:
-        new_u = st.text_input("設定帳號", key="register_user_field")
-        new_p = st.text_input("設定密碼", type="password", key="register_pw_field")
-        confirm_p = st.text_input("確認密碼", type="password", key="register_confirm_field")
-        if st.button("完成註冊", use_container_width=True, key="register_submit_btn"):
+        new_u = st.text_input("設定帳號", key="r_user")
+        new_p = st.text_input("設定密碼", type="password", key="r_pw")
+        confirm_p = st.text_input("確認密碼", type="password", key="r_confirm")
+        if st.button("完成註冊", use_container_width=True):
             if new_u in user_db:
                 st.warning("此帳號已存在")
             elif new_p != confirm_p:
@@ -109,103 +75,9 @@ def login_ui():
                 st.error("請填寫帳號密碼")
             else:
                 user_db[new_u] = new_p
+                # 初始化該新帳號的空白投資清單
                 all_portfolios[new_u] = pd.DataFrame(columns=["代碼", "張數"])
-                st.success("註冊成功！請至登入分頁登入")
-                
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# 1. 將 Cookie 管理器放在最前面，確保全域唯一
-cookie_manager = stx.CookieManager(key="global_cookie_manager")
-
-@st.cache_resource
-def get_user_db():
-    # 儲存 帳號:密碼
-    return {"admin": "8888", "eason": "1234"} # 這裡可以預設一些帳號
-
-@st.cache_resource
-def get_all_portfolios():
-    return {}
-
-user_db = get_user_db()
-all_portfolios = get_all_portfolios()
-
-# 初始化登入狀態
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-if 'current_user' not in st.session_state:
-    st.session_state.current_user = None
-
-# --- [自動登入檢查邏輯] ---
-# 只有在尚未登入時才去抓 Cookie
-if not st.session_state.logged_in:
-    saved_user = cookie_manager.get(cookie="saved_user")
-    saved_pw = cookie_manager.get(cookie="saved_pw")
-    
-    if saved_user and saved_pw:
-        if saved_user in user_db and user_db[saved_user] == saved_pw:
-            st.session_state.logged_in = True
-            st.session_state.current_user = saved_user
-            if saved_user not in all_portfolios:
-                all_portfolios[saved_user] = pd.DataFrame(columns=["代碼", "張數"])
-            st.session_state.portfolio = all_portfolios[saved_user]
-
-def login_ui():
-    st.markdown("""
-        <style>
-        .auth-container {
-            max-width: 400px;
-            margin: 50px auto;
-            padding: 30px;
-            background-color: #1e1e28;
-            border-radius: 15px;
-            border: 1px solid #444;
-            text-align: center;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('<div class="auth-container">', unsafe_allow_html=True)
-    st.title("🔐 系統登入")
-    
-    tab1, tab2 = st.tabs(["帳號登入", "新用戶註冊"])
-    
-    with tab1:
-        u_id = st.text_input("帳號", key="login_user_input")
-        u_pw = st.text_input("密碼", type="password", key="login_pw_input")
-        remember_me = st.checkbox("下次自動登入", value=True, key="remember_me_checkbox")
-        
-        if st.button("登入系統", use_container_width=True, type="primary", key="login_btn"):
-            if u_id in user_db and user_db[u_id] == u_pw:
-                if remember_me:
-                    # 儲存 Cookie
-                    expires = datetime.now() + pd.Timedelta(days=30)
-                    cookie_manager.set("saved_user", u_id, expires_at=expires)
-                    cookie_manager.set("saved_pw", u_pw, expires_at=expires)
-                
-                st.session_state.logged_in = True
-                st.session_state.current_user = u_id
-                if u_id not in all_portfolios:
-                    all_portfolios[u_id] = pd.DataFrame(columns=["代碼", "張數"])
-                st.session_state.portfolio = all_portfolios[u_id]
-                st.rerun()
-            else:
-                st.error("帳號或密碼錯誤")
-                
-    with tab2:
-        new_u = st.text_input("設定帳號", key="reg_user_input")
-        new_p = st.text_input("設定密碼", type="password", key="reg_pw_input")
-        confirm_p = st.text_input("確認密碼", type="password", key="reg_confirm_input")
-        if st.button("完成註冊", use_container_width=True, key="reg_btn"):
-            if new_u in user_db:
-                st.warning("此帳號已存在")
-            elif new_p != confirm_p:
-                st.error("密碼不一致")
-            elif not new_u or not new_p:
-                st.error("請填寫帳號密碼")
-            else:
-                user_db[new_u] = new_p
-                all_portfolios[new_u] = pd.DataFrame(columns=["代碼", "張數"])
-                st.success("註冊成功！請至登入分頁登入")
+                st.success("註冊成功！請切換至登入分頁")
                 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -214,9 +86,8 @@ if not st.session_state.logged_in:
     login_ui()
     st.stop()
 
-# --- 之後是原本的 1. 網頁全域設定 ... ---
+# --- 1. 網頁全域設定 ---
 st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
-# ... 其餘代碼保持不變 ...
 
 # 設定台灣時區
 tw_tz = pytz.timezone('Asia/Taipei')
@@ -226,6 +97,7 @@ if 'page' not in st.session_state:
     st.session_state.page = "home"
 if 'data' not in st.session_state: 
     st.session_state.data = None
+# 確保 session_state 裡有當前使用者的資料
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = all_portfolios.get(st.session_state.current_user, pd.DataFrame(columns=["代碼", "張數"]))
 
@@ -326,9 +198,7 @@ def go_to(page_name):
 if st.session_state.page == "home":
     with st.sidebar:
         st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
-        if st.button("🚪 登出並清除自動登入"):
-            cookie_manager.delete("saved_user")
-            cookie_manager.delete("saved_pw")
+        if st.button("🚪 登出系統"):
             st.session_state.logged_in = False
             st.session_state.current_user = None
             st.rerun()
@@ -484,6 +354,8 @@ elif st.session_state.page == "etf_query":
             with calc_c2:
                 total_shares = hold_lots * 1000
                 total_raw = total_shares * d1
+                
+                # --- 稅費計算 (僅保留二代健保) ---
                 div_54c_part = total_raw * (ratio_54c/100)
                 nhi_amt = div_54c_part * 0.0211 if div_54c_part >= 20000 else 0
                 net_per_period = total_raw - nhi_amt
@@ -497,6 +369,7 @@ elif st.session_state.page == "etf_query":
                     一年累計實領：{(net_per_period * d['multiplier']):,.0f} 元
                 </div>""", unsafe_allow_html=True)
 
+            # --- 存股未來複利試算 ---
             st.divider()
             st.subheader("🔮 存股未來財富試算")
             with st.container():
@@ -508,22 +381,28 @@ elif st.session_state.page == "etf_query":
                 
                 r = (custom_yield / 100) / 12
                 n = custom_years * 12
-                fv = custom_initial * ((1 + r)**n) + custom_monthly * (((1 + r)**n - 1) / r) * (1 + r) if r > 0 else custom_initial + (custom_monthly * n)
+                if r > 0:
+                    fv = custom_initial * ((1 + r)**n) + custom_monthly * (((1 + r)**n - 1) / r) * (1 + r)
+                else:
+                    fv = custom_initial + (custom_monthly * n)
                 
                 total_invested = custom_initial + (custom_monthly * n)
                 st.markdown(f"""
                 <div class="calc-box" style="border: 2px solid #ffffff; padding: 25px;">
                     <div style="font-size: 3.2rem; font-weight: bold; color: #ffffff;">$ {fv:,.0f} <small style="font-size: 1.2rem;">元</small></div>
                     <hr style="border: 0.5px solid #444;">
-                    累積投入本金：<b>{total_invested:,.0f}</b> 元 | 
-                    資產成長倍數：<b>{fv/total_invested if total_invested > 0 else 0:.2f}</b> 倍<br>
-                    <span style="color: #00ff00; font-weight: bold;">每月預計領取被動收入：{(fv * (custom_yield / 100)) / 12:,.0f} 元</span>
+                    <p style="font-size: 1rem; color: #fff; line-height: 1.8;">
+                        累積投入本金：<b>{total_invested:,.0f}</b> 元 | 
+                        資產成長倍數：<b>{fv/total_invested if total_invested > 0 else 0:.2f}</b> 倍<br>
+                        <span style="color: #00ff00; font-weight: bold;">每月預計領取被動收入：{(fv * (custom_yield / 100)) / 12:,.0f} 元</span>
+                    </p>
                 </div>
                 """, unsafe_allow_html=True)
 
     with side_col:
         st.write("### 📖 說明")
         st.caption("1. 輸入代號後點擊開始計算。")
+        st.caption("2. 系統自動偵測配息頻率。")
         st.divider()
         st.success("系統正常運行中")
 
@@ -548,9 +427,9 @@ elif st.session_state.page == "pk_tool":
                 c1, c2 = st.columns(2)
                 analysis = []
                 for r in [r1, r2]:
-                    avg_div = (sum(r["raw_divs"]) / 4) * r["multiplier"]
-                    y = (avg_div / r['price'] * 100) if r['price'] > 0 else 0
-                    analysis.append({"annual": avg_div, "yield": y})
+                    avg_annual = (sum(r["raw_divs"]) / 4) * r["multiplier"]
+                    real_yield = (avg_annual / r['price']) * 100 if r['price'] > 0 else 0
+                    analysis.append({"annual_div": avg_annual, "yield": real_yield})
 
                 for i, r in enumerate([r1, r2]):
                     with [c1, c2][i]:
@@ -563,8 +442,8 @@ elif st.session_state.page == "pk_tool":
                 
                 df = pd.DataFrame({
                     "指標項目": ["目前價格", "當前漲幅", "配息頻率", "預估年配息", "實質殖利率"],
-                    f"{code1}": [f"{r1['price']:.2f}", f"{r1['pct']:.2f}%", r1['freq_label'], f"{analysis[0]['annual']:.2f}", f"{analysis[0]['yield']:.2f}%"],
-                    f"{code2}": [f"{r2['price']:.2f}", f"{r2['pct']:.2f}%", r2['freq_label'], f"{analysis[1]['annual']:.2f}", f"{analysis[1]['yield']:.2f}%"]
+                    f"{code1}": [f"{r1['price']:.2f}", f"{r1['pct']:.2f}%", r1['freq_label'], f"{analysis[0]['annual_div']:.2f}", f"{analysis[0]['yield']:.2f}%"],
+                    f"{code2}": [f"{r2['price']:.2f}", f"{r2['pct']:.2f}%", r2['freq_label'], f"{analysis[1]['annual_div']:.2f}", f"{analysis[1]['yield']:.2f}%"]
                 })
                 st.table(df)
 
@@ -577,21 +456,27 @@ elif st.session_state.page == "portfolio":
     
     st.markdown("### 📝 編輯並儲存清單")
     
-    # 透過 key="portfolio_editor" 讓 Streamlit 自動追蹤刪除與編輯
+    # 修正重點：使用 st.data_editor 並確保它能正確寫回 session_state
+    # 這裡的 key="portfolio_editor" 讓 Streamlit 自動追蹤變動
     edited_df = st.data_editor(
         st.session_state.portfolio, 
         num_rows="dynamic", 
         use_container_width=True,
         key="portfolio_editor"
     )
+    
+    # 只要編輯內容有變，就同步回 session_state
     st.session_state.portfolio = edited_df
 
     if st.button("💾 更新並永久儲存至帳號", type="primary"):
+        # 同步回全局 cache_resource
         all_portfolios[st.session_state.current_user] = st.session_state.portfolio
         
         results = []
         total_market_val = 0
         total_annual_div = 0
+        
+        # 排除掉空的列
         valid_df = st.session_state.portfolio.dropna(subset=["代碼", "張數"])
         
         if not valid_df.empty:
@@ -619,13 +504,19 @@ elif st.session_state.page == "portfolio":
                 m1, m2, m3 = st.columns(3)
                 m1.metric("總資產規模", f"${total_market_val:,.0f}")
                 m2.metric("預估年領股息", f"${total_annual_div:,.0f}")
-                avg_y = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
-                m3.metric("組合平均殖利率", f"{avg_y:.2f}%")
+                avg_yield = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
+                m3.metric("組合平均殖利率", f"{avg_yield:.2f}%")
                 
                 col_chart, col_table = st.columns([1, 1])
                 with col_chart:
-                    fig = px.pie(res_df, values='持有價值', names='名稱', title="資產配置分佈圖")
-                    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white")
+                    fig = px.pie(res_df, values='持有價值', names='名稱', 
+                                 title="資產配置分佈圖", color_discrete_sequence=px.colors.qualitative.Pastel)
+                    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
                     st.plotly_chart(fig, use_container_width=True)
                 with col_table:
+                    st.write("#### 詳細數據")
                     st.dataframe(res_df, use_container_width=True)
+            else:
+                st.error("未能抓取到數據，請檢查代碼。")
+        else:
+            st.warning("清單為空。")
