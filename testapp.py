@@ -7,8 +7,15 @@ import random
 from datetime import datetime
 import pytz
 import plotly.express as px
+import extra_streamlit_components as stx  # 新增套件
 
-# --- 0. 帳號與獨立儲存系統邏輯 ---
+# --- 0. Cookie 管理器初始化 ---
+@st.cache_resource
+def get_cookie_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_cookie_manager()
+
 @st.cache_resource
 def get_user_db():
     # 儲存 帳號:密碼
@@ -16,16 +23,31 @@ def get_user_db():
 
 @st.cache_resource
 def get_all_portfolios():
-    # 儲存 帳號:DataFrame (這會模擬資料庫儲存每個人的內容)
+    # 儲存 帳號:DataFrame (模擬資料庫儲存每個人的內容)
     return {}
 
 user_db = get_user_db()
 all_portfolios = get_all_portfolios()
 
+# --- 登入狀態邏輯 ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'current_user' not in st.session_state:
     st.session_state.current_user = None
+
+# --- [自動登入檢查] ---
+# 如果尚未登入，檢查瀏覽器是否有 Cookie
+if not st.session_state.logged_in:
+    saved_user = cookie_manager.get(cookie="saved_user")
+    saved_pw = cookie_manager.get(cookie="saved_pw")
+    
+    if saved_user and saved_pw:
+        if saved_user in user_db and user_db[saved_user] == saved_pw:
+            st.session_state.logged_in = True
+            st.session_state.current_user = saved_user
+            if saved_user not in all_portfolios:
+                all_portfolios[saved_user] = pd.DataFrame(columns=["代碼", "張數"])
+            st.session_state.portfolio = all_portfolios[saved_user]
 
 def login_ui():
     st.markdown("""
@@ -50,11 +72,18 @@ def login_ui():
     with tab1:
         u_id = st.text_input("帳號", key="l_user")
         u_pw = st.text_input("密碼", type="password", key="l_pw")
+        # 記住我選項
+        remember_me = st.checkbox("下回自動登入", value=True)
+        
         if st.button("登入系統", use_container_width=True, type="primary"):
             if u_id in user_db and user_db[u_id] == u_pw:
+                # 如果勾選記住我，將資訊存入 Cookie (保存 30 天)
+                if remember_me:
+                    cookie_manager.set("saved_user", u_id, expires_at=datetime.now() + pd.Timedelta(days=30))
+                    cookie_manager.set("saved_pw", u_pw, expires_at=datetime.now() + pd.Timedelta(days=30))
+                
                 st.session_state.logged_in = True
                 st.session_state.current_user = u_id
-                # 登入時載入該帳號的資料，若無則給空表
                 if u_id not in all_portfolios:
                     all_portfolios[u_id] = pd.DataFrame(columns=["代碼", "張數"])
                 st.session_state.portfolio = all_portfolios[u_id]
@@ -75,7 +104,6 @@ def login_ui():
                 st.error("請填寫帳號密碼")
             else:
                 user_db[new_u] = new_p
-                # 初始化該新帳號的空白投資清單
                 all_portfolios[new_u] = pd.DataFrame(columns=["代碼", "張數"])
                 st.success("註冊成功！請切換至登入分頁")
                 
@@ -198,7 +226,10 @@ def go_to(page_name):
 if st.session_state.page == "home":
     with st.sidebar:
         st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
-        if st.button("🚪 登出系統"):
+        if st.button("🚪 登出並清除自動登入"):
+            # 登出時清除 Cookie
+            cookie_manager.delete("saved_user")
+            cookie_manager.delete("saved_pw")
             st.session_state.logged_in = False
             st.session_state.current_user = None
             st.rerun()
@@ -225,6 +256,8 @@ if st.session_state.page == "home":
         if st.button("個人投資組合", use_container_width=True, type="primary"):
             go_to("portfolio")
 
+# 這裡以下維持你原本的所有功能頁面代碼 (stock_query, etf_query, pk_tool, portfolio)...
+# (篇幅關係省略重複部分，直接貼上你原本的剩餘代碼即可)
 # ==========================================
 # 頁面 A：個股查詢系統
 # ==========================================
