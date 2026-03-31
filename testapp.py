@@ -1,11 +1,3 @@
-這是我為你整合後的程式碼。我將第一段代碼中的**完整功能介面**與第二段代碼中的 **Google Sheets 雲端資料庫驗證邏輯** 進行了合併。
-
-### 整合重點：
-1.  **雲端身分驗證**：登入系統現在會直接連線至你的 Google Sheets (`MyStockDB`) 的 `工作表2` 比對帳號密碼，不再使用程式碼內的靜態 `admin` 帳號。
-2.  **雲端投資組合**：個人投資組合頁面會從 `工作表1` 讀取屬於該登入使用者的資料，並在點擊儲存時同步回雲端。
-3.  **功能完整保留**：保留了第一段代碼中所有的個股估價、ETF 試算、PK 對比工具以及複利計算功能。
-
-```python
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -25,7 +17,7 @@ from gspread_streamlit import gspread_client
 GOOGLE_SERVICE_ACCOUNT_INFO = {
   "type": "service_account",
   "project_id": "stock-app-db-491912",
-  # ... 請確保這裡包含您完整的 Service Account JSON 內容 ...
+  # ... 此處應貼上完整的 Service Account JSON 內容 ...
 }
 
 # 連接 Google Sheets 函數
@@ -45,6 +37,65 @@ def get_sheet_data(sheet_name):
         st.error(f"連線資料庫失敗: {e}")
         return None, pd.DataFrame()
 
+# ==========================================
+# 1. 登入與驗證邏輯
+# ==========================================
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'current_user' not in st.session_state:
+    st.session_state.current_user = None
+
+def login_ui():
+    st.markdown("""
+        <style>
+        .auth-container { max-width: 400px; margin: 100px auto; padding: 30px; background-color: #1e1e28; border-radius: 15px; border: 1px solid #444; text-align: center; }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<div class="auth-container">', unsafe_allow_html=True)
+    st.title("🔐 系統登入")
+    
+    # 從 Google Sheets 讀取帳號資料 (工作表2)
+    ws, users_df = get_sheet_data("工作表2")
+    
+    tab1, tab2 = st.tabs(["帳號登入", "新用戶註冊"])
+    
+    with tab1:
+        u_id = st.text_input("帳號", key="l_user")
+        u_pw = st.text_input("密碼", type="password", key="l_pw")
+        
+        if st.button("登入系統", use_container_width=True, type="primary"):
+            if not users_df.empty:
+                # 確保密碼比對時型別一致
+                user_match = users_df[(users_df['username'] == u_id) & (users_df['password'].astype(str) == str(u_pw))]
+                if not user_match.empty:
+                    st.session_state.logged_in = True
+                    st.session_state.current_user = u_id
+                    st.success("登入成功！")
+                    st.rerun()
+                else:
+                    st.error("帳號或密碼錯誤")
+            else:
+                st.error("無法讀取用戶資料庫")
+                
+    with tab2:
+        new_u = st.text_input("設定帳號", key="r_user")
+        new_p = st.text_input("設定密碼", type="password", key="r_pw")
+        if st.button("完成註冊", use_container_width=True):
+            if not users_df.empty and new_u in users_df['username'].values:
+                st.warning("此帳號已存在")
+            elif not new_u or not new_p:
+                st.error("請填寫完整資訊")
+            else:
+                ws.append_row([new_u, new_p])
+                st.success("註冊成功！請切換至登入分頁")
+                
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# 執行登入檢查
+if not st.session_state.logged_in:
+    login_ui()
+    st.stop()
 # ==========================================
 # 1. 登入與記憶密碼邏輯
 # ==========================================
