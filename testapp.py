@@ -32,7 +32,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. 核心數據抓取函數 ---
+# --- 4. 核心數據抓取函數 (中文化增強版) ---
 def get_stock_info(symbol):
     user_agents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
     headers = {'User-Agent': random.choice(user_agents)}
@@ -42,6 +42,7 @@ def get_stock_info(symbol):
             t = yf.Ticker(full_ticker)
             hist = t.history(period="5d")
             if not hist.empty:
+                # 優先從 Yahoo 股市網頁抓取中文名稱
                 name = symbol
                 try:
                     name_url = f"https://tw.stock.yahoo.com/quote/{full_ticker}"
@@ -52,6 +53,7 @@ def get_stock_info(symbol):
                 except:
                     name = t.info.get('shortName', symbol)
                 
+                # 特定代碼強制修正
                 if symbol == "2330": name = "台積電"
                 
                 curr_p = hist['Close'].iloc[-1]
@@ -76,9 +78,11 @@ def get_stock_info(symbol):
 
 @st.cache_data(ttl=600)
 def get_safe_data_etf(symbol):
+    # 這裡與 get_stock_info 邏輯類似但針對 ETF 頁面做細節微調
     info = get_stock_info(symbol)
     if not info: return {"success": False, "msg": f"找不到代號 {symbol}"}
     
+    # 額外抓取最近四筆配息 (ETF 專用)
     t = yf.Ticker(f"{symbol}.TW" if "." not in str(symbol) else symbol)
     divs = t.dividends
     raw_divs = [0.0]*4
@@ -175,7 +179,7 @@ elif st.session_state.page == "stock_query":
 # ==========================================
 elif st.session_state.page == "etf_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
-    st.title("📈 ETF 專用分析")
+    st.title("📈 ETF 專用 Ez開發")
     
     main_col, side_col = st.columns([8, 4])
     with main_col:
@@ -224,6 +228,7 @@ elif st.session_state.page == "etf_query":
             rec = "💎 便宜買入" if d['price'] <= p_cheap else "✅ 合理持有" if d['price'] <= p_fair else "❌ 昂貴不建議"
             st.info(f"系統建議：{rec}")
             
+            # 張數試算
             st.subheader("💰 持有張數試算")
             hold_lots = st.number_input("持有張數", min_value=0, value=10)
             total_shares = hold_lots * 1000
@@ -234,34 +239,22 @@ elif st.session_state.page == "etf_query":
         st.caption("1. 輸入代號後點擊開始計算。  \n2. 系統自動偵測配息頻率。  \n3. 配息金額可手動微調。")
 
 # ==========================================
-# 頁面 C：PK 對比工具 (全面同步 ETF 殖利率邏輯)
+# 頁面 C：PK 對比工具
 # ==========================================
 elif st.session_state.page == "pk_tool":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("⚔️ 雙股 PK 對比工具")
     
     col_in1, col_in2 = st.columns(2)
-    with col_in1: code1 = st.text_input("輸入代碼 A", value="00919").strip().upper()
-    with col_in2: code2 = st.text_input("輸入代碼 B", value="00878").strip().upper()
+    with col_in1: code1 = st.text_input("輸入代碼 A", value="2330").strip().upper()
+    with col_in2: code2 = st.text_input("輸入代碼 B", value="2454").strip().upper()
     
     if st.button("開始交叉 PK"):
         with st.spinner("抓取對比數據中..."):
-            # 同步調用 get_safe_data_etf
-            r1 = get_safe_data_etf(code1)
-            r2 = get_safe_data_etf(code2)
-            
-            if r1["success"] and r2["success"]:
+            r1, r2 = get_stock_info(code1), get_stock_info(code2)
+            if r1 and r2:
                 st.divider()
                 c1, c2 = st.columns(2)
-                
-                # 計算 PK 雙方的年化指標
-                analysis = []
-                for r in [r1, r2]:
-                    # 套用與 ETF 頁面完全相同的計算邏輯
-                    avg_annual = (sum(r["raw_divs"]) / 4) * r["multiplier"]
-                    real_yield = (avg_annual / r['price']) * 100 if r['price'] > 0 else 0
-                    analysis.append({"annual_div": avg_annual, "yield": real_yield})
-
                 for i, r in enumerate([r1, r2]):
                     with [c1, c2][i]:
                         color = "#FF0000" if r['change'] > 0 else "#00FF00"
@@ -269,22 +262,14 @@ elif st.session_state.page == "pk_tool":
                             <h3>{r['name']}</h3>
                             <h2 style="color:{color}">{r['price']:.2f}</h2>
                             <p>{r['change']:+.2f} ({r['pct']:+.2f}%)</p>
-                            <p style="font-size:0.8rem; color:#888;">{r['freq_label']}配頻率</p>
                         </div>""", unsafe_allow_html=True)
                 
-                # PK 表格：使用與 ETF 模組同步的計算數值
+                # PK 表格
                 df = pd.DataFrame({
-                    "指標項目": ["名稱", "目前價格", "今日漲跌", "當前漲幅", "配息頻率", "預估年配息", "實質殖利率"],
-                    f"{code1}": [
-                        r1['name'], f"{r1['price']:.2f}", f"{r1['change']:+.2f}", f"{r1['pct']:.2f}%", 
-                        r1['freq_label'], f"{analysis[0]['annual_div']:.2f}", f"{analysis[0]['yield']:.2f}%"
-                    ],
-                    f"{code2}": [
-                        r2['name'], f"{r2['price']:.2f}", f"{r2['change']:+.2f}", f"{r2['pct']:.2f}%", 
-                        r2['freq_label'], f"{analysis[1]['annual_div']:.2f}", f"{analysis[1]['yield']:.2f}%"
-                    ]
+                    "指標項目": ["名稱", "目前價格", "今日漲跌", "當前漲幅", "預估年配息", "預估殖利率"],
+                    f"{code1}": [r1['name'], f"{r1['price']:.2f}", f"{r1['change']:+.2f}", f"{r1['pct']:.2f}%", f"{r1['div']:.2f}", f"{r1['yield']:.2f}%"],
+                    f"{code2}": [r2['name'], f"{r2['price']:.2f}", f"{r2['change']:+.2f}", f"{r2['pct']:.2f}%", f"{r2['div']:.2f}", f"{r2['yield']:.2f}%"]
                 })
                 st.table(df)
             else:
-                error_msg = r1["msg"] if not r1["success"] else r2["msg"]
-                st.error(f"查詢失敗：{error_msg}")
+                st.error("查詢失敗，請檢查代碼。")
