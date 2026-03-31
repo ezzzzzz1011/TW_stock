@@ -448,27 +448,36 @@ elif st.session_state.page == "pk_tool":
                 st.table(df)
 
 # ==========================================
-# 頁面 D：個人投資組合 (支援帳號獨立儲存)
+# 頁面 D：個人投資組合 (修正編輯與刪除邏輯)
 # ==========================================
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
     
     st.markdown("### 📝 編輯並儲存清單")
-    # 從 session_state 讀取目前帳號的清單
-    edited_df = st.data_editor(st.session_state.portfolio, num_rows="dynamic", use_container_width=True)
     
+    # 修正重點：使用 st.data_editor 並確保它能正確寫回 session_state
+    # 這裡的 key="portfolio_editor" 讓 Streamlit 自動追蹤變動
+    edited_df = st.data_editor(
+        st.session_state.portfolio, 
+        num_rows="dynamic", 
+        use_container_width=True,
+        key="portfolio_editor"
+    )
+    
+    # 只要編輯內容有變，就同步回 session_state
+    st.session_state.portfolio = edited_df
+
     if st.button("💾 更新並永久儲存至帳號", type="primary"):
-        # 1. 更新 session_state
-        st.session_state.portfolio = edited_df
-        # 2. 同步回全局 cache_resource (模擬存檔)
-        all_portfolios[st.session_state.current_user] = edited_df
+        # 同步回全局 cache_resource
+        all_portfolios[st.session_state.current_user] = st.session_state.portfolio
         
         results = []
         total_market_val = 0
         total_annual_div = 0
         
-        valid_df = edited_df.dropna(subset=["代碼", "張數"])
+        # 排除掉空的列
+        valid_df = st.session_state.portfolio.dropna(subset=["代碼", "張數"])
         
         if not valid_df.empty:
             with st.spinner("同步市場最新價格中..."):
