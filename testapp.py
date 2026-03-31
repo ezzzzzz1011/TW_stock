@@ -8,16 +8,24 @@ from datetime import datetime
 import pytz
 import plotly.express as px
 
-# --- 0. 登入/註冊系統邏輯 ---
+# --- 0. 帳號與獨立儲存系統邏輯 ---
 @st.cache_resource
 def get_user_db():
-    # 預設一個管理員帳號
+    # 儲存 帳號:密碼
     return {"admin": "8888"}
 
+@st.cache_resource
+def get_all_portfolios():
+    # 儲存 帳號:DataFrame (這會模擬資料庫儲存每個人的內容)
+    return {}
+
 user_db = get_user_db()
+all_portfolios = get_all_portfolios()
 
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
+if 'current_user' not in st.session_state:
+    st.session_state.current_user = None
 
 def login_ui():
     st.markdown("""
@@ -45,6 +53,11 @@ def login_ui():
         if st.button("登入系統", use_container_width=True, type="primary"):
             if u_id in user_db and user_db[u_id] == u_pw:
                 st.session_state.logged_in = True
+                st.session_state.current_user = u_id
+                # 登入時載入該帳號的資料，若無則給空表
+                if u_id not in all_portfolios:
+                    all_portfolios[u_id] = pd.DataFrame(columns=["代碼", "張數"])
+                st.session_state.portfolio = all_portfolios[u_id]
                 st.rerun()
             else:
                 st.error("帳號或密碼錯誤")
@@ -62,11 +75,13 @@ def login_ui():
                 st.error("請填寫帳號密碼")
             else:
                 user_db[new_u] = new_p
+                # 初始化該新帳號的空白投資清單
+                all_portfolios[new_u] = pd.DataFrame(columns=["代碼", "張數"])
                 st.success("註冊成功！請切換至登入分頁")
                 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# 判斷是否登入，未登入則停止執行後續程式碼
+# 執行登入檢查
 if not st.session_state.logged_in:
     login_ui()
     st.stop()
@@ -82,9 +97,9 @@ if 'page' not in st.session_state:
     st.session_state.page = "home"
 if 'data' not in st.session_state: 
     st.session_state.data = None
-# 初始化投資組合資料 (改為空表)
+# 確保 session_state 裡有當前使用者的資料
 if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = pd.DataFrame(columns=["代碼", "張數"])
+    st.session_state.portfolio = all_portfolios.get(st.session_state.current_user, pd.DataFrame(columns=["代碼", "張數"]))
 
 # --- 3. 自定義 CSS ---
 st.markdown("""
@@ -181,10 +196,11 @@ def go_to(page_name):
 # 首頁
 # ==========================================
 if st.session_state.page == "home":
-    # 加入登出按鈕
     with st.sidebar:
+        st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
         if st.button("🚪 登出系統"):
             st.session_state.logged_in = False
+            st.session_state.current_user = None
             st.rerun()
 
     st.title("🚀 台股個股/ETF查詢 Ez開發")
@@ -432,23 +448,26 @@ elif st.session_state.page == "pk_tool":
                 st.table(df)
 
 # ==========================================
-# 頁面 D：個人投資組合
+# 頁面 D：個人投資組合 (支援帳號獨立儲存)
 # ==========================================
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
-    st.title("💼 我的投資組合清單")
+    st.title(f"💼 {st.session_state.current_user} 的投資組合")
     
-    st.markdown("### 📝 編輯清單")
-    # 使用 data_editor 並允許動態新增列
+    st.markdown("### 📝 編輯並儲存清單")
+    # 從 session_state 讀取目前帳號的清單
     edited_df = st.data_editor(st.session_state.portfolio, num_rows="dynamic", use_container_width=True)
     
-    if st.button("更新並計算資產佔比", type="primary"):
+    if st.button("💾 更新並永久儲存至帳號", type="primary"):
+        # 1. 更新 session_state
         st.session_state.portfolio = edited_df
+        # 2. 同步回全局 cache_resource (模擬存檔)
+        all_portfolios[st.session_state.current_user] = edited_df
+        
         results = []
         total_market_val = 0
         total_annual_div = 0
         
-        # 過濾掉空的代碼或張數
         valid_df = edited_df.dropna(subset=["代碼", "張數"])
         
         if not valid_df.empty:
@@ -457,20 +476,15 @@ elif st.session_state.page == "portfolio":
                     code = str(row["代碼"]).strip().upper()
                     try:
                         shares = float(row["張數"]) * 1000
-                    except:
-                        continue
-                        
+                    except: continue
                     if code:
                         data = get_safe_data_etf(code)
                         if data["success"]:
                             m_val = data["price"] * shares
                             ann_div = (sum(data["raw_divs"]) / 4) * data["multiplier"] * shares
                             results.append({
-                                "名稱": data["name"],
-                                "代碼": code,
-                                "現價": data["price"],
-                                "持有價值": m_val,
-                                "預估年領股息": ann_div
+                                "名稱": data["name"], "代碼": code, "現價": data["price"],
+                                "持有價值": m_val, "預估年領股息": ann_div
                             })
                             total_market_val += m_val
                             total_annual_div += ann_div
@@ -478,7 +492,6 @@ elif st.session_state.page == "portfolio":
             if results:
                 res_df = pd.DataFrame(results)
                 st.divider()
-                
                 m1, m2, m3 = st.columns(3)
                 m1.metric("總資產規模", f"${total_market_val:,.0f}")
                 m2.metric("預估年領股息", f"${total_annual_div:,.0f}")
@@ -488,15 +501,13 @@ elif st.session_state.page == "portfolio":
                 col_chart, col_table = st.columns([1, 1])
                 with col_chart:
                     fig = px.pie(res_df, values='持有價值', names='名稱', 
-                                 title="資產配置分佈圖",
-                                 color_discrete_sequence=px.colors.qualitative.Pastel)
+                                 title="資產配置分佈圖", color_discrete_sequence=px.colors.qualitative.Pastel)
                     fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
                     st.plotly_chart(fig, use_container_width=True)
-                
                 with col_table:
                     st.write("#### 詳細數據")
                     st.dataframe(res_df, use_container_width=True)
             else:
-                st.error("未能抓取到有效的代碼數據，請檢查代碼是否正確。")
+                st.error("未能抓取到數據，請檢查代碼。")
         else:
-            st.warning("清單目前為空，請在表格中輸入代碼與張數。")
+            st.warning("清單為空。")
