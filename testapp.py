@@ -7,6 +7,7 @@ import random
 from datetime import datetime
 import pytz
 import plotly.express as px
+import os
 
 # --- 1. 網頁全域設定 ---
 st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
@@ -14,16 +15,30 @@ st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍
 # 設定台灣時區
 tw_tz = pytz.timezone('Asia/Taipei')
 
-# --- 2. 初始化頁面狀態 ---
+# --- 2. 資料持久化邏輯 (存檔與讀檔) ---
+DB_FILE = "my_portfolio.csv"
+
+def load_portfolio():
+    if os.path.exists(DB_FILE):
+        try:
+            return pd.read_csv(DB_FILE, dtype={"代碼": str})
+        except:
+            return pd.DataFrame(columns=["代碼", "張數"])
+    return pd.DataFrame(columns=["代碼", "張數"])
+
+def save_portfolio(df):
+    df.to_csv(DB_FILE, index=False)
+
+# --- 3. 初始化頁面狀態 ---
 if 'page' not in st.session_state:
     st.session_state.page = "home"
 if 'data' not in st.session_state: 
     st.session_state.data = None
-# 初始化投資組合資料 (改為空表)
+# 從檔案讀取清單
 if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = pd.DataFrame(columns=["代碼", "張數"])
+    st.session_state.portfolio = load_portfolio()
 
-# --- 3. 自定義 CSS ---
+# --- 4. 自定義 CSS ---
 st.markdown("""
     <style>
     .main { background-color: #121218; color: #ffffff; }
@@ -43,7 +58,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. 核心數據抓取函數 ---
+# --- 5. 核心數據抓取函數 ---
 def get_stock_info(symbol):
     user_agents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
     headers = {'User-Agent': random.choice(user_agents)}
@@ -109,7 +124,7 @@ def get_safe_data_etf(symbol):
         "last_date": last_date, "price_hist": info["hist"], "full_ticker": info["full_ticker"]
     }
 
-# --- 5. 導覽邏輯 ---
+# --- 6. 導覽邏輯 ---
 def go_to(page_name):
     st.session_state.page = page_name
     st.rerun()
@@ -363,18 +378,21 @@ elif st.session_state.page == "pk_tool":
                 st.table(df)
 
 # ==========================================
-# 頁面 D：個人投資組合
+# 頁面 D：個人投資組合 (具備永久儲存功能)
 # ==========================================
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("💼 我的投資組合清單")
     
     st.markdown("### 📝 編輯清單")
-    # 使用 data_editor 並允許動態新增列
+    # 顯示編輯器，資料來自 session_state (已在啟動時 load_portfolio)
     edited_df = st.data_editor(st.session_state.portfolio, num_rows="dynamic", use_container_width=True)
     
-    if st.button("更新並計算資產佔比", type="primary"):
+    if st.button("更新、儲存並計算資產佔比", type="primary"):
+        # 儲存到檔案
+        save_portfolio(edited_df)
         st.session_state.portfolio = edited_df
+        
         results = []
         total_market_val = 0
         total_annual_div = 0
@@ -427,6 +445,7 @@ elif st.session_state.page == "portfolio":
                 with col_table:
                     st.write("#### 詳細數據")
                     st.dataframe(res_df, use_container_width=True)
+                st.success("✅ 資料已同步並儲存成功！下次開啟時會自動載入。")
             else:
                 st.error("未能抓取到有效的代碼數據，請檢查代碼是否正確。")
         else:
