@@ -39,8 +39,6 @@ with col2:
 fair_price = eps * pe_target
 
 # --- 結果顯示 ---
-# 原本的「目前市場實際本益比」資訊框已移除
-
 st.subheader("📊 換算結果")
 st.metric(label="合理價參考", value=f"{fair_price:.2f}")
 
@@ -53,4 +51,10 @@ if current_price > 0:
     else:
         st.warning(f"⚠️ 目前股價 {current_price:.2f} 已超過目標參考價 {fair_price:.2f}")
 
-# 原本的「查看公司簡介」expander 已移除
+# --- 新增：說明區塊 ---
+st.markdown("### 📖 說明")
+st.markdown("""
+1. 輸入代號後點擊開始計算。
+2. 系統自動偵測配息頻率 (月/季/半年/年)。
+3. 配息金額可於「歷史配息參考」手動微調。
+""")
