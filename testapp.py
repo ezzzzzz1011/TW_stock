@@ -10,6 +10,109 @@ import plotly.express as px
 import extra_streamlit_components as stx
 
 # --- 0. 帳號與獨立儲存系統邏輯 ---
+# --- 0. 帳號與獨立儲存系統邏輯 ---
+
+# 關鍵修正：必須給 CookieManager 一個唯一的 key，並確保它在最外層只被初始化一次
+if 'cookie_manager' not in st.session_state:
+    st.session_state.cookie_manager = stx.CookieManager(key="global_cookie_manager_v1")
+
+cookie_manager = st.session_state.cookie_manager
+
+@st.cache_resource
+def get_user_db():
+    # 儲存 帳號:密碼
+    return {"admin": "8888", "eason0": "0000"}
+
+@st.cache_resource
+def get_all_portfolios():
+    return {}
+
+user_db = get_user_db()
+all_portfolios = get_all_portfolios()
+
+# 初始化登入狀態
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'current_user' not in st.session_state:
+    st.session_state.current_user = None
+
+# --- [自動登入檢查邏輯] ---
+# 確保只在未登入狀態下執行一次檢查
+if not st.session_state.logged_in:
+    try:
+        saved_user = cookie_manager.get(cookie="saved_user")
+        saved_pw = cookie_manager.get(cookie="saved_pw")
+        
+        if saved_user and saved_pw:
+            if saved_user in user_db and user_db[saved_user] == saved_pw:
+                st.session_state.logged_in = True
+                st.session_state.current_user = saved_user
+                if saved_user not in all_portfolios:
+                    all_portfolios[saved_user] = pd.DataFrame(columns=["代碼", "張數"])
+                st.session_state.portfolio = all_portfolios[saved_user]
+                st.rerun()
+    except:
+        pass # 防止 CookieManager 尚未準備好時報錯
+
+def login_ui():
+    st.markdown("""
+        <style>
+        .auth-container {
+            max-width: 400px;
+            margin: 50px auto;
+            padding: 30px;
+            background-color: #1e1e28;
+            border-radius: 15px;
+            border: 1px solid #444;
+            text-align: center;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<div class="auth-container">', unsafe_allow_html=True)
+    st.title("🔐 系統登入")
+    
+    tab1, tab2 = st.tabs(["帳號登入", "新用戶註冊"])
+    
+    with tab1:
+        # 這裡的 key 也要確保唯一，避免與 tab2 衝突
+        u_id = st.text_input("帳號", key="login_user_field")
+        u_pw = st.text_input("密碼", type="password", key="login_pw_field")
+        remember_me = st.checkbox("下次自動登入", value=True, key="login_remember_checkbox")
+        
+        if st.button("登入系統", use_container_width=True, type="primary", key="login_submit_btn"):
+            if u_id in user_db and user_db[u_id] == u_pw:
+                if remember_me:
+                    expires = datetime.now() + pd.Timedelta(days=30)
+                    cookie_manager.set("saved_user", u_id, expires_at=expires)
+                    cookie_manager.set("saved_pw", u_pw, expires_at=expires)
+                
+                st.session_state.logged_in = True
+                st.session_state.current_user = u_id
+                if u_id not in all_portfolios:
+                    all_portfolios[u_id] = pd.DataFrame(columns=["代碼", "張數"])
+                st.session_state.portfolio = all_portfolios[u_id]
+                st.rerun()
+            else:
+                st.error("帳號或密碼錯誤")
+                
+    with tab2:
+        new_u = st.text_input("設定帳號", key="register_user_field")
+        new_p = st.text_input("設定密碼", type="password", key="register_pw_field")
+        confirm_p = st.text_input("確認密碼", type="password", key="register_confirm_field")
+        if st.button("完成註冊", use_container_width=True, key="register_submit_btn"):
+            if new_u in user_db:
+                st.warning("此帳號已存在")
+            elif new_p != confirm_p:
+                st.error("密碼不一致")
+            elif not new_u or not new_p:
+                st.error("請填寫帳號密碼")
+            else:
+                user_db[new_u] = new_p
+                all_portfolios[new_u] = pd.DataFrame(columns=["代碼", "張數"])
+                st.success("註冊成功！請至登入分頁登入")
+                
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # 1. 將 Cookie 管理器放在最前面，確保全域唯一
 cookie_manager = stx.CookieManager(key="global_cookie_manager")
