@@ -7,20 +7,40 @@ import random
 from datetime import datetime
 import pytz
 import plotly.express as px
+import json
+import os
 
-# --- 0. 帳號與獨立儲存系統邏輯 ---
-@st.cache_resource
-def get_user_db():
-    # 儲存 帳號:密碼
-    return {"admin": "8888"}
+# --- 0. 檔案資料庫邏輯 (確保資料重啟不消失) ---
+DB_FILE = "user_data.json"
 
-@st.cache_resource
-def get_all_portfolios():
-    # 儲存 帳號:DataFrame (這會模擬資料庫儲存每個人的內容)
-    return {}
+def load_db():
+    """從 JSON 載入資料，若無則建立預設值"""
+    if not os.path.exists(DB_FILE):
+        default_data = {"users": {"admin": "8888"}, "portfolios": {}}
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(default_data, f)
+        return default_data
+    try:
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {"users": {"admin": "8888"}, "portfolios": {}}
 
-user_db = get_user_db()
-all_portfolios = get_all_portfolios()
+def save_db(users, portfolios_dict):
+    """將帳號與投資組合存入 JSON"""
+    # portfolios_dict 必須是轉換成 dict 格式後的內容
+    data_to_save = {
+        "users": users,
+        "portfolios": portfolios_dict
+    }
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(data_to_save, f, ensure_ascii=False, indent=4)
+
+# 讀取現有資料
+db_data = load_db()
+user_db = db_data["users"]
+# 將存檔中的 dict 轉回 DataFrame 格式供程式使用
+all_portfolios = {k: pd.DataFrame(v) for k, v in db_data["portfolios"].items()}
 
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -54,7 +74,6 @@ def login_ui():
             if u_id in user_db and user_db[u_id] == u_pw:
                 st.session_state.logged_in = True
                 st.session_state.current_user = u_id
-                # 登入時載入該帳號的資料，若無則給空表
                 if u_id not in all_portfolios:
                     all_portfolios[u_id] = pd.DataFrame(columns=["代碼", "張數"])
                 st.session_state.portfolio = all_portfolios[u_id]
@@ -74,9 +93,11 @@ def login_ui():
             elif not new_u or not new_p:
                 st.error("請填寫帳號密碼")
             else:
+                # 更新記憶體與檔案
                 user_db[new_u] = new_p
-                # 初始化該新帳號的空白投資清單
                 all_portfolios[new_u] = pd.DataFrame(columns=["代碼", "張數"])
+                # 執行永久存檔
+                save_db(user_db, {k: v.to_dict() for k, v in all_portfolios.items()})
                 st.success("註冊成功！請切換至登入分頁")
                 
     st.markdown('</div>', unsafe_allow_html=True)
@@ -97,7 +118,6 @@ if 'page' not in st.session_state:
     st.session_state.page = "home"
 if 'data' not in st.session_state: 
     st.session_state.data = None
-# 確保 session_state 裡有當前使用者的資料
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = all_portfolios.get(st.session_state.current_user, pd.DataFrame(columns=["代碼", "張數"]))
 
@@ -187,7 +207,6 @@ def get_safe_data_etf(symbol):
         "last_date": last_date, "price_hist": info["hist"], "full_ticker": info["full_ticker"]
     }
 
-# --- 5. 導覽邏輯 ---
 def go_to(page_name):
     st.session_state.page = page_name
     st.rerun()
@@ -354,8 +373,6 @@ elif st.session_state.page == "etf_query":
             with calc_c2:
                 total_shares = hold_lots * 1000
                 total_raw = total_shares * d1
-                
-                # --- 稅費計算 (僅保留二代健保) ---
                 div_54c_part = total_raw * (ratio_54c/100)
                 nhi_amt = div_54c_part * 0.0211 if div_54c_part >= 20000 else 0
                 net_per_period = total_raw - nhi_amt
@@ -369,7 +386,6 @@ elif st.session_state.page == "etf_query":
                     一年累計實領：{(net_per_period * d['multiplier']):,.0f} 元
                 </div>""", unsafe_allow_html=True)
 
-            # --- 存股未來複利試算 ---
             st.divider()
             st.subheader("🔮 存股未來財富試算")
             with st.container():
@@ -448,7 +464,7 @@ elif st.session_state.page == "pk_tool":
                 st.table(df)
 
 # ==========================================
-# 頁面 D：個人投資組合 (修正編輯與刪除邏輯)
+# 頁面 D：個人投資組合 (包含永久儲存邏輯)
 # ==========================================
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -456,27 +472,25 @@ elif st.session_state.page == "portfolio":
     
     st.markdown("### 📝 編輯並儲存清單")
     
-    # 修正重點：使用 st.data_editor 並確保它能正確寫回 session_state
-    # 這裡的 key="portfolio_editor" 讓 Streamlit 自動追蹤變動
     edited_df = st.data_editor(
         st.session_state.portfolio, 
         num_rows="dynamic", 
         use_container_width=True,
         key="portfolio_editor"
     )
-    
-    # 只要編輯內容有變，就同步回 session_state
     st.session_state.portfolio = edited_df
 
     if st.button("💾 更新並永久儲存至帳號", type="primary"):
-        # 同步回全局 cache_resource
+        # 同步回全局快取
         all_portfolios[st.session_state.current_user] = st.session_state.portfolio
+        
+        # 執行永久存檔到 JSON
+        save_db(user_db, {k: v.to_dict() for k, v in all_portfolios.items()})
         
         results = []
         total_market_val = 0
         total_annual_div = 0
         
-        # 排除掉空的列
         valid_df = st.session_state.portfolio.dropna(subset=["代碼", "張數"])
         
         if not valid_df.empty:
@@ -516,6 +530,7 @@ elif st.session_state.page == "portfolio":
                 with col_table:
                     st.write("#### 詳細數據")
                     st.dataframe(res_df, use_container_width=True)
+                st.success("資料已成功存檔至 user_data.json")
             else:
                 st.error("未能抓取到數據，請檢查代碼。")
         else:
