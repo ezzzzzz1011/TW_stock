@@ -273,14 +273,15 @@ elif st.session_state.page == "etf_query":
             # --- 新增功能：存股未來複利試算 ---
             st.divider()
             st.subheader("🔮 存股未來財富試算")
-            st.write("設定您的每月投入金額與目標殖利率，計算未來資產會翻到多少。")
+            st.write("設定您的本金、每月投入金額與目標殖利率，計算未來資產。")
             
             with st.container():
-                f_col1, f_col2, f_col3 = st.columns(3)
+                f_col0, f_col1, f_col2, f_col3 = st.columns(4)
+                with f_col0:
+                    custom_initial = st.number_input("初始投入總金額 (元)", min_value=0, value=100000, step=10000)
                 with f_col1:
-                    custom_monthly = st.number_input("每月預計投入 (元)", min_value=1000, value=10000, step=1000)
+                    custom_monthly = st.number_input("每月預計投入 (元)", min_value=0, value=10000, step=1000)
                 with f_col2:
-                    # 預設帶入該 ETF 目前的實質殖利率，用戶可自由調整
                     custom_yield = st.number_input("自訂年化殖利率 (%)", value=float(f"{real_yield:.2f}"), step=0.1)
                 with f_col3:
                     custom_years = st.slider("目標投入年數", 1, 40, 10)
@@ -290,11 +291,14 @@ elif st.session_state.page == "etf_query":
                 n = custom_years * 12          # 總月份
                 
                 if r > 0:
-                    fv = custom_monthly * (((1 + r)**n - 1) / r) * (1 + r)
+                    # 本金複利 + 定期定額複利
+                    fv_initial = custom_initial * ((1 + r)**n)
+                    fv_monthly = custom_monthly * (((1 + r)**n - 1) / r) * (1 + r)
+                    fv = fv_initial + fv_monthly
                 else:
-                    fv = custom_monthly * n
+                    fv = custom_initial + (custom_monthly * n)
                     
-                total_invested = custom_monthly * n
+                total_invested = custom_initial + (custom_monthly * n)
                 total_profit = fv - total_invested
                 
                 st.markdown(f"""
@@ -305,12 +309,11 @@ elif st.session_state.page == "etf_query":
                     <p style="font-size: 1rem; color: #fff; line-height: 1.8;">
                         累積投入本金：<b>{total_invested:,.0f}</b> 元<br>
                         複利滾出利息：<b>{total_profit:,.0f}</b> 元<br>
-                        資產成長倍數：<b>{fv/total_invested:.2f}</b> 倍
+                        資產成長倍數：<b>{fv/total_invested if total_invested > 0 else 0:.2f}</b> 倍
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # 每月被動收入
                 passive_income = (fv * (custom_yield / 100)) / 12
                 st.success(f"✅ 到時候，這筆資產每個月預估能產生約 **{passive_income:,.0f} 元** 的被動收入！")
 
