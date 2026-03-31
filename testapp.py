@@ -8,6 +8,69 @@ from datetime import datetime
 import pytz
 import plotly.express as px
 
+# --- 0. 登入/註冊系統邏輯 ---
+@st.cache_resource
+def get_user_db():
+    # 預設一個管理員帳號
+    return {"admin": "8888"}
+
+user_db = get_user_db()
+
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+
+def login_ui():
+    st.markdown("""
+        <style>
+        .auth-container {
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 30px;
+            background-color: #1e1e28;
+            border-radius: 15px;
+            border: 1px solid #444;
+            text-align: center;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<div class="auth-container">', unsafe_allow_html=True)
+    st.title("🔐 系統登入")
+    
+    tab1, tab2 = st.tabs(["帳號登入", "新用戶註冊"])
+    
+    with tab1:
+        u_id = st.text_input("帳號", key="l_user")
+        u_pw = st.text_input("密碼", type="password", key="l_pw")
+        if st.button("登入系統", use_container_width=True, type="primary"):
+            if u_id in user_db and user_db[u_id] == u_pw:
+                st.session_state.logged_in = True
+                st.rerun()
+            else:
+                st.error("帳號或密碼錯誤")
+                
+    with tab2:
+        new_u = st.text_input("設定帳號", key="r_user")
+        new_p = st.text_input("設定密碼", type="password", key="r_pw")
+        confirm_p = st.text_input("確認密碼", type="password", key="r_confirm")
+        if st.button("完成註冊", use_container_width=True):
+            if new_u in user_db:
+                st.warning("此帳號已存在")
+            elif new_p != confirm_p:
+                st.error("密碼不一致")
+            elif not new_u or not new_p:
+                st.error("請填寫帳號密碼")
+            else:
+                user_db[new_u] = new_p
+                st.success("註冊成功！請切換至登入分頁")
+                
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# 判斷是否登入，未登入則停止執行後續程式碼
+if not st.session_state.logged_in:
+    login_ui()
+    st.stop()
+
 # --- 1. 網頁全域設定 ---
 st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
 
@@ -118,6 +181,12 @@ def go_to(page_name):
 # 首頁
 # ==========================================
 if st.session_state.page == "home":
+    # 加入登出按鈕
+    with st.sidebar:
+        if st.button("🚪 登出系統"):
+            st.session_state.logged_in = False
+            st.rerun()
+
     st.title("🚀 台股個股/ETF查詢 Ez開發")
     st.write("請選擇功能進入：")
     st.divider()
