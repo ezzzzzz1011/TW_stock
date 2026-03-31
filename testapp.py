@@ -7,7 +7,7 @@ import random
 from datetime import datetime
 
 # --- 1. 網頁全域設定 ---
-st.set_page_config(page_title="台股投資工具箱", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
 
 # --- 2. 初始化頁面狀態 ---
 if 'page' not in st.session_state:
@@ -111,7 +111,7 @@ def go_to(page_name):
 # 首頁
 # ==========================================
 if st.session_state.page == "home":
-    st.title("🚀 台股投資工具箱")
+    st.title("🚀 台股個股/ETF查詢 Ez開發")
     st.write("請選擇功能進入：")
     st.divider()
     
@@ -182,7 +182,7 @@ elif st.session_state.page == "stock_query":
 # ==========================================
 elif st.session_state.page == "etf_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
-    st.title("📈 ETF 專用 Ez開發")
+    st.title("📈 ETF 專用 ")
     
     main_col, side_col = st.columns([8, 4])
     with main_col:
@@ -279,13 +279,13 @@ elif st.session_state.page == "etf_query":
 # ==========================================
 elif st.session_state.page == "pk_tool":
     if st.button("⬅️ 返回工具箱"): go_to("home")
-    st.title("⚔️ 雙股 PK 對比工具")
+    st.title("⚔️ ETF 對比工具")
     
     col_in1, col_in2 = st.columns(2)
     with col_in1: code1 = st.text_input("輸入代碼 A", value="00919").strip().upper()
     with col_in2: code2 = st.text_input("輸入代碼 B", value="00878").strip().upper()
     
-    if st.button("開始交叉 PK"):
+    if st.button("開始對比"):
         with st.spinner("抓取對比數據中..."):
             r1 = get_safe_data_etf(code1)
             r2 = get_safe_data_etf(code2)
