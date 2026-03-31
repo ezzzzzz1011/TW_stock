@@ -8,3 +8,4 @@ plotly
 extra-streamlit-components
 gspread
 google-auth
+st-gsheets-connection
