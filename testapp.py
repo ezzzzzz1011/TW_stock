@@ -448,7 +448,7 @@ elif st.session_state.page == "pk_tool":
                 st.table(df)
 
 # ==========================================
-# 頁面 D：個人投資組合 (修正編輯與刪除邏輯)
+# 頁面 D：個人投資組合 (修正輸入消失問題)
 # ==========================================
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -456,47 +456,47 @@ elif st.session_state.page == "portfolio":
     
     st.markdown("### 📝 編輯並儲存清單")
     
-    # 修正重點：使用 st.data_editor 並確保它能正確寫回 session_state
-    # 這裡的 key="portfolio_editor" 讓 Streamlit 自動追蹤變動
+    # 【核心改進】：
+    # 使用 data_editor 的 key="portfolio_editor" 讓 Streamlit 管理臨時輸入狀態。
+    # 不要在此處手動寫回 st.session_state.portfolio，否則輸入中途會導致頁面重整並遺失數據。
     edited_df = st.data_editor(
         st.session_state.portfolio, 
         num_rows="dynamic", 
         use_container_width=True,
         key="portfolio_editor"
     )
-    
-    # 只要編輯內容有變，就同步回 session_state
-    st.session_state.portfolio = edited_df
 
     if st.button("💾 更新並永久儲存至帳號", type="primary"):
-        # 同步回全局 cache_resource
-        all_portfolios[st.session_state.current_user] = st.session_state.portfolio
+        # 按下按鈕才一次性將編輯器的結果寫入 Session 和 資料庫
+        st.session_state.portfolio = edited_df
+        all_portfolios[st.session_state.current_user] = edited_df
         
         results = []
         total_market_val = 0
         total_annual_div = 0
         
         # 排除掉空的列
-        valid_df = st.session_state.portfolio.dropna(subset=["代碼", "張數"])
+        valid_df = edited_df.dropna(subset=["代碼", "張數"])
+        valid_df = valid_df[valid_df["代碼"].astype(str).str.strip() != ""]
         
         if not valid_df.empty:
             with st.spinner("同步市場最新價格中..."):
                 for index, row in valid_df.iterrows():
-                    code = str(row["代碼"]).strip().upper()
                     try:
+                        code = str(row["代碼"]).strip().upper()
                         shares = float(row["張數"]) * 1000
+                        if code:
+                            data = get_safe_data_etf(code)
+                            if data["success"]:
+                                m_val = data["price"] * shares
+                                ann_div = (sum(data["raw_divs"]) / 4) * data["multiplier"] * shares
+                                results.append({
+                                    "名稱": data["name"], "代碼": code, "現價": data["price"],
+                                    "持有價值": m_val, "預估年領股息": ann_div
+                                })
+                                total_market_val += m_val
+                                total_annual_div += ann_div
                     except: continue
-                    if code:
-                        data = get_safe_data_etf(code)
-                        if data["success"]:
-                            m_val = data["price"] * shares
-                            ann_div = (sum(data["raw_divs"]) / 4) * data["multiplier"] * shares
-                            results.append({
-                                "名稱": data["name"], "代碼": code, "現價": data["price"],
-                                "持有價值": m_val, "預估年領股息": ann_div
-                            })
-                            total_market_val += m_val
-                            total_annual_div += ann_div
 
             if results:
                 res_df = pd.DataFrame(results)
