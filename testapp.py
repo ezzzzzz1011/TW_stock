@@ -19,12 +19,9 @@ if 'page' not in st.session_state:
     st.session_state.page = "home"
 if 'data' not in st.session_state: 
     st.session_state.data = None
-# 初始化投資組合資料
+# 初始化投資組合資料 (改為空表)
 if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = pd.DataFrame([
-        {"代碼": "2330", "張數": 1.0},
-        {"代碼": "00919", "張數": 10.0}
-    ])
+    st.session_state.portfolio = pd.DataFrame(columns=["代碼", "張數"])
 
 # --- 3. 自定義 CSS ---
 st.markdown("""
@@ -366,13 +363,14 @@ elif st.session_state.page == "pk_tool":
                 st.table(df)
 
 # ==========================================
-# 頁面 D：個人投資組合 (新功能)
+# 頁面 D：個人投資組合
 # ==========================================
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("💼 我的投資組合清單")
     
     st.markdown("### 📝 編輯清單")
+    # 使用 data_editor 並允許動態新增列
     edited_df = st.data_editor(st.session_state.portfolio, num_rows="dynamic", use_container_width=True)
     
     if st.button("更新並計算資產佔比", type="primary"):
@@ -381,48 +379,55 @@ elif st.session_state.page == "portfolio":
         total_market_val = 0
         total_annual_div = 0
         
-        with st.spinner("同步市場最新價格中..."):
-            for index, row in edited_df.iterrows():
-                code = str(row["代碼"]).strip().upper()
-                shares = float(row["張數"]) * 1000
-                if code:
-                    data = get_safe_data_etf(code)
-                    if data["success"]:
-                        m_val = data["price"] * shares
-                        # 預估年股息
-                        ann_div = (sum(data["raw_divs"]) / 4) * data["multiplier"] * shares
-                        results.append({
-                            "名稱": data["name"],
-                            "代碼": code,
-                            "現價": data["price"],
-                            "持有價值": m_val,
-                            "預估年領股息": ann_div
-                        })
-                        total_market_val += m_val
-                        total_annual_div += ann_div
+        # 過濾掉空的代碼或張數
+        valid_df = edited_df.dropna(subset=["代碼", "張數"])
+        
+        if not valid_df.empty:
+            with st.spinner("同步市場最新價格中..."):
+                for index, row in valid_df.iterrows():
+                    code = str(row["代碼"]).strip().upper()
+                    try:
+                        shares = float(row["張數"]) * 1000
+                    except:
+                        continue
+                        
+                    if code:
+                        data = get_safe_data_etf(code)
+                        if data["success"]:
+                            m_val = data["price"] * shares
+                            ann_div = (sum(data["raw_divs"]) / 4) * data["multiplier"] * shares
+                            results.append({
+                                "名稱": data["name"],
+                                "代碼": code,
+                                "現價": data["price"],
+                                "持有價值": m_val,
+                                "預估年領股息": ann_div
+                            })
+                            total_market_val += m_val
+                            total_annual_div += ann_div
 
-        if results:
-            res_df = pd.DataFrame(results)
-            st.divider()
-            
-            # --- 總覽數據 ---
-            m1, m2, m3 = st.columns(3)
-            m1.metric("總資產規模", f"${total_market_val:,.0f}")
-            m2.metric("預估年領股息", f"${total_annual_div:,.0f}")
-            avg_yield = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
-            m3.metric("組合平均殖利率", f"{avg_yield:.2f}%")
-            
-            # --- 圓餅圖與分析 ---
-            col_chart, col_table = st.columns([1, 1])
-            with col_chart:
-                fig = px.pie(res_df, values='持有價值', names='名稱', 
-                             title="資產配置分佈圖",
-                             color_discrete_sequence=px.colors.qualitative.Pastel)
-                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with col_table:
-                st.write("#### 詳細清單")
-                st.dataframe(res_df, use_container_width=True)
+            if results:
+                res_df = pd.DataFrame(results)
+                st.divider()
+                
+                m1, m2, m3 = st.columns(3)
+                m1.metric("總資產規模", f"${total_market_val:,.0f}")
+                m2.metric("預估年領股息", f"${total_annual_div:,.0f}")
+                avg_yield = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
+                m3.metric("組合平均殖利率", f"{avg_yield:.2f}%")
+                
+                col_chart, col_table = st.columns([1, 1])
+                with col_chart:
+                    fig = px.pie(res_df, values='持有價值', names='名稱', 
+                                 title="資產配置分佈圖",
+                                 color_discrete_sequence=px.colors.qualitative.Pastel)
+                    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col_table:
+                    st.write("#### 詳細數據")
+                    st.dataframe(res_df, use_container_width=True)
+            else:
+                st.error("未能抓取到有效的代碼數據，請檢查代碼是否正確。")
         else:
-            st.warning("請確保清單代碼正確且具備數據。")
+            st.warning("清單目前為空，請在表格中輸入代碼與張數。")
