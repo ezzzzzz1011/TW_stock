@@ -263,26 +263,23 @@ elif st.session_state.page == "etf_query":
                 total_shares = hold_lots * 1000
                 total_raw = total_shares * d1
                 
-                # --- 稅費詳細計算 ---
+                # --- 稅費計算 (僅保留二代健保) ---
                 div_54c_part = total_raw * (ratio_54c/100)
-                # 二代健保 (2.11%) - 單筆 54C 達 20,000 元
+                # 二代健保 (2.11%) - 單筆 54C 達 20,000 元才扣
                 nhi_amt = div_54c_part * 0.0211 if div_54c_part >= 20000 else 0
-                # 所得稅預扣 (5%) - 單筆 54C 達 2,000 元
-                tax_amt = div_54c_part * 0.05 if div_54c_part >= 2000 else 0
                 
-                net_per_period = total_raw - nhi_amt - tax_amt
+                net_per_period = total_raw - nhi_amt
                 
                 st.markdown(f"""<div class="calc-box">
                     預估總投入：{(total_shares * d['price'] * 1.001425):,.0f} 元<br>
                     每{d['freq_label']}總配息：{total_raw:,.0f} 元<br>
                     <span style="color: #ffb7b7;">└ 二代健保扣費：-{nhi_amt:,.0f} 元</span><br>
-                    <span style="color: #ffb7b7;">└ 54C 預扣稅額：-{tax_amt:,.0f} 元</span><br>
                     <b>每{d['freq_label']}實領金額：{net_per_period:,.0f} 元</b><br>
                     <hr style="border: 0.5px solid #444;">
                     一年累計實領：{(net_per_period * d['multiplier']):,.0f} 元
                 </div>""", unsafe_allow_html=True)
 
-            # --- 新增功能：存股未來複利試算 ---
+            # --- 存股未來複利試算 ---
             st.divider()
             st.subheader("🔮 存股未來財富試算")
             st.write("設定您的本金、每月投入金額與目標殖利率，計算未來資產。")
@@ -298,7 +295,6 @@ elif st.session_state.page == "etf_query":
                 with f_col3:
                     custom_years = st.slider("目標投入年數", 1, 40, 10)
                 
-                # 複利計算
                 r = (custom_yield / 100) / 12
                 n = custom_years * 12
                 
