@@ -8,6 +8,7 @@ from datetime import datetime
 import pytz
 import plotly.express as px
 import os
+import hashlib
 
 # --- 1. 網頁全域設定 ---
 st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
@@ -15,31 +16,43 @@ st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍
 # 設定台灣時區
 tw_tz = pytz.timezone('Asia/Taipei')
 
-# --- 2. 帳號系統資料庫 (CSV) ---
+# --- 2. 登入與資料持久化邏輯 ---
 USER_DB = "users.csv"
 
-if not os.path.exists(USER_DB):
-    pd.DataFrame(columns=["username", "password"]).to_csv(USER_DB, index=False)
+def make_hashes(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
 
-def load_users():
-    return pd.read_csv(USER_DB, dtype={"username": str, "password": str})
+def check_hashes(password, hashed_text):
+    if make_hashes(password) == hashed_text:
+        return hashed_text
+    return False
+
+def create_user_db():
+    if not os.path.exists(USER_DB):
+        df = pd.DataFrame(columns=['username', 'password'])
+        df.to_csv(USER_DB, index=False)
 
 def add_user(username, password):
-    df = load_users()
-    if username in df["username"].values:
+    df = pd.read_csv(USER_DB)
+    if username in df['username'].values:
         return False
-    new_user = pd.DataFrame([[username, password]], columns=["username", "password"])
-    pd.concat([df, new_user]).to_csv(USER_DB, index=False)
+    new_user = pd.DataFrame([[username, make_hashes(password)]], columns=['username', 'password'])
+    df = pd.concat([df, new_user], ignore_index=True)
+    df.to_csv(USER_DB, index=False)
     return True
 
-# --- 3. 資料持久化邏輯 (按用戶存檔) ---
-def get_user_portfolio_file():
-    # 根據登入帳號產生專屬檔名
-    user = st.session_state.get("current_user", "default")
-    return f"portfolio_{user}.csv"
+def login_user(username, password):
+    df = pd.read_csv(USER_DB)
+    user_data = df[df['username'] == username]
+    if not user_data.empty:
+        return check_hashes(password, user_data['password'].values[0])
+    return False
 
-def load_portfolio():
-    file = get_user_portfolio_file()
+def get_user_portfolio_file(username):
+    return f"portfolio_{username}.csv"
+
+def load_portfolio(username):
+    file = get_user_portfolio_file(username)
     if os.path.exists(file):
         try:
             return pd.read_csv(file, dtype={"代碼": str})
@@ -47,25 +60,30 @@ def load_portfolio():
             return pd.DataFrame(columns=["代碼", "張數"])
     return pd.DataFrame(columns=["代碼", "張數"])
 
-def save_portfolio(df):
-    file = get_user_portfolio_file()
+def save_portfolio(df, username):
+    file = get_user_portfolio_file(username)
     df.to_csv(file, index=False)
 
-# --- 4. 初始化狀態 ---
+# --- 3. 初始化狀態 ---
+create_user_db()
+
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
+if 'user' not in st.session_state:
+    st.session_state.user = None
 if 'page' not in st.session_state:
     st.session_state.page = "home"
 if 'data' not in st.session_state: 
     st.session_state.data = None
 
-# --- 5. 自定義 CSS ---
+# --- 4. 自定義 CSS ---
 st.markdown("""
     <style>
     .main { background-color: #121218; color: #ffffff; }
     .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; background-color: #ffffff; color: black; border: none; height: 3.5em; }
     .metric-val { font-family: 'Consolas'; font-size: 3.5rem; font-weight: bold; line-height: 1.1; }
     .stTextInput>div>div>input, .stNumberInput>div>div>input { background-color: #1e1e28 !important; color: white !important; border-radius: 8px !important; }
+    .date-text { color: #ffffff; opacity: 0.9; font-size: 1.1rem; margin-bottom: 10px; font-weight: bold; }
     .calc-box { background-color: #1e1e28; padding: 20px; border-radius: 15px; border: 1px solid #444; margin-top: 10px; }
     .highlight-val { font-size: 2.5rem; font-family: 'Consolas'; font-weight: bold; color: #ffffff; }
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
@@ -75,7 +93,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 6. 核心數據抓取函數 ---
+# --- 5. 核心數據抓取函數 ---
 def get_stock_info(symbol):
     user_agents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
     headers = {'User-Agent': random.choice(user_agents)}
@@ -93,11 +111,14 @@ def get_stock_info(symbol):
                     if name_tag: name = name_tag.text.strip()
                 except:
                     name = t.info.get('shortName', symbol)
+                
                 if symbol == "2330": name = "台積電"
+                
                 curr_p = hist['Close'].iloc[-1]
                 prev_p = hist['Close'].iloc[-2]
                 change = curr_p - prev_p
                 pct = (change / prev_p) * 100
+                
                 return {
                     "name": name, "price": curr_p, "change": change, 
                     "pct": pct, "high": hist['High'].iloc[-1], "low": hist['Low'].iloc[-1], 
@@ -111,21 +132,25 @@ def get_stock_info(symbol):
 def get_safe_data_etf(symbol):
     info = get_stock_info(symbol)
     if not info: return {"success": False, "msg": f"找不到代號 {symbol}"}
+    
     divs = info["dividends"]
     raw_divs = [0.0]*4
     multiplier = 4
     freq_label = "季"
     last_date = info["hist"].index[-1].strftime('%Y-%m-%d')
+    
     if not divs.empty:
         d_list = divs.tail(4).tolist()[::-1]
         while len(d_list) < 4: d_list.append(0.0)
         raw_divs = d_list
         last_year_date = divs.index[-1] - pd.DateOffset(years=1)
         count_in_year = len(divs[divs.index > last_year_date])
+        
         if count_in_year >= 10: multiplier, freq_label = 12, "月"
         elif count_in_year >= 3: multiplier, freq_label = 4, "季"
         elif count_in_year >= 2: multiplier, freq_label = 2, "半年"
         else: multiplier, freq_label = 1, "年"
+        
     return {
         "success": True, "name": info["name"], "price": info["price"],
         "change": info["change"], "pct": info["pct"], "high": info["high"],
@@ -138,64 +163,48 @@ def go_to(page_name):
     st.session_state.page = page_name
     st.rerun()
 
-# --- 7. 登入與註冊頁面 ---
-def auth_page():
-    st.title("🔐 歡迎使用 Ez台股開發工具")
-    tab1, tab2 = st.tabs(["帳號登入", "新用戶註冊"])
-    
-    with tab1:
-        with st.form("login_form"):
-            user = st.text_input("帳號")
-            pw = st.text_input("密碼", type="password")
-            if st.form_submit_button("登入系統", type="primary"):
-                users_df = load_users()
-                match = users_df[(users_df["username"] == user) & (users_df["password"] == pw)]
-                if not match.empty:
-                    st.session_state.logged_in = True
-                    st.session_state.current_user = user
-                    # 登入後立即載入該用戶的投資組合
-                    st.session_state.portfolio = load_portfolio()
-                    st.rerun()
-                else:
-                    st.error("帳號或密碼錯誤")
-
-    with tab2:
-        with st.form("reg_form"):
-            new_user = st.text_input("設定帳號")
-            new_pw = st.text_input("設定密碼", type="password")
-            confirm_pw = st.text_input("再次輸入密碼", type="password")
-            if st.form_submit_button("提交註冊"):
-                if new_pw != confirm_pw:
-                    st.error("密碼輸入不一致")
-                elif len(new_user) < 2:
-                    st.warning("帳號名稱太短")
-                else:
-                    if add_user(new_user, new_pw):
-                        st.success("註冊成功！請切換至「帳號登入」標籤進入系統。")
-                    else:
-                        st.error("此帳號已被註冊")
-
-# ==========================================
-# 主程式邏輯控制
-# ==========================================
+# --- 6. 登入介面 ---
 if not st.session_state.logged_in:
-    auth_page()
-else:
-    # 側邊欄：顯示用戶資訊與登出
-    with st.sidebar:
-        st.markdown(f"### 👤 使用者: {st.session_state.current_user}")
-        if st.button("登出系統"):
-            st.session_state.logged_in = False
-            st.session_state.page = "home"
-            st.rerun()
-        st.divider()
-        st.caption("Ez開發工具 v1.0")
+    st.title("🔐 Ez開發 - 台股查詢系統")
+    choice = st.sidebar.selectbox("登入/註冊", ["登入", "註冊"])
+    
+    if choice == "登入":
+        user = st.text_input("帳號")
+        passwd = st.text_input("密碼", type='password')
+        if st.button("登入"):
+            if login_user(user, passwd):
+                st.session_state.logged_in = True
+                st.session_state.user = user
+                st.success(f"歡迎回來, {user}")
+                st.rerun()
+            else:
+                st.error("帳號或密碼錯誤")
+                
+    else:
+        new_user = st.text_input("設定帳號")
+        new_passwd = st.text_input("設定密碼", type='password')
+        if st.button("提交註冊"):
+            if add_user(new_user, new_passwd):
+                st.success("註冊成功，請切換至登入頁面")
+            else:
+                st.error("此帳號已存在")
 
-    # --- 頁面 A：首頁 ---
+# --- 7. 主程式邏輯 (登入後) ---
+else:
+    # 側邊欄登出按鈕
+    if st.sidebar.button("🚪 登出系統"):
+        st.session_state.logged_in = False
+        st.session_state.user = None
+        st.rerun()
+    
+    st.sidebar.info(f"當前使用者: {st.session_state.user}")
+
+    # --- 頁面跳轉邏輯 ---
     if st.session_state.page == "home":
         st.title("🚀 台股個股/ETF查詢 Ez開發")
-        st.write(f"您好 {st.session_state.current_user}，請選擇功能進入：")
+        st.write(f"您好 {st.session_state.user}，請選擇功能進入：")
         st.divider()
+        
         col_a, col_b, col_c, col_d = st.columns(4)
         with col_a:
             st.subheader("📈 個股分析")
@@ -210,7 +219,6 @@ else:
             st.subheader("💼 我的資產")
             if st.button("個人投資組合", use_container_width=True, type="primary"): go_to("portfolio")
 
-    # --- 頁面 B：個股查詢 ---
     elif st.session_state.page == "stock_query":
         if st.button("⬅️ 返回工具箱"): go_to("home")
         st.title("🔍 台股自動估價系統 (個股)")
@@ -223,93 +231,124 @@ else:
                 if info:
                     current_price = info['price']
                     st.markdown(f"## {info['name']}")
-                    color = "#ff4b4b" if info['change'] > 0 else "#00ff00" if info['change'] < 0 else "#FFFFFF"
-                    st.markdown(f"<div class='metric-val' style='color:{color}'>{current_price:.2f}</div>", unsafe_allow_html=True)
-                    st.markdown(f"<span style='color:{color}; font-weight:bold; font-size:1.5rem;'>{info['change']:+.2f} ({info['pct']:+.2f}%)</span>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='date-text'>資料日期：{datetime.now(tw_tz).strftime('%Y-%m-%d')}</div>", unsafe_allow_html=True)
+                    cp1, cp2 = st.columns([2, 1])
+                    with cp1:
+                        color = "#ff4b4b" if info['change'] > 0 else "#00ff00" if info['change'] < 0 else "#FFFFFF"
+                        st.markdown(f"<div class='metric-val' style='color:{color}'>{current_price:.2f}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<span style='color:{color}; font-weight:bold; font-size:1.5rem;'>{info['change']:+.2f} ({info['pct']:+.2f}%)</span>", unsafe_allow_html=True)
+                    with cp2:
+                        st.caption("今日行情細節")
+                        st.write(f"最高: {info['high']:.2f} / 最低: {info['low']:.2f}")
+                        st.write(f"開盤: {info['open']:.2f} / 總量: {int(info['vol']/1000):,} 張")
                     st.divider()
+            
             col_eps, col_pe = st.columns(2)
             with col_eps: eps = st.number_input("輸入該股 EPS (4季累積)", min_value=0.01, step=0.1, value=10.0)
             with col_pe: pe_target = st.number_input("自訂參考本益比 (PE)", value=15.0, step=0.1)
+            
             if current_price > 0:
                 fair_price = eps * pe_target
+                st.subheader("📊 換算結果")
                 st.markdown(f"<div class='calc-box'>合理價參考：<span class='highlight-val'>{fair_price:.2f}</span></div>", unsafe_allow_html=True)
                 if current_price <= fair_price: st.success(f"✅ 目前股價 {current_price:.2f} 低於目標參考價")
                 else: st.warning(f"⚠️ 目前股價 {current_price:.2f} 已超過目標參考價")
         with side_col:
             st.write("### 📖 說明")
+            st.caption("1. 輸入股票代碼。2. 輸入股票4季累積EPS。3. 輸入個股本益比。")
             st.info("計算公式：EPS × 自訂本益比 = 參考價")
 
-    # --- 頁面 C：ETF 分析 ---
     elif st.session_state.page == "etf_query":
         if st.button("⬅️ 返回工具箱"): go_to("home")
         st.title("📈 ETF 專用 ")
         main_col, side_col = st.columns([8, 4])
         with main_col:
-            symbol_input = st.text_input("ETF 代號", placeholder="例如: 00919").strip().upper()
-            if st.button("開始計算", type="primary"):
-                if symbol_input:
-                    with st.spinner('抓取數據中...'):
-                        st.session_state.data = get_safe_data_etf(symbol_input)
+            input_c1, input_c2 = st.columns([3, 1])
+            with input_c1: symbol_input = st.text_input("ETF 代號", placeholder="例如: 00919").strip().upper()
+            with input_c2:
+                st.write("")
+                st.write("")
+                if st.button("開始計算", type="primary"):
+                    if symbol_input:
+                        with st.spinner('抓取數據中...'):
+                            st.session_state.data = get_safe_data_etf(symbol_input)
+
             if st.session_state.data and st.session_state.data.get("success"):
                 d = st.session_state.data
                 m_color = "#ff4b4b" if d['change'] >= 0 else "#00ff00"
                 st.markdown(f"## {d['name']} <small>(偵測為{d['freq_label']}配息)</small>", unsafe_allow_html=True)
                 st.markdown(f"<div class='metric-val' style='color:{m_color}'>{d['price']:.2f}</div>", unsafe_allow_html=True)
+                
                 st.divider()
-                # (其餘 ETF 計算邏輯與您原本代碼相同...)
                 e_cols = st.columns(4)
-                d1 = e_cols[0].number_input("最新", value=float(d["raw_divs"][0]), format="%.3f")
-                d2 = e_cols[1].number_input("前一", value=float(d["raw_divs"][1]), format="%.3f")
-                d3 = e_cols[2].number_input("前二", value=float(d["raw_divs"][2]), format="%.3f")
-                d4 = e_cols[3].number_input("前三", value=float(d["raw_divs"][3]), format="%.3f")
+                d1 = e_cols[0].number_input("最新配息", value=float(d["raw_divs"][0]), format="%.3f")
+                d2 = e_cols[1].number_input("前一配息", value=float(d["raw_divs"][1]), format="%.3f")
+                d3 = e_cols[2].number_input("前二配息", value=float(d["raw_divs"][2]), format="%.3f")
+                d4 = e_cols[3].number_input("前三配息", value=float(d["raw_divs"][3]), format="%.3f")
+                
                 avg_annual = (sum([d1, d2, d3, d4]) / 4) * d["multiplier"]
                 real_yield = (avg_annual / d['price']) * 100
-                st.write(f"預估年化殖利率: {real_yield:.2f}%")
+                st.metric("實質殖利率", f"{real_yield:.2f}%")
 
-    # --- 頁面 D：PK 對比工具 ---
+                # 未來複利試算
+                st.divider()
+                st.subheader("🔮 存股未來財富試算")
+                f_col0, f_col1, f_col2, f_col3 = st.columns(4)
+                with f_col0: custom_initial = st.number_input("初始投入 (元)", value=100000)
+                with f_col1: custom_monthly = st.number_input("每月投入 (元)", value=10000)
+                with f_col2: custom_yield = st.number_input("年化殖利率 (%)", value=float(f"{real_yield:.2f}"))
+                with f_col3: custom_years = st.slider("投入年數", 1, 40, 10)
+                
+                r = (custom_yield / 100) / 12
+                n = custom_years * 12
+                fv = custom_initial * ((1 + r)**n) + custom_monthly * (((1 + r)**n - 1) / r) * (1 + r) if r > 0 else custom_initial + (custom_monthly * n)
+                st.markdown(f"<div class='calc-box'><h3>目標資產：$ {fv:,.0f} 元</h3></div>", unsafe_allow_html=True)
+
     elif st.session_state.page == "pk_tool":
         if st.button("⬅️ 返回工具箱"): go_to("home")
         st.title("⚔️ ETF 對比工具")
         col_in1, col_in2 = st.columns(2)
         with col_in1: code1 = st.text_input("輸入代碼 A", value="00919").strip().upper()
         with col_in2: code2 = st.text_input("輸入代碼 B", value="00878").strip().upper()
+        
         if st.button("開始對比"):
             r1, r2 = get_safe_data_etf(code1), get_safe_data_etf(code2)
             if r1["success"] and r2["success"]:
                 st.table(pd.DataFrame({
-                    "指標": ["目前價格", "當前漲幅"],
-                    code1: [f"{r1['price']:.2f}", f"{r1['pct']:.2f}%"],
-                    code2: [f"{r2['price']:.2f}", f"{r2['pct']:.2f}%"]
+                    "項目": ["名稱", "現價", "年配息", "殖利率"],
+                    code1: [r1['name'], r1['price'], (sum(r1['raw_divs'])/4)*r1['multiplier'], f"{(sum(r1['raw_divs'])/4)*r1['multiplier']/r1['price']*100:.2f}%"],
+                    code2: [r2['name'], r2['price'], (sum(r2['raw_divs'])/4)*r2['multiplier'], f"{(sum(r2['raw_divs'])/4)*r2['multiplier']/r2['price']*100:.2f}%"]
                 }))
 
-    # --- 頁面 E：個人投資組合 (專屬存檔) ---
     elif st.session_state.page == "portfolio":
         if st.button("⬅️ 返回工具箱"): go_to("home")
-        st.title(f"💼 {st.session_state.current_user} 的投資組合")
+        st.title("💼 我的投資組合清單")
         
-        # 確保有資料可以編輯
-        if 'portfolio' not in st.session_state:
-            st.session_state.portfolio = load_portfolio()
+        # 載入該使用者的專屬存檔
+        if 'current_portfolio' not in st.session_state:
+            st.session_state.current_portfolio = load_portfolio(st.session_state.user)
             
-        edited_df = st.data_editor(st.session_state.portfolio, num_rows="dynamic", use_container_width=True)
+        edited_df = st.data_editor(st.session_state.current_portfolio, num_rows="dynamic", use_container_width=True)
         
-        if st.button("更新、儲存並計算", type="primary"):
-            save_portfolio(edited_df)
-            st.session_state.portfolio = edited_df
+        if st.button("💾 更新並儲存資產資料", type="primary"):
+            save_portfolio(edited_df, st.session_state.user)
+            st.session_state.current_portfolio = edited_df
             
             results = []
             total_market_val = 0
             valid_df = edited_df.dropna(subset=["代碼", "張數"])
+            
             if not valid_df.empty:
                 for _, row in valid_df.iterrows():
-                    code = str(row["代碼"]).strip().upper()
-                    shares = float(row["張數"]) * 1000
-                    data = get_safe_data_etf(code)
+                    data = get_safe_data_etf(str(row["代碼"]))
                     if data["success"]:
-                        m_val = data["price"] * shares
+                        m_val = data["price"] * float(row["張數"]) * 1000
                         results.append({"名稱": data["name"], "持有價值": m_val})
                         total_market_val += m_val
                 
                 if results:
+                    res_df = pd.DataFrame(results)
                     st.metric("總資產規模", f"${total_market_val:,.0f}")
-                    st.plotly_chart(px.pie(pd.DataFrame(results), values='持有價值', names='名稱'))
+                    fig = px.pie(res_df, values='持有價值', names='名稱', title="資產分佈")
+                    st.plotly_chart(fig)
+                    st.success("✅ 資料已同步至您的帳號！")
