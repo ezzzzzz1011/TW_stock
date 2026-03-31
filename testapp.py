@@ -1,117 +1,62 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
 
-st.set_page_config(page_title="台股獲利與估價系統", page_icon="📈")
+st.set_page_config(page_title="台股自動估價系統", page_icon="🔍")
 
-st.title("📈 台股精準資訊與估價")
+st.title("🔍 台股自動估價系統")
 
-@st.cache_data(ttl=3600)
-def fetch_stock_info(stock_code):
-    for suffix in [".TW", ".TWO"]:
-        ticker_str = f"{stock_code}{suffix}"
-        ticker = yf.Ticker(ticker_str)
-        try:
-            hist = ticker.history(period="1d")
-            if not hist.empty:
-                data = ticker.info
-                data['current_price'] = hist['Close'].iloc[-1]
-                data['actual_ticker'] = ticker_str
-                return data
-        except:
-            continue
-    return None
+# --- 側邊欄或上方輸入代號 ---
+stock_code = st.text_input("請輸入台股代號 (例如: 2317)", value="2317")
 
-stock_code = st.text_input("請輸入台股代號 (例如: 2330)", value="2330")
-
+# 台股代號需要加上 .TW (上市) 或 .TWO (上櫃)
+# 這裡寫一個簡單的邏輯自動幫你補上 .TW
 if stock_code:
-    info = fetch_stock_info(stock_code)
+    full_code = f"{stock_code}.TW"
     
-    if info:
-        try:
-            current_price = info.get('current_price', 0)
-            eps_ttm = info.get('trailingEps', 0) or 0
-            
-            st.success(f"✅ 已取得數據：{info.get('shortName', stock_code)} ({info['actual_ticker']})")
+    try:
+        # 抓取股票資料
+        stock_data = yf.Ticker(full_code)
+        # 取得最新收盤價 (或是最後一筆交易價)
+        current_price = stock_data.fast_info['last_price']
+        stock_name = stock_data.info.get('longName', stock_code)
+        
+        st.success(f"已取得 **{stock_name}** 最新股價：**{current_price:.2f}**")
+    except Exception as e:
+        st.error("找不到該代號，請檢查輸入是否正確。")
+        current_price = 0.0
 
-            # --- 數據精確修正邏輯 ---
-            # 1. 殖利率修正：處理 Yahoo 數值單位問題
-            dy_raw = info.get('dividendYield', 0) or 0
-            if dy_raw >= 1: 
-                dy_fixed = (dy_raw / current_price) * 100
-            else:
-                dy_fixed = dy_raw * 100
+st.divider()
 
-            # 2. 本益比修正：基於累積 EPS 即時換算
-            pe_calc = current_price / eps_ttm if eps_ttm > 0 else 0
+# --- 估價參數輸入 ---
+col1, col2 = st.columns(2)
 
-            # 3. 股本與市值 (億)
-            shares = info.get('sharesOutstanding', 0) or 0
-            share_capital = (shares * 10) / 1e8 
-            mkt_cap = (info.get('marketCap', 0) or 0) / 1e8
+with col1:
+    # 你可以選擇手動輸入 EPS，或是參考下方自動抓取的建議
+    eps = st.number_input("輸入該股 EPS", min_value=0.01, step=0.1, value=10.0)
 
-            # --- 整合後的股票基本資料表格 ---
-            st.subheader("📊 股票基本資料")
-            basic_data = {
-                "項目": [
-                    "目前股價", 
-                    "最近四季累積 EPS", 
-                    "即時本益比 (PE)", 
-                    "殖利率", 
-                    "ROE (近四季)", 
-                    "市值 (億)", 
-                    "股本 (億)"
-                ],
-                "數值": [
-                    f"{current_price:.2f}",
-                    f"{eps_ttm:.2f}",
-                    f"{pe_calc:.2f}",
-                    f"{dy_fixed:.2f}%",
-                    f"{(info.get('returnOnEquity', 0) or 0)*100:.2f}%",
-                    f"{mkt_cap:,.2f}",
-                    f"{share_capital:,.2f}"
-                ]
-            }
-            st.table(pd.DataFrame(basic_data))
+with col2:
+    pe_target = st.number_input("自訂參考本益比 (PE)", value=15.0, step=0.1)
 
-            st.divider()
+# --- 計算邏輯 ---
+fair_price = eps * pe_target
+current_pe = current_price / eps if eps > 0 else 0
 
-            # --- 估價功能 (自訂區間) ---
-            st.subheader("⚙️ 換算目標股價結果")
-            
-            # 自動帶入抓到的 EPS
-            ref_eps = st.number_input("參考累積 EPS", value=float(eps_ttm), step=0.1)
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                low_pe = st.number_input("便宜價本益比", value=12.0, step=0.5)
-            with col2:
-                mid_pe = st.number_input("合理價本益比", value=15.0, step=0.5)
-            with col3:
-                high_pe = st.number_input("昂貴價本益比", value=20.0, step=0.5)
+# --- 結果顯示 ---
+st.info(f"💡 目前市場實際本益比：**{current_pe:.2f} 倍**")
 
-            # 計算價格
-            prices = {
-                "便宜價": ref_eps * low_pe,
-                "合理價": ref_eps * mid_pe,
-                "昂貴價": ref_eps * high_pe
-            }
+st.subheader("📊 換算結果")
+st.metric(label="合理價參考", value=f"{fair_price:.2f}")
 
-            # 顯示結果
-            res_col1, res_col2, res_col3 = st.columns(3)
-            res_col1.metric("便宜價參考", f"{prices['便宜價']:.2f}")
-            res_col2.metric("合理價參考", f"{prices['合理價']:.2f}")
-            res_col3.metric("昂貴價參考", f"{prices['昂貴價']:.2f}")
+st.divider()
 
-            # 狀態提醒
-            if current_price <= prices['便宜價']:
-                st.success(f"🟢 當前股價 {current_price:.2f} 處於「便宜價」以下。")
-            elif current_price <= prices['合理價']:
-                st.info(f"🔵 當前股價 {current_price:.2f} 處於「合理價」區間。")
-            else:
-                st.warning(f"🟡 當前股價 {current_price:.2f} 已超過「合理價」。")
-
-        except Exception as e:
-            st.error("資料解析異常，請確認代號是否正確。")
+# 判斷邏輯
+if current_price > 0:
+    if current_price <= fair_price:
+        st.success(f"✅ 目前股價 {current_price:.2f} 低於目標參考價 {fair_price:.2f}")
     else:
-        st.error("❌ 找不到該股票，請檢查代號是否正確。")
+        st.warning(f"⚠️ 目前股價 {current_price:.2f} 已超過目標參考價 {fair_price:.2f}")
+
+# 額外小功能：顯示該公司基本資料
+with st.expander("查看公司簡介"):
+    if stock_code:
+        st.write(stock_data.info.get('longBusinessSummary', "暫無資料"))
