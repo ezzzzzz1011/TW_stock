@@ -269,77 +269,41 @@ elif st.session_state.page == "etf_query":
                     每{d['freq_label']}實領：{(total_raw - nhi):,.0f} 元<br>
                     一年累計：{((total_raw - nhi) * d['multiplier']):,.0f} 元
                 </div>""", unsafe_allow_html=True)
-            
-            # --- 回測功能修正時區問題 ---
+
+            # --- 新增功能：展望未來財富規劃 ---
             st.divider()
-            st.subheader("⏳ 定期定額回測 (歷史模擬)")
-            with st.expander("展開回測設定區塊", expanded=True):
-                bt_col1, bt_col2, bt_col3 = st.columns(3)
-                with bt_col1:
-                    bt_monthly = st.number_input("每月投入金額", min_value=1000, value=10000, step=1000)
-                with bt_col2:
-                    # 使用台灣時區計算三年前
-                    default_start = (datetime.now(tw_tz) - timedelta(days=1095)).date()
-                    bt_start_date = st.date_input("開始日期", value=default_start)
-                with bt_col3:
-                    bt_reinvest = st.checkbox("股息再投入 (複利)", value=True)
+            st.subheader("🔮 存股複利試算 (展望未來)")
+            with st.expander("展開複利試算參數", expanded=True):
+                ft_col1, ft_col2, ft_col3 = st.columns(3)
+                with ft_col1:
+                    ft_monthly = st.number_input("每月預計存入 (元)", min_value=1000, value=10000, step=1000)
+                with ft_col2:
+                    # 預設使用剛才計算出的實質殖利率
+                    ft_yield = st.number_input("預期年化殖利率 (%)", value=float(f"{real_yield:.2f}"), step=0.1)
+                with ft_col3:
+                    ft_years = st.slider("存股年數", 1, 40, 10)
                 
-                if st.button("🚀 執行回測模擬", use_container_width=True):
-                    ticker = yf.Ticker(d["full_ticker"])
-                    # 統一將輸入日期轉為帶有台灣時區的 datetime
-                    bt_start_dt = datetime.combine(bt_start_date, datetime.min.time()).replace(tzinfo=tw_tz)
+                if st.button("🚀 開始複利試算", use_container_width=True):
+                    # 複利計算公式：PMT * (((1 + r)^n - 1) / r) * (1 + r)
+                    # PMT: 每月存入金額, r: 月利率, n: 總月份數
+                    monthly_rate = (ft_yield / 100) / 12
+                    total_months = ft_years * 12
                     
-                    bt_hist = ticker.history(start=bt_start_dt)
-                    bt_divs = ticker.dividends
-                    
-                    if not bt_hist.empty:
-                        # 確保股息數據的時區與回測起始日一致
-                        # 將股息索引轉換為台灣時區進行比較
-                        bt_divs.index = bt_divs.index.tz_convert(tw_tz)
-                        valid_divs = bt_divs[bt_divs.index >= bt_start_dt]
-                        
-                        monthly_idx = bt_hist.resample('MS').first().index
-                        total_invested = 0
-                        shares_held = 0
-                        cash_pool = 0
-                        last_div_idx = 0
-                        
-                        for date in monthly_idx:
-                            if date in bt_hist.index:
-                                price = bt_hist.loc[date, 'Close']
-                                total_invested += bt_monthly
-                                
-                                # 找出該月發放的新股息
-                                # 這裡簡化為：每個月檢查當月之前的累計股息
-                                current_div_total = valid_divs[valid_divs.index <= date].sum()
-                                if 'prev_div_total' not in locals(): prev_div_total = 0
-                                new_div_per_share = current_div_total - prev_div_total
-                                prev_div_total = current_div_total
-                                
-                                received_cash = new_div_per_share * shares_held
-                                
-                                buy_power = bt_monthly
-                                if bt_reinvest:
-                                    buy_power += received_cash
-                                else:
-                                    cash_pool += received_cash
-                                
-                                shares_held += (buy_power / price)
-                        
-                        final_price = d['price']
-                        stock_value = shares_held * final_price
-                        total_assets = stock_value + (0 if bt_reinvest else cash_pool)
-                        profit = total_assets - total_invested
-                        total_roi = (profit / total_invested) * 100 if total_invested > 0 else 0
-                        
-                        r_c1, r_c2, r_c3 = st.columns(3)
-                        r_c1.metric("累積投入本金", f"{total_invested:,.0f}")
-                        r_c2.metric("最終資產價值", f"{total_assets:,.0f}")
-                        r_c3.metric("總報酬率", f"{total_roi:.2f}%", delta=f"{profit:,.0f}")
-                        
-                        st.info(f"💡 模擬結果：從 {bt_start_date} 至今，累積持有約 {shares_held:.2f} 股。")
+                    if monthly_rate > 0:
+                        future_value = ft_monthly * (((1 + monthly_rate)**total_months - 1) / monthly_rate) * (1 + monthly_rate)
                     else:
-                        st.warning("查無此區間的歷史數據，請縮短日期範圍。")
+                        future_value = ft_monthly * total_months
+                    
+                    total_invested = ft_monthly * total_months
+                    total_profit = future_value - total_invested
+                    
+                    # 顯示結果卡片
+                    res_c1, res_c2, res_c3 = st.columns(3)
+                    res_c1.metric("總共投入本金", f"{total_invested:,.0f} 元")
+                    res_c2.metric(f"{ft_years} 年後總資產", f"{future_value:,.0f} 元")
+                    res_c3.metric("淨賺利息 (含配息)", f"{total_profit:,.0f} 元", delta=f"{((future_value/total_invested)-1)*100:.1f}%")
+                    
+                    st.info(f"💡 試算提醒：在年化 {ft_yield}% 的條件下，持續投入 {ft_years} 年，資產將成長至原本本金的 {future_value/total_invested:.2f} 倍。")
 
     with side_col:
         st.write("### 📖 說明")
