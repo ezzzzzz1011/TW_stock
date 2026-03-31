@@ -7,7 +7,7 @@ import random
 from datetime import datetime
 import pytz
 import plotly.express as px
-import os
+import io
 
 # --- 1. 網頁全域設定 ---
 st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
@@ -15,30 +15,16 @@ st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍
 # 設定台灣時區
 tw_tz = pytz.timezone('Asia/Taipei')
 
-# --- 2. 資料持久化邏輯 (存檔與讀檔) ---
-DB_FILE = "my_portfolio.csv"
-
-def load_portfolio():
-    if os.path.exists(DB_FILE):
-        try:
-            return pd.read_csv(DB_FILE, dtype={"代碼": str})
-        except:
-            return pd.DataFrame(columns=["代碼", "張數"])
-    return pd.DataFrame(columns=["代碼", "張數"])
-
-def save_portfolio(df):
-    df.to_csv(DB_FILE, index=False)
-
-# --- 3. 初始化頁面狀態 ---
+# --- 2. 初始化頁面狀態 ---
 if 'page' not in st.session_state:
     st.session_state.page = "home"
 if 'data' not in st.session_state: 
     st.session_state.data = None
-# 從檔案讀取清單
+# 初始化為空表
 if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = load_portfolio()
+    st.session_state.portfolio = pd.DataFrame(columns=["代碼", "張數"])
 
-# --- 4. 自定義 CSS ---
+# --- 3. 自定義 CSS ---
 st.markdown("""
     <style>
     .main { background-color: #121218; color: #ffffff; }
@@ -58,7 +44,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 5. 核心數據抓取函數 ---
+# --- 4. 核心數據抓取函數 ---
 def get_stock_info(symbol):
     user_agents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
     headers = {'User-Agent': random.choice(user_agents)}
@@ -124,7 +110,7 @@ def get_safe_data_etf(symbol):
         "last_date": last_date, "price_hist": info["hist"], "full_ticker": info["full_ticker"]
     }
 
-# --- 6. 導覽邏輯 ---
+# --- 5. 導覽邏輯 ---
 def go_to(page_name):
     st.session_state.page = page_name
     st.rerun()
@@ -299,36 +285,6 @@ elif st.session_state.page == "etf_query":
                     一年累計實領：{(net_per_period * d['multiplier']):,.0f} 元
                 </div>""", unsafe_allow_html=True)
 
-            # --- 存股未來複利試算 ---
-            st.divider()
-            st.subheader("🔮 存股未來財富試算")
-            with st.container():
-                f_col0, f_col1, f_col2, f_col3 = st.columns(4)
-                with f_col0: custom_initial = st.number_input("初始投入總金額 (元)", min_value=0, value=100000, step=10000)
-                with f_col1: custom_monthly = st.number_input("每月預計投入 (元)", min_value=0, value=10000, step=1000)
-                with f_col2: custom_yield = st.number_input("自訂年化殖利率 (%)", value=float(f"{real_yield:.2f}"), step=0.1)
-                with f_col3: custom_years = st.slider("目標投入年數", 1, 40, 10)
-                
-                r = (custom_yield / 100) / 12
-                n = custom_years * 12
-                if r > 0:
-                    fv = custom_initial * ((1 + r)**n) + custom_monthly * (((1 + r)**n - 1) / r) * (1 + r)
-                else:
-                    fv = custom_initial + (custom_monthly * n)
-                
-                total_invested = custom_initial + (custom_monthly * n)
-                st.markdown(f"""
-                <div class="calc-box" style="border: 2px solid #ffffff; padding: 25px;">
-                    <div style="font-size: 3.2rem; font-weight: bold; color: #ffffff;">$ {fv:,.0f} <small style="font-size: 1.2rem;">元</small></div>
-                    <hr style="border: 0.5px solid #444;">
-                    <p style="font-size: 1rem; color: #fff; line-height: 1.8;">
-                        累積投入本金：<b>{total_invested:,.0f}</b> 元 | 
-                        資產成長倍數：<b>{fv/total_invested if total_invested > 0 else 0:.2f}</b> 倍<br>
-                        <span style="color: #00ff00; font-weight: bold;">每月預計領取被動收入：{(fv * (custom_yield / 100)) / 12:,.0f} 元</span>
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-
     with side_col:
         st.write("### 📖 說明")
         st.caption("1. 輸入代號後點擊開始計算。")
@@ -378,36 +334,52 @@ elif st.session_state.page == "pk_tool":
                 st.table(df)
 
 # ==========================================
-# 頁面 D：個人投資組合 (具備永久儲存功能)
+# 頁面 D：個人投資組合 (個人化儲存版)
 # ==========================================
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
-    st.title("💼 我的投資組合清單")
+    st.title("💼 個人化投資組合 (專屬清單)")
     
-    st.markdown("### 📝 編輯清單")
-    # 顯示編輯器，資料來自 session_state (已在啟動時 load_portfolio)
+    # --- 工具列：上傳與下載 ---
+    exp = st.expander("📂 存檔管理 (讓每個人擁有獨立清單)", expanded=False)
+    with exp:
+        st.write("由於這是網頁版，您可以將清單下載為檔案保存，下次來的時候再上傳即可。")
+        c_up, c_down = st.columns(2)
+        with c_up:
+            uploaded_file = st.file_uploader("📥 上傳我的清單 (CSV)", type="csv")
+            if uploaded_file is not None:
+                st.session_state.portfolio = pd.read_csv(uploaded_file, dtype={"代碼": str})
+                st.success("載入成功！")
+        with c_down:
+            st.write("📤 保存當前清單")
+            csv_buffer = io.StringIO()
+            st.session_state.portfolio.to_csv(csv_buffer, index=False)
+            st.download_button(
+                label="下載我的清單檔案",
+                data=csv_buffer.getvalue(),
+                file_name=f"my_portfolio_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+
+    st.markdown("---")
+    st.markdown("### 📝 編輯我的清單")
+    # 編輯器
     edited_df = st.data_editor(st.session_state.portfolio, num_rows="dynamic", use_container_width=True)
-    
-    if st.button("更新、儲存並計算資產佔比", type="primary"):
-        # 儲存到檔案
-        save_portfolio(edited_df)
-        st.session_state.portfolio = edited_df
-        
+    st.session_state.portfolio = edited_df
+
+    if st.button("🚀 更新並計算資產佔比", type="primary"):
         results = []
         total_market_val = 0
         total_annual_div = 0
         
-        # 過濾掉空的代碼或張數
         valid_df = edited_df.dropna(subset=["代碼", "張數"])
         
         if not valid_df.empty:
             with st.spinner("同步市場最新價格中..."):
                 for index, row in valid_df.iterrows():
                     code = str(row["代碼"]).strip().upper()
-                    try:
-                        shares = float(row["張數"]) * 1000
-                    except:
-                        continue
+                    try: shares = float(row["張數"]) * 1000
+                    except: continue
                         
                     if code:
                         data = get_safe_data_etf(code)
@@ -415,11 +387,8 @@ elif st.session_state.page == "portfolio":
                             m_val = data["price"] * shares
                             ann_div = (sum(data["raw_divs"]) / 4) * data["multiplier"] * shares
                             results.append({
-                                "名稱": data["name"],
-                                "代碼": code,
-                                "現價": data["price"],
-                                "持有價值": m_val,
-                                "預估年領股息": ann_div
+                                "名稱": data["name"], "代碼": code, "現價": data["price"],
+                                "持有價值": m_val, "預估年領股息": ann_div
                             })
                             total_market_val += m_val
                             total_annual_div += ann_div
@@ -445,8 +414,7 @@ elif st.session_state.page == "portfolio":
                 with col_table:
                     st.write("#### 詳細數據")
                     st.dataframe(res_df, use_container_width=True)
-                st.success("✅ 資料已同步並儲存成功！下次開啟時會自動載入。")
             else:
-                st.error("未能抓取到有效的代碼數據，請檢查代碼是否正確。")
+                st.error("未能抓取到有效的數據，請檢查代碼。")
         else:
-            st.warning("清單目前為空，請在表格中輸入代碼與張數。")
+            st.warning("請先在表格中輸入資料。")
