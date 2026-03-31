@@ -300,6 +300,7 @@ elif st.session_state.page == "etf_query":
                     
                 total_invested = custom_initial + (custom_monthly * n)
                 total_profit = fv - total_invested
+                passive_income = (fv * (custom_yield / 100)) / 12
                 
                 st.markdown(f"""
                 <div class="calc-box" style="border: 2px solid #ffffff; padding: 25px;">
@@ -309,13 +310,11 @@ elif st.session_state.page == "etf_query":
                     <p style="font-size: 1rem; color: #fff; line-height: 1.8;">
                         累積投入本金：<b>{total_invested:,.0f}</b> 元<br>
                         複利滾出利息：<b>{total_profit:,.0f}</b> 元<br>
-                        資產成長倍數：<b>{fv/total_invested if total_invested > 0 else 0:.2f}</b> 倍
+                        資產成長倍數：<b>{fv/total_invested if total_invested > 0 else 0:.2f}</b> 倍<br>
+                        <span style="color: #00ff00; font-weight: bold;">每月預計領取被動收入：{passive_income:,.0f} 元</span>
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
-                
-                passive_income = (fv * (custom_yield / 100)) / 12
-                st.success(f"✅ 到時候，這筆資產每個月預估能產生約 **{passive_income:,.0f} 元** 的被動收入！")
 
     with side_col:
         st.write("### 📖 說明")
