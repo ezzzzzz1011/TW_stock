@@ -30,22 +30,29 @@ if stock_code:
     if info:
         try:
             current_price = info.get('current_price', 0)
+            # 取得最近四季累積 EPS (trailingEps)
             eps_ttm = info.get('trailingEps', 0) or 0
             
             st.success(f"✅ 已取得數據：{info.get('shortName', stock_code)} ({info['actual_ticker']})")
 
-            # --- 核心計算：即時本益比 ---
+            # --- 數據精確修正邏輯 ---
+            # 1. 殖利率修正：若數值異常則以股價換算
+            dy_raw = info.get('dividendYield', 0) or 0
+            if dy_raw >= 1: 
+                dy_fixed = (dy_raw / current_price) * 100
+            else:
+                dy_fixed = dy_raw * 100
+
+            # 2. 本益比修正：基於目前股價與累積 EPS 計算
             pe_calc = current_price / eps_ttm if eps_ttm > 0 else 0
 
-            # 數據修正與格式化
-            dy_raw = info.get('dividendYield', 0) or 0
-            dy_fixed = (dy_raw / current_price * 100) if dy_raw >= 1 else (dy_raw * 100)
+            # 3. 股本與市值 (億)
             shares = info.get('sharesOutstanding', 0) or 0
             share_capital = (shares * 10) / 1e8 
             mkt_cap = (info.get('marketCap', 0) or 0) / 1e8
 
-            # 顯示基本資料表格
-            st.subheader("📊 股票基本資料")
+            # --- 修改後的股票基本資料表格 ---
+            st.subheader("📊 股票基本資料 (獲利與累積EPS)")
             basic_data = {
                 "項目": ["目前股價", "最近四季累積 EPS", "即時本益比 (PE)", "殖利率", "ROE", "市值 (億)", "股本 (億)"],
                 "數值": [
@@ -62,31 +69,18 @@ if stock_code:
 
             st.divider()
 
-            # --- 估價功能 (連動即時本益比) ---
+            # --- 估價功能 ---
             st.subheader("⚙️ 自訂本益比估價")
             col1, col2 = st.columns(2)
-            
             with col1:
-                # 預設帶入抓到的 EPS
+                # 預設直接帶入抓到的累積 EPS
                 eps_input = st.number_input("參考 EPS (累積)", value=float(eps_ttm), step=0.1)
-            
             with col2:
-                # 【修改處】這裡的 value 設為 pe_calc，所以它會跟上面的表格數值一模一樣
+                # 已修改：預設帶入計算出的「即時本益比」，仍可手動修改
                 pe_target = st.number_input("自訂目標本益比", value=float(pe_calc), step=0.1)
 
-            # 計算合理價
             fair_price = eps_input * pe_target
-            
-            # 顯示結果
-            diff = fair_price - current_price
-            st.metric(
-                label="合理價參考", 
-                value=f"{fair_price:.2f}", 
-                delta=f"{diff:.2f} (與現價差距)",
-                delta_color="normal"
-            )
-            
-            st.info(f"💡 公式：{eps_input:.2f} (EPS) × {pe_target:.2f} (目標本益比) = {fair_price:.2f}")
+            st.metric(label="合理價參考", value=f"{fair_price:.2f}")
 
         except Exception as e:
             st.error(f"解析異常：{e}")
