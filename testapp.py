@@ -71,18 +71,10 @@ def get_stock_info(symbol):
         except: continue
     return None
 
-def get_holdings(symbol):
-    """新增：抓取 ETF 前十大成分股"""
-    try:
-        url = f"https://www.highstock.com.tw/etf/{symbol}"
-        # 由於爬蟲限制，此處示範模擬常見 ETF 前十大（實際環境建議串接正確 API 或更精準爬蟲）
-        # 這裡改用 yf.Ticker 嘗試抓取基金持股
-        t = yf.Ticker(symbol if "." in symbol else f"{symbol}.TW")
-        holdings = t.funds_data.top_holdings
-        if holdings is not None and not holdings.empty:
-            return set(holdings['Name'].tolist())
-    except:
-        pass
+def get_holdings_simple(symbol):
+    """新增：模擬抓取 ETF 前十大成分股"""
+    # 由於 Yahoo Finance API 對台股成分股支援度不一，此處作為功能預留
+    # 實際上需要更複雜的爬蟲或特定資料源
     return set()
 
 @st.cache_data(ttl=600)
@@ -100,26 +92,22 @@ def get_safe_data_etf(symbol):
     # --- 新增：填息分析邏輯 ---
     recovery_count = 0
     recovery_days = []
+    
     if not divs.empty:
-        # 抓取最近 4 次配息
         recent_divs = divs.tail(4)
-        history_all = t.history(period="2y") # 抓兩年資料來計算填息
+        history_all = t.history(period="2y") 
         
         for ex_date, amount in recent_divs.items():
-            # 取得除息前一天的價格
             pre_div_data = history_all[:ex_date].tail(1)
             if not pre_div_data.empty:
                 target_price = pre_div_data['Close'].iloc[0]
-                # 取得除息日之後的所有價格
                 post_div_data = history_all[ex_date:]
-                # 尋找第一天收盤價 >= 除息前價格的日子
                 recovery_day = post_div_data[post_div_data['Close'] >= target_price]
                 if not recovery_day.empty:
                     recovery_count += 1
                     days = (recovery_day.index[0] - ex_date).days
                     recovery_days.append(days)
 
-        # 基礎配息資訊計算
         d_list = divs.tail(4).tolist()[::-1]
         while len(d_list) < 4: d_list.append(0.0)
         raw_divs = d_list
@@ -139,9 +127,9 @@ def get_safe_data_etf(symbol):
         "low": info["low"], "open": info["open"], "vol": info["vol"],
         "raw_divs": raw_divs, "multiplier": multiplier, "freq_label": freq_label,
         "last_date": last_date, "price_hist": info["hist"],
-        "recovery_rate": (recovery_count / 4) * 100,
+        "recovery_rate": (recovery_count / 4) * 100 if not divs.empty else 0,
         "avg_recovery_days": avg_recovery_days,
-        "holdings": get_holdings(symbol)
+        "holdings": get_holdings_simple(symbol)
     }
 
 # --- 5. 導覽邏輯 ---
@@ -220,7 +208,7 @@ elif st.session_state.page == "stock_query":
         st.info("計算公式：EPS × 自訂本益比 = 參考價")
 
 # ==========================================
-# 頁面 B：ETF 分析系統 (已新增填息紀錄)
+# 頁面 B：ETF 分析系統
 # ==========================================
 elif st.session_state.page == "etf_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -240,45 +228,47 @@ elif st.session_state.page == "etf_query":
                     with st.spinner('偵測頻率與抓取數據中...'):
                         st.session_state.data = get_safe_data_etf(symbol_input)
 
+        # 這裡加入了 .get() 檢查，防止 KeyError
         if st.session_state.data and st.session_state.data.get("success"):
             d = st.session_state.data
-            m_color = "#ff4b4b" if d['change'] >= 0 else "#00ff00"
-            st.markdown(f"## {d['name']} <small style='font-size:1rem; color:#aaa;'>(偵測為{d['freq_label']}配息)</small>", unsafe_allow_html=True)
+            m_color = "#ff4b4b" if d.get('change', 0) >= 0 else "#00ff00"
+            st.markdown(f"## {d.get('name')} <small style='font-size:1rem; color:#aaa;'>(偵測為{d.get('freq_label')}配息)</small>", unsafe_allow_html=True)
             
-            # --- 新增：填息與成功率顯示區塊 ---
+            # 填息與成功率顯示
             st.markdown("#### 🚀 填息績效紀錄 (近四次)")
             rec_c1, rec_c2 = st.columns(2)
             with rec_c1:
-                st.metric("填息成功率", f"{d['recovery_rate']:.0f}%")
+                st.metric("填息成功率", f"{d.get('recovery_rate', 0):.0f}%")
             with rec_c2:
-                st.metric("平均填息天數", f"{d['avg_recovery_days']:.1f} 天")
+                st.metric("平均填息天數", f"{d.get('avg_recovery_days', 0):.1f} 天")
             st.divider()
 
             st.markdown(f"<div class='date-text'>資料日期：{d.get('last_date')}</div>", unsafe_allow_html=True)
             
             info_c1, info_c2 = st.columns([2, 1])
             with info_c1:
-                st.markdown(f"<div class='metric-val' style='color:{m_color}'>{d['price']:.2f}</div>", unsafe_allow_html=True)
-                st.markdown(f"<span style='color:{m_color}; font-weight:bold; font-size:1.5rem;'>{d['change']:+.2f} ({d['pct']:+.2f}%)</span>", unsafe_allow_html=True)
+                st.markdown(f"<div class='metric-val' style='color:{m_color}'>{d.get('price', 0):.2f}</div>", unsafe_allow_html=True)
+                st.markdown(f"<span style='color:{m_color}; font-weight:bold; font-size:1.5rem;'>{d.get('change', 0):+.2f} ({d.get('pct', 0):+.2f}%)</span>", unsafe_allow_html=True)
             with info_c2:
                 st.caption("今日行情細節")
-                st.write(f"最高: {d['high']:.2f} / 最低: {d['low']:.2f}")
-                st.write(f"開盤: {d['open']:.2f} / 總量: {d['vol']/1000:,.0f} 張")
+                st.write(f"最高: {d.get('high', 0):.2f} / 最低: {d.get('low', 0):.2f}")
+                st.write(f"開盤: {d.get('open', 0):.2f} / 總量: {d.get('vol', 0)/1000:,.0f} 張")
 
             st.divider()
             st.subheader("📑 歷史配息參考")
             e_cols = st.columns(4)
-            d1 = e_cols[0].number_input("最新", value=float(d["raw_divs"][0]), format="%.3f")
-            d2 = e_cols[1].number_input("前一", value=float(d["raw_divs"][1]), format="%.3f")
-            d3 = e_cols[2].number_input("前二", value=float(d["raw_divs"][2]), format="%.3f")
-            d4 = e_cols[3].number_input("前三", value=float(d["raw_divs"][3]), format="%.3f")
+            raw_divs = d.get("raw_divs", [0, 0, 0, 0])
+            d1 = e_cols[0].number_input("最新", value=float(raw_divs[0]), format="%.3f")
+            d2 = e_cols[1].number_input("前一", value=float(raw_divs[1]), format="%.3f")
+            d3 = e_cols[2].number_input("前二", value=float(raw_divs[2]), format="%.3f")
+            d4 = e_cols[3].number_input("前三", value=float(raw_divs[3]), format="%.3f")
             
-            avg_annual = (sum([d1, d2, d3, d4]) / 4) * d["multiplier"]
-            real_yield = (avg_annual / d['price']) * 100
+            avg_annual = (sum([d1, d2, d3, d4]) / 4) * d.get("multiplier", 4)
+            real_yield = (avg_annual / d.get('price', 1)) * 100
             
             stat_c1, stat_c2 = st.columns(2)
             with stat_c1:
-                st.caption(f"預估年配息 (系統以{d['freq_label']}配計算)")
+                st.caption(f"預估年配息 (系統以{d.get('freq_label')}配計算)")
                 st.markdown(f"<div class='highlight-val'>{avg_annual:.2f}</div>", unsafe_allow_html=True)
             with stat_c2:
                 st.caption("實質殖利率")
@@ -327,7 +317,7 @@ elif st.session_state.page == "etf_query":
         st.success("系統正常運行中")
 
 # ==========================================
-# 頁面 C：PK 對比工具 (已新增成分股重疊度)
+# 頁面 C：PK 對比工具
 # ==========================================
 elif st.session_state.page == "pk_tool":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -344,19 +334,8 @@ elif st.session_state.page == "pk_tool":
             
             if r1["success"] and r2["success"]:
                 st.divider()
-                
-                # --- 新增：成分股重疊分析區塊 ---
                 st.subheader("🔍 成分股重疊度分析")
-                set1, set2 = r1.get("holdings", set()), r2.get("holdings", set())
-                if set1 and set2:
-                    common = set1.intersection(set2)
-                    overlap_p = (len(common) / 10) * 100 # 假設以前十大來比
-                    st.markdown(f"""<div class="overlap-box">
-                        <b>重疊比例：{overlap_p:.0f}%</b> (前十大成分股中有 {len(common)} 檔重複)<br>
-                        重複成分：{', '.join(common) if common else '無顯著重複'}
-                    </div>""", unsafe_allow_html=True)
-                else:
-                    st.info("暫無詳細成分股數據可比對，請參考基本面指標。")
+                st.info("Yahoo Finance API 暫時無法直接提供台股成分股詳情，重疊度功能已預留架構。")
                 st.divider()
 
                 c1, c2 = st.columns(2)
@@ -374,17 +353,17 @@ elif st.session_state.page == "pk_tool":
                             <h2 style="color:{color}">{r['price']:.2f}</h2>
                             <p>{r['change']:+.2f} ({r['pct']:+.2f}%)</p>
                             <p style="font-size:0.8rem; color:#888;">{r['freq_label']}配頻率</p>
-                            <p style="color:#ffffff;">填息成功率：{r['recovery_rate']:.0f}%</p>
+                            <p style="color:#ffffff;">填息成功率：{r.get('recovery_rate', 0):.0f}%</p>
                         </div>""", unsafe_allow_html=True)
                 
                 df = pd.DataFrame({
                     "指標項目": ["名稱", "目前價格", "填息成功率", "平均填息天數", "配息頻率", "預估年配息", "實質殖利率"],
                     f"{code1}": [
-                        r1['name'], f"{r1['price']:.2f}", f"{r1['recovery_rate']:.0f}%", f"{r1['avg_recovery_days']:.1f}天",
+                        r1['name'], f"{r1['price']:.2f}", f"{r1.get('recovery_rate', 0):.0f}%", f"{r1.get('avg_recovery_days', 0):.1f}天",
                         r1['freq_label'], f"{analysis[0]['annual_div']:.2f}", f"{analysis[0]['yield']:.2f}%"
                     ],
                     f"{code2}": [
-                        r2['name'], f"{r2['price']:.2f}", f"{r2['recovery_rate']:.0f}%", f"{r2['avg_recovery_days']:.1f}天",
+                        r2['name'], f"{r2['price']:.2f}", f"{r2.get('recovery_rate', 0):.0f}%", f"{r2.get('avg_recovery_days', 0):.1f}天",
                         r2['freq_label'], f"{analysis[1]['annual_div']:.2f}", f"{analysis[1]['yield']:.2f}%"
                     ]
                 })
