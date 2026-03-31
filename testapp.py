@@ -8,15 +8,14 @@ st.title("🔍 台股自動估價系統")
 # --- 側邊欄或上方輸入代號 ---
 stock_code = st.text_input("請輸入台股代號 (例如: 2317)", value="2317")
 
-# 台股代號需要加上 .TW (上市) 或 .TWO (上櫃)
-# 這裡寫一個簡單的邏輯自動幫你補上 .TW
+# 台股代號處理邏輯
 if stock_code:
     full_code = f"{stock_code}.TW"
     
     try:
         # 抓取股票資料
         stock_data = yf.Ticker(full_code)
-        # 取得最新收盤價 (或是最後一筆交易價)
+        # 取得最新收盤價
         current_price = stock_data.fast_info['last_price']
         stock_name = stock_data.info.get('longName', stock_code)
         
@@ -31,7 +30,6 @@ st.divider()
 col1, col2 = st.columns(2)
 
 with col1:
-    # 你可以選擇手動輸入 EPS，或是參考下方自動抓取的建議
     eps = st.number_input("輸入該股 EPS", min_value=0.01, step=0.1, value=10.0)
 
 with col2:
@@ -39,10 +37,9 @@ with col2:
 
 # --- 計算邏輯 ---
 fair_price = eps * pe_target
-current_pe = current_price / eps if eps > 0 else 0
 
 # --- 結果顯示 ---
-st.info(f"💡 目前市場實際本益比：**{current_pe:.2f} 倍**")
+# 原本的「目前市場實際本益比」資訊框已移除
 
 st.subheader("📊 換算結果")
 st.metric(label="合理價參考", value=f"{fair_price:.2f}")
@@ -56,7 +53,4 @@ if current_price > 0:
     else:
         st.warning(f"⚠️ 目前股價 {current_price:.2f} 已超過目標參考價 {fair_price:.2f}")
 
-# 額外小功能：顯示該公司基本資料
-with st.expander("查看公司簡介"):
-    if stock_code:
-        st.write(stock_data.info.get('longBusinessSummary', "暫無資料"))
+# 原本的「查看公司簡介」expander 已移除
