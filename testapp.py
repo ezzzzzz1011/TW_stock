@@ -673,41 +673,29 @@ elif st.session_state.page == "watchlist":
 
     st.divider()
 
-# --- 在自動刷新行情區內修改 ---
-@st.fragment(run_every=10)
-def refresh_watchlist_view():
-    if st.session_state.watchlist_data:
-        st.caption(f"⏱️ 行情自動刷新中... ({time.strftime('%H:%M:%S')})")
-        
-        for code in st.session_state.watchlist_data:
-            item = get_stock_info(code)
-            if item:
-                # 關鍵修正：使用 st.columns 將資訊左右分開
-                # c1: 名稱, c2: 價格資訊, c3: 垃圾桶按鈕
-                c1, c2, c3 = st.columns([3, 3, 1]) 
-                
-                color = "#ff4b4b" if item['change'] > 0 else "#00ff00"
-                
-                # 第一欄：顯示名稱與代碼
-                c1.markdown(f"**{item['name']}**\n\n<small>{code}</small>", unsafe_allow_html=True)
-                
-                # 第二欄：現價與漲跌幅 (上下併排)
-                c2.markdown(
-                    f"<div style='text-align: right; line-height: 1.2;'>"
-                    f"<span style='color:{color}; font-size: 1.2rem; font-weight: bold;'>{item['price']:.2f}</span><br>"
-                    f"<span style='color:{color}; font-size: 0.85rem;'>{item['pct']:+.2f}%</span>"
-                    f"</div>", 
-                    unsafe_allow_html=True
-                )
-                
-                # 第三欄：緊湊的垃圾桶按鈕
-                # 加上 use_container_width=True 讓它在小空間內填滿
-                if c3.button("🗑️", key=f"del_{item['full_ticker']}", use_container_width=True):
-                    st.session_state.watchlist_data.remove(item['full_ticker'].split('.')[0])
-                    save_watchlist_to_cloud(st.session_state.watchlist_data)
-                    st.rerun()
-                
-                st.divider() # 每一檔股票之間的分隔線
+    # 3. 自動刷新行情區 (僅刷新 UI 與股價，不讀取 Sheets)
+    @st.fragment(run_every=10)
+    def refresh_watchlist_view():
+        if st.session_state.watchlist_data:
+            st.caption(f"⏱️ 行情自動刷新中... ({time.strftime('%H:%M:%S')})")
+            for code in st.session_state.watchlist_data:
+                item = get_stock_info(code)
+                if item:
+                    c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
+                    color = "#ff4b4b" if item['change'] > 0 else "#00ff00"
+                    c1.markdown(f"**{item['name']}**")
+                    c2.markdown(f"<span style='color:{color}; font-size:1.3rem; font-weight:bold;'>{item['price']:.2f}</span>", unsafe_allow_html=True)
+                    c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
+                    
+                    if c4.button("🗑️", key=f"del_{item['full_ticker']}"):
+                        st.session_state.watchlist_data.remove(item['full_ticker'].split('.')[0])
+                        save_watchlist_to_cloud(st.session_state.watchlist_data)
+                        st.rerun()
+                    st.divider()
+        else:
+            st.info("清單空空如也，請在上方新增標的。")
+
+    refresh_watchlist_view()
 
     refresh_watchlist_view()
 
