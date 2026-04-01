@@ -15,35 +15,24 @@ from google.oauth2.service_account import Credentials
 
 @st.cache_resource
 def init_connection():
-    """建立與 Google Sheets 的連線，強力修正 PEM 金鑰格式問題"""
+    """建立與 Google Sheets 的連線，簡化金鑰處理以避免解析位移"""
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     
-    # 讀取 Secrets 並轉為字典格式
+    # 讀取 Secrets
     creds_dict = st.secrets["gcp_service_account"].to_dict()
     
-    # --- 核心修正區：強制格式化 Private Key ---
+    # 僅處理轉義的換行符，其餘依賴 Secrets 的原始格式
     if "private_key" in creds_dict:
-        pk = creds_dict["private_key"]
-        # 1. 處理常見的轉義字元，將 "\\n" 轉回真正的換行符 "\n"
-        pk = pk.replace("\\n", "\n")
-        # 2. 去除頭尾可能誤入的空格或換行
-        pk = pk.strip()
-        # 3. 確保 BEGIN/END 標籤格式正確（處理手動貼上可能遺失的換行）
-        if "-----BEGIN PRIVATE KEY-----" in pk and not pk.startswith("-----BEGIN PRIVATE KEY-----\n"):
-            pk = pk.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n")
-        if "-----END PRIVATE KEY-----" in pk and not pk.endswith("\n-----END PRIVATE KEY-----"):
-            pk = pk.replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----")
-        
-        creds_dict["private_key"] = pk
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
     
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
     return client
 
-# 初始化資料庫物件與分頁檢查
+# 初始化資料庫物件
 try:
     conn = init_connection()
-    # 開啟試算表 (名稱須與 Google Sheets 標題完全一致)
+    # 開啟試算表
     sh = conn.open("streamlit_db")
     
     # 檢查或建立「帳號表」
@@ -63,16 +52,16 @@ try:
         
 except Exception as e:
     st.error(f"❌ 雲端資料庫連線失敗：{e}")
-    st.info("💡 提示：若顯示 PEM 錯誤，請確認 Secrets 中的 private_key 是否使用了三個引號 \"\"\" 包裹。")
+    st.info("💡 提示：請檢查 Google Sheet 是否已分享編輯權限給服務帳號 Email。")
     st.stop()
 
 def get_cloud_users():
-    """從雲端獲取最新帳密"""
+    """即時從雲端讀取用戶清單"""
     records = user_sheet.get_all_records()
     return {str(row['username']): str(row['password']) for row in records}
 
 def load_portfolio_from_cloud(username):
-    """載入使用者的雲端投資組合"""
+    """載入特定使用者的投資組合"""
     try:
         cell = portfolio_sheet.find(username)
         if cell:
@@ -84,7 +73,6 @@ def load_portfolio_from_cloud(username):
 
 def save_portfolio_to_cloud(username, df):
     """儲存投資組合至雲端"""
-    # 過濾空白行以優化儲存空間
     clean_df = df.dropna(subset=['代碼']).copy() if '代碼' in df.columns else df
     json_data = clean_df.to_json(orient='records', date_format='iso')
     
@@ -99,7 +87,7 @@ def save_portfolio_to_cloud(username, df):
         st.error(f"⚠️ 雲端儲存失敗: {e}")
         return False
 
-# --- 應用程式 Session 狀態初始化 ---
+# --- 初始化應用程式狀態 ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'current_user' not in st.session_state:
@@ -108,7 +96,7 @@ if 'portfolio' not in st.session_state:
     st.session_state.portfolio = None
 
 def login_ui():
-    """顯示登入與註冊介面"""
+    """渲染登入/註冊介面"""
     st.markdown("""
         <style>
         .auth-container {
@@ -127,8 +115,6 @@ def login_ui():
     st.title("🛡️ 投資助手系統")
     
     tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
-    
-    # 每次渲染介面時同步雲端用戶資料
     user_db = get_cloud_users()
     
     with tab1:
@@ -146,7 +132,7 @@ def login_ui():
                 st.error("❌ 帳號或密碼不正確")
                 
     with tab2:
-        st.info("註冊資料將儲存於雲端 Google Sheets。")
+        st.info("註冊資料將儲存於雲端，重啟系統不會遺失。")
         new_u = st.text_input("設定帳號", key="r_user")
         new_p = st.text_input("設定密碼", type="password", key="r_pw")
         confirm_p = st.text_input("確認密碼", type="password", key="r_confirm")
@@ -166,7 +152,7 @@ def login_ui():
                 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# 門禁檢查邏輯
+# 執行登入檢查
 if not st.session_state.logged_in:
     login_ui()
     st.stop()
