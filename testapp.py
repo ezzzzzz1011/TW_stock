@@ -697,7 +697,6 @@ elif st.session_state.page == "watchlist":
 
     refresh_watchlist_view()
 
-    refresh_watchlist_view()
 
 
 
