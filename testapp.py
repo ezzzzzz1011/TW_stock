@@ -118,6 +118,8 @@ def login_ui():
     tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
     # 取得最新帳密資料
 user_db = get_cloud_users()
+    # 必須先建立 tabs 變數
+tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
 
 with tab1:
     u_id = st.text_input("帳號名稱", key="l_user", placeholder="請輸入帳號")
