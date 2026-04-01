@@ -7,6 +7,7 @@ import random
 from datetime import datetime
 import pytz
 import plotly.express as px
+import io
 
 # --- 0. 帳號與獨立儲存系統邏輯 ---
 @st.cache_resource
@@ -97,7 +98,7 @@ if 'page' not in st.session_state:
     st.session_state.page = "home"
 if 'data' not in st.session_state: 
     st.session_state.data = None
-# 確保 session_state 裡有當前使用者的資料，若無則預設 20 行
+# 確保 session_state 裡有當前使用者的資料
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = all_portfolios.get(
         st.session_state.current_user, 
@@ -451,20 +452,39 @@ elif st.session_state.page == "pk_tool":
                 st.table(df)
 
 # ==========================================
-# 頁面 D：個人投資組合
+# 頁面 D：個人投資組合 (含 CSV 匯入)
 # ==========================================
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
     
+    # --- CSV 匯入區 ---
+    with st.expander("📥 匯入投資清單 (CSV)"):
+        uploaded_file = st.file_uploader("選擇 CSV 檔案", type="csv")
+        if uploaded_file is not None:
+            try:
+                import_df = pd.read_csv(uploaded_file)
+                if "代碼" in import_df.columns and "張數" in import_df.columns:
+                    # 抓取檔案中的資料
+                    new_data = import_df[["代碼", "張數"]].copy()
+                    # 補滿到 20 行
+                    if len(new_data) < 20:
+                        padding = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20 - len(new_data))])
+                        new_data = pd.concat([new_data, padding], ignore_index=True)
+                    
+                    st.session_state.portfolio = new_data
+                    st.success("CSV 資料已載入編輯器，請檢查後點擊下方儲存按鈕。")
+                else:
+                    st.error("CSV 格式錯誤！必須包含『代碼』與『張數』兩個欄位。")
+            except Exception as e:
+                st.error(f"讀取失敗：{e}")
+
     st.markdown("### 📝 編輯並儲存清單")
     
-    # 確保目前的資料至少有 20 行，若不足則補齊
-    current_df = st.session_state.portfolio
-    if len(current_df) < 20:
-        padding_df = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20 - len(current_df))])
-        current_df = pd.concat([current_df, padding_df], ignore_index=True)
-        st.session_state.portfolio = current_df
+    # 確保目前的資料至少有 20 行
+    if len(st.session_state.portfolio) < 20:
+        padding_df = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20 - len(st.session_state.portfolio))])
+        st.session_state.portfolio = pd.concat([st.session_state.portfolio, padding_df], ignore_index=True)
 
     edited_df = st.data_editor(
         st.session_state.portfolio, 
