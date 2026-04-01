@@ -125,7 +125,7 @@ def login_ui():
         u_pw = st.text_input("存取密碼", type="password", key="l_pw", placeholder="請輸入密碼")
         
         if st.button("確認登入", use_container_width=True, type="primary"):
-            if u_id in user_db and str(user_db[u_id]) == u_pw:
+           if user_db.get(u_id) == u_pw:
                 st.session_state.logged_in = True
                 st.session_state.current_user = u_id
                 st.session_state.portfolio = load_portfolio_from_cloud(u_id)
