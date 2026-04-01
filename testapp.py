@@ -56,12 +56,10 @@ except Exception as e:
     st.stop()
 
 def get_cloud_users():
-    """從雲端獲取最新帳密，確保型別皆為字串"""
-    # 讀取所有資料，gspread 會回傳 list of dict
+    """即時從雲端讀取用戶清單"""
     records = user_sheet.get_all_records()
-    
-    # 強制將 username 與 password 欄位轉為 str，避免 0000 變成 0
-    return {str(row['username']): str(row['password']) for row in records}
+    # 這裡必須縮排 4 個空格
+    return {str(row['username']).strip(): str(row['password']).strip() for row in records}
 
 def load_portfolio_from_cloud(username):
     """載入特定使用者的投資組合"""
@@ -118,21 +116,23 @@ def login_ui():
     st.title("🛡️ 投資助手系統")
     
     tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
-    user_db = get_cloud_users()
+    # 取得最新帳密資料
+user_db = get_cloud_users()
+
+with tab1:
+    u_id = st.text_input("帳號名稱", key="l_user", placeholder="請輸入帳號")
+    u_pw = st.text_input("存取密碼", type="password", key="l_pw", placeholder="請輸入密碼")
     
-    with tab1:
-        u_id = st.text_input("帳號名稱", key="l_user", placeholder="請輸入帳號")
-        u_pw = st.text_input("存取密碼", type="password", key="l_pw", placeholder="請輸入密碼")
-        
-        if st.button("確認登入", use_container_width=True, type="primary"):
-           if user_db.get(u_id) == u_pw:
-                st.session_state.logged_in = True
-                st.session_state.current_user = u_id
-                st.session_state.portfolio = load_portfolio_from_cloud(u_id)
-                st.success(f"登入成功！")
-                st.rerun()
-            else:
-                st.error("❌ 帳號或密碼不正確")
+    if st.button("確認登入", use_container_width=True, type="primary"):
+        # 這裡判斷 user_db 裡的密碼 (字串) 與 輸入的密碼是否一致
+        if user_db.get(u_id) == u_pw:
+            st.session_state.logged_in = True
+            st.session_state.current_user = u_id
+            st.session_state.portfolio = load_portfolio_from_cloud(u_id)
+            st.success(f"登入成功！")
+            st.rerun()
+        else:  # <-- 請檢查這一行開頭是否與上方的 if 對齊
+            st.error("❌ 帳號或密碼不正確")
                 
     with tab2:
         st.info("註冊資料將儲存於雲端，重啟系統不會遺失。")
