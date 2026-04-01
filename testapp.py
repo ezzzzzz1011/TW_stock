@@ -158,39 +158,33 @@ def login_ui():
 # --- 雲端關注清單同步函數 ---
 
 def load_watchlist_from_cloud():
-    """從 Google Sheets 讀取當前使用者的關注名單"""
     try:
         ws = sh.worksheet("watchlist")
-        # 取得所有資料
         all_records = ws.get_all_records()
-        
-        # 檢查該使用者是否存在
         for row in all_records:
-            # 確保 'username' 鍵值存在於字典中
             if row.get('username') == st.session_state.current_user:
-                # 取得 'codes' 內容，若為空則回傳空清單
-                user_codes = row.get('codes', "")
-                if user_codes:
-                    return str(user_codes).split(',')
+                raw_codes = str(row.get('codes', ""))
+                if raw_codes:
+                    # 關鍵修正：根據逗號拆回清單
+                    return [c.strip() for c in raw_codes.split(',') if c.strip()]
                 return []
     except Exception as e:
-        # 顯示更詳細的錯誤提示
-        st.error(f"讀取雲端名單失敗: {e}。請檢查工作表首行是否包含 'username' 與 'codes'")
+        st.error(f"讀取失敗: {e}")
     return []
 
 def save_watchlist_to_cloud(codes_list):
     try:
         ws = sh.worksheet("watchlist")
-        # 尋找使用者所在的儲存格
         cell = ws.find(st.session_state.current_user)
         
-        codes_str = ",".join(codes_list)
+        # 關鍵修正：確保代碼之間有逗號，例如 "2330,00919,00878"
+        codes_str = ",".join([str(c) for c in codes_list])
         
         if cell:
-            # 更新該行第 2 欄 (即 codes 欄)
+            # 更新現有使用者的 B 欄
             ws.update_cell(cell.row, 2, codes_str)
         else:
-            # 新增一行：A欄為使用者，B欄為代碼串
+            # 新增使用者資料
             ws.append_row([st.session_state.current_user, codes_str])
     except Exception as e:
         st.error(f"雲端儲存失敗: {e}")
