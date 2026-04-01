@@ -220,39 +220,55 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 核心數據抓取函數 ---
+from fugle_marketdata import RestClient
+import streamlit as st
+
+# --- Fugle API 初始化 ---
+# 建議做法：在 Streamlit Secrets 設定 FUGLE_API_TOKEN，安全性更高
+# FUGLE_TOKEN = st.secrets["FUGLE_API_TOKEN"]
+FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
+
+client = RestClient(api_key=FUGLE_TOKEN)
+
 def get_stock_info(symbol):
-    user_agents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
-    headers = {'User-Agent': random.choice(user_agents)}
-    for suffix in [".TW", ".TWO"]:
-        try:
-            full_ticker = f"{symbol}{suffix}"
-            t = yf.Ticker(full_ticker)
-            hist = t.history(period="5d")
-            if not hist.empty:
-                name = symbol
-                try:
-                    name_url = f"https://tw.stock.yahoo.com/quote/{full_ticker}"
-                    soup = BeautifulSoup(requests.get(name_url, headers=headers, timeout=5).text, 'html.parser')
-                    name_tag = soup.find('h1', {'class': 'C($c-link-text)'})
-                    if name_tag: name = name_tag.text.strip()
-                except:
-                    name = t.info.get('shortName', symbol)
-                
-                if symbol == "2330": name = "台積電"
-                
-                curr_p = hist['Close'].iloc[-1]
-                prev_p = hist['Close'].iloc[-2]
-                change = curr_p - prev_p
-                pct = (change / prev_p) * 100
-                
-                return {
-                    "name": name, "price": curr_p, "change": change, 
-                    "pct": pct, "high": hist['High'].iloc[-1], "low": hist['Low'].iloc[-1], 
-                    "open": hist['Open'].iloc[-1], "vol": hist['Volume'].iloc[-1],
-                    "hist": hist, "full_ticker": full_ticker, "dividends": t.dividends
-                }
-        except: continue
-    return None
+    """
+    使用 Fugle API 獲取台股即時行情，取代舊有的 yfinance 與爬蟲邏輯
+    """
+    try:
+        # 清除空格並轉大寫 (例如 ' 2330 ' -> '2330')
+        symbol = str(symbol).strip().upper()
+        
+        # 1. 呼叫富果行情快照 API
+        stock = client.stock
+        res = stock.snapshot.quotes(symbol=symbol)
+        
+        # 2. 檢查資料是否存在
+        if not res or 'data' not in res or len(res['data']) == 0:
+            return None
+            
+        data = res['data'][0]
+        
+        # 3. 處理數據格式
+        # 富果的漲跌幅是小數點 (0.0123)，乘以 100 轉為百分比 (1.23)
+        pct = data.get('changePercent', 0) * 100
+        
+        # 4. 回傳與你原本 UI 相容的字典格式
+        return {
+            "name": data.get('name', symbol),          # 股票名稱
+            "price": data.get('lastPrice'),            # 當前成交價
+            "change": data.get('change'),              # 漲跌價
+            "pct": pct,                                # 漲跌幅 (%)
+            "high": data.get('highPrice'),             # 今日最高
+            "low": data.get('lowPrice'),               # 今日最低
+            "open": data.get('openPrice'),             # 今日開盤
+            "vol": data.get('totalVolume'),            # 總成交量
+            "full_ticker": symbol                      # 富果直接用代碼
+        }
+        
+    except Exception as e:
+        # 僅在開發時顯示，避免使用者看到過多報錯
+        print(f"Fugle API Error for {symbol}: {e}")
+        return None
 
 @st.cache_data(ttl=600)
 def get_safe_data_etf(symbol):
