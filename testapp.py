@@ -110,33 +110,33 @@ def login_ui():
             box-shadow: 0 10px 25px rgba(0,0,0,0.3);
         }
         </style>
-    """, unsafe_allow_html=True)
+
+         """, unsafe_allow_html=True)
     
-    st.markdown('<div class="auth-container">', unsafe_allow_html=True)
+st.markdown('<div class="auth-container">', unsafe_allow_html=True)
     st.title("🛡️ 投資助手系統")
 
-# 必須先建立 tabs 變數
-tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
-    # 取得最新帳密資料
-user_db = get_cloud_users()
-    # 必須先建立 tabs 變數
-tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
+    # 1. 取得最新帳密資料（在 tabs 之前執行）
+    user_db = get_cloud_users()
 
-with tab1:
-    u_id = st.text_input("帳號名稱", key="l_user", placeholder="請輸入帳號")
-    u_pw = st.text_input("存取密碼", type="password", key="l_pw", placeholder="請輸入密碼")
-    
-    if st.button("確認登入", use_container_width=True, type="primary"):
-        # 這裡判斷 user_db 裡的密碼 (字串) 與 輸入的密碼是否一致
-        if user_db.get(u_id) == u_pw:
-            st.session_state.logged_in = True
-            st.session_state.current_user = u_id
-            st.session_state.portfolio = load_portfolio_from_cloud(u_id)
-            st.success(f"登入成功！")
-            st.rerun()
-        else:  # <-- 請檢查這一行開頭是否與上方的 if 對齊
-            st.error("❌ 帳號或密碼不正確")
-                
+    # 2. 建立 tabs 變數（只呼叫一次，解決畫面重複問題）
+    tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
+
+    with tab1:
+        u_id = st.text_input("帳號名稱", key="l_user", placeholder="請輸入帳號")
+        u_pw = st.text_input("存取密碼", type="password", key="l_pw", placeholder="請輸入密碼")
+        
+        if st.button("確認登入", use_container_width=True, type="primary"):
+            # 判斷帳號是否存在且密碼一致
+            if user_db.get(u_id) == u_pw:
+                st.session_state.logged_in = True
+                st.session_state.current_user = u_id
+                st.session_state.portfolio = load_portfolio_from_cloud(u_id)
+                st.success(f"登入成功！")
+                st.rerun()
+            else:
+                st.error("❌ 帳號或密碼不正確")
+                    
     with tab2:
         st.info("註冊資料將儲存於雲端，重啟系統不會遺失。")
         new_u = st.text_input("設定帳號", key="r_user")
@@ -151,13 +151,13 @@ with tab1:
             elif len(new_u) < 2 or len(new_p) < 4:
                 st.error("❌ 長度不足")
             else:
+                # 寫入雲端並初始化持股資料
                 user_sheet.append_row([new_u, new_p])
                 default_df = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
                 save_portfolio_to_cloud(new_u, default_df)
                 st.success("✅ 註冊成功！請切換至登入分頁。")
-                
+                    
     st.markdown('</div>', unsafe_allow_html=True)
-
 # 執行登入檢查
 if not st.session_state.logged_in:
     login_ui()
