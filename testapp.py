@@ -250,7 +250,7 @@ def go_to(page_name):
     st.rerun()
 
 # ==========================================
-# 頁面 A：首頁
+# 頁面 A：首頁 (更新版)
 # ==========================================
 if st.session_state.page == "home":
     with st.sidebar:
@@ -264,7 +264,8 @@ if st.session_state.page == "home":
     st.write("請選擇功能進入：")
     st.divider()
     
-    col_a, col_b, col_c, col_d = st.columns(4)
+    # 改為 5 個欄位
+    col_a, col_b, col_c, col_d, col_e = st.columns(5)
     with col_a:
         st.subheader("📈 個股分析")
         if st.button("個股查詢與估價", use_container_width=True, type="primary"):
@@ -281,7 +282,11 @@ if st.session_state.page == "home":
         st.subheader("💼 我的資產")
         if st.button("個人投資組合", use_container_width=True, type="primary"):
             go_to("portfolio")
-
+    # --- 新增的部分 ---
+    with col_e:
+        st.subheader("⭐ 我的關注")
+        if st.button("關注清單管理", use_container_width=True, type="primary"):
+            go_to("watchlist")
 # ==========================================
 # 頁面 B：個股查詢系統
 # ==========================================
