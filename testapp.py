@@ -154,6 +154,41 @@ def login_ui():
                 
     st.markdown('</div>', unsafe_allow_html=True)
 
+
+# --- 雲端關注清單同步函數 ---
+
+def load_watchlist_from_cloud():
+    """從 Google Sheets 讀取當前使用者的關注名單"""
+    try:
+        # 假設你已經定義好連接 Sheets 的 sh 物件
+        ws = sh.worksheet("watchlist")
+        data = ws.get_all_records()
+        for row in data:
+            if row['username'] == st.session_state.current_user:
+                # 將字串轉回 list，例如 "2330,0050" -> ["2330", "0050"]
+                return row['codes'].split(',') if row['codes'] else []
+    except Exception as e:
+        st.error(f"讀取雲端名單失敗: {e}")
+    return []
+
+def save_watchlist_to_cloud(codes_list):
+    """將關注名單儲存回 Google Sheets"""
+    try:
+        ws = sh.worksheet("watchlist")
+        cell = ws.find(st.session_state.current_user)
+        
+        # 將清單轉為逗號分隔字串
+        codes_str = ",".join(codes_list)
+        
+        if cell:
+            # 如果使用者已存在，更新 B 欄
+            ws.update_cell(cell.row, 2, codes_str)
+        else:
+            # 如果是新使用者，新增一行
+            ws.append_row([st.session_state.current_user, codes_str])
+    except Exception as e:
+        st.error(f"雲端儲存失敗: {e}")
+
 # 執行登入檢查
 if not st.session_state.logged_in:
     login_ui()
@@ -604,49 +639,60 @@ elif st.session_state.page == "portfolio":
 # ==========================================
 elif st.session_state.page == "watchlist":
     if st.button("⬅️ 返回首頁"): go_to("home")
-    st.title("⭐ 我的專屬關注清單")
+    st.title("⭐ 我的雲端關注清單")
 
+    # --- 初始化：首次進入頁面時從雲端抓取 ---
     if 'watchlist_data' not in st.session_state:
-        st.session_state.watchlist_data = []
+        with st.spinner("正在同步雲端資料..."):
+            st.session_state.watchlist_data = load_watchlist_from_cloud()
 
-    # --- 新增功能區 (這部分不自動刷新，避免輸入到一半被重整) ---
+    # --- 新增功能區 ---
     col_in, col_btn = st.columns([3, 1])
     new_code = col_in.text_input("輸入台股代碼", placeholder="例如: 2330").strip().upper()
+    
     if col_btn.button("確認加入", use_container_width=True):
         if new_code and new_code not in st.session_state.watchlist_data:
-            st.session_state.watchlist_data.append(new_code)
-            st.rerun()
+            # 先驗證代碼是否有效
+            info = get_stock_info(new_code)
+            if info:
+                st.session_state.watchlist_data.append(new_code)
+                # 【關鍵】同步到雲端
+                save_watchlist_to_cloud(st.session_state.watchlist_data)
+                st.success(f"✅ {new_code} 已同步至雲端")
+                st.rerun()
+            else:
+                st.error("找不到此代碼")
 
     st.divider()
 
-    # --- 定義自動刷新區塊 ---
-    @st.fragment(run_every=10) # 每 10 秒自動執行一次此函數內的所有代碼
+    # --- 自動刷新行情區塊 ---
+    @st.fragment(run_every=10)
     def refresh_watchlist_data():
         if st.session_state.watchlist_data:
-            st.markdown(f"⏱️ **最後更新時間：{time.strftime('%H:%M:%S')}** (每 10 秒自動更新)")
+            st.write(f"⏱️ 自動更新中... (最後更新: {time.strftime('%H:%M:%S')})")
             
-            # 抓取數據
             watch_list_info = []
             for code in st.session_state.watchlist_data:
-                info = get_stock_info(code) # 呼叫你原有的抓取函數
-                if info:
-                    watch_list_info.append(info)
+                info = get_stock_info(code)
+                if info: watch_list_info.append(info)
 
-            # 顯示表格/卡片 (維持你原本的 UI)
             for item in watch_list_info:
                 c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
-                color = "#ff4b4b" if item['change'] > 0 else "#00ff00" if item['change'] < 0 else "#ffffff"
+                color = "#ff4b4b" if item['change'] > 0 else "#00ff00"
                 
                 c1.markdown(f"**{item['name']}**")
                 c2.markdown(f"<span style='color:{color}; font-size:1.3rem; font-weight:bold;'>{item['price']:.2f}</span>", unsafe_allow_html=True)
                 c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
                 
+                # --- 移除功能 ---
                 if c4.button("🗑️", key=f"del_{item['full_ticker']}"):
-                    st.session_state.watchlist_data.remove(item['full_ticker'].split('.')[0])
+                    code_to_remove = item['full_ticker'].split('.')[0]
+                    st.session_state.watchlist_data.remove(code_to_remove)
+                    # 【關鍵】同步刪除結果到雲端
+                    save_watchlist_to_cloud(st.session_state.watchlist_data)
                     st.rerun()
                 st.divider()
         else:
-            st.info("清單空空如也，快加入想觀察的標的吧！")
+            st.info("清單空空如也，資料將同步於雲端。")
 
-    # 執行該刷新區塊
     refresh_watchlist_data()
