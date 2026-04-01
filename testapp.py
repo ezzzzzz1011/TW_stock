@@ -163,11 +163,15 @@ def load_watchlist_from_cloud():
         all_records = ws.get_all_records()
         for row in all_records:
             if row.get('username') == st.session_state.current_user:
-                raw_codes = str(row.get('codes', ""))
+                raw_codes = str(row.get('codes', "")).replace("'", "").strip()
                 if raw_codes:
-                    # 關鍵修正：根據逗號拆回清單
-                    return [c.strip() for c in raw_codes.split(',') if c.strip()]
-                return []
+                    # 分解字串，並且只保留長度小於 10 的代碼 (過濾掉那串長亂碼)
+                    valid_codes = [
+                        c.strip() for c in raw_codes.split(',') 
+                        if 0 < len(c.strip()) < 10
+                    ]
+                    return valid_codes
+        return []
     except Exception as e:
         st.error(f"讀取失敗: {e}")
     return []
@@ -175,15 +179,19 @@ def load_watchlist_from_cloud():
 def save_watchlist_to_cloud(codes_list):
     try:
         ws = sh.worksheet("watchlist")
+        # 重新搜尋使用者所在位置
         cell = ws.find(st.session_state.current_user)
         
-        # 關鍵修正：在字串最前面加上 ' 符號，強迫 Sheets 視為純文字
-        codes_str = "'" + ",".join([str(c) for c in codes_list])
+        # 加上 ' 是為了強迫 Sheets 視為文字，並確保代碼間有逗號
+        codes_str = "'" + ",".join([str(c).strip() for c in codes_list])
         
         if cell:
-            ws.update_cell(cell.row, 2, codes_str)
+            # 使用 update() 並指定座標，確保是「取代」該儲存格內容
+            ws.update(range_name=f"B{cell.row}", values=[[codes_str]])
         else:
+            # 如果是新用戶，新增一列
             ws.append_row([st.session_state.current_user, codes_str])
+            
     except Exception as e:
         st.error(f"雲端儲存失敗: {e}")
 # 執行登入檢查
