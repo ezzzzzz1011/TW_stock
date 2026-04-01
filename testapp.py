@@ -1,4 +1,3 @@
-有大量的查詢資訊被你刪除了，請按照這個程式嗎加回來把你移除的 只要刪除多餘登入畫面
 import streamlit as st
 import yfinance as yf
 import pandas as pd
