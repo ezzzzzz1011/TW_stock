@@ -177,18 +177,15 @@ def save_watchlist_to_cloud(codes_list):
         ws = sh.worksheet("watchlist")
         cell = ws.find(st.session_state.current_user)
         
-        # 關鍵修正：確保代碼之間有逗號，例如 "2330,00919,00878"
-        codes_str = ",".join([str(c) for c in codes_list])
+        # 關鍵修正：在字串最前面加上 ' 符號，強迫 Sheets 視為純文字
+        codes_str = "'" + ",".join([str(c) for c in codes_list])
         
         if cell:
-            # 更新現有使用者的 B 欄
             ws.update_cell(cell.row, 2, codes_str)
         else:
-            # 新增使用者資料
             ws.append_row([st.session_state.current_user, codes_str])
     except Exception as e:
         st.error(f"雲端儲存失敗: {e}")
-
 # 執行登入檢查
 if not st.session_state.logged_in:
     login_ui()
