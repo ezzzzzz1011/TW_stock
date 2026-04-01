@@ -8,77 +8,148 @@ from datetime import datetime
 import pytz
 import plotly.express as px
 import io
+import gspread
+from google.oauth2.service_account import Credentials
 
-# --- 0. 帳號與獨立儲存系統邏輯 ---
+# --- 1. 網頁全域設定 (必須放在最上方) ---
+st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
+tw_tz = pytz.timezone('Asia/Taipei')
+
+# --- 0. 雲端資料庫連線與帳號邏輯 ---
 @st.cache_resource
-def get_user_db():
-    # 儲存 帳號:密碼
-    return {"admin": "8888"}
+def init_connection():
+    scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds_dict = st.secrets["gcp_service_account"].to_dict()
+    
+    if "private_key" in creds_dict:
+        pk = creds_dict["private_key"]
+        pk = pk.replace("\\n", "\n").replace('"', '')
+        creds_dict["private_key"] = pk
+    
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    client = gspread.authorize(creds)
+    return client
 
-@st.cache_resource
-def get_all_portfolios():
-    # 儲存 帳號:DataFrame (這會模擬資料庫儲存每個人的內容)
-    return {}
+# 初始化資料庫物件
+try:
+    conn = init_connection()
+    sh = conn.open("streamlit_db")
+    
+    try:
+        user_sheet = sh.worksheet("users")
+    except:
+        user_sheet = sh.add_worksheet(title="users", rows="100", cols="2")
+        user_sheet.append_row(["username", "password"])
+        user_sheet.append_row(["admin", "8888"])
+    
+    try:
+        portfolio_sheet = sh.worksheet("portfolios")
+    except:
+        portfolio_sheet = sh.add_worksheet(title="portfolios", rows="1000", cols="2")
+        portfolio_sheet.append_row(["username", "data_json"])
+        
+except Exception as e:
+    st.error(f"❌ 雲端資料庫連線失敗：{e}")
+    st.stop()
 
-user_db = get_user_db()
-all_portfolios = get_all_portfolios()
+def get_cloud_users():
+    """即時從雲端讀取用戶清單"""
+    records = user_sheet.get_all_records()
+    return {str(row['username']).strip(): str(row['password']).strip() for row in records}
 
+def load_portfolio_from_cloud(username):
+    """載入特定使用者的投資組合"""
+    try:
+        cell = portfolio_sheet.find(username)
+        if cell:
+            json_data = portfolio_sheet.cell(cell.row, 2).value
+            return pd.read_json(io.StringIO(json_data))
+    except Exception:
+        pass
+    return pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
+
+def save_portfolio_to_cloud(username, df):
+    """儲存投資組合至雲端"""
+    clean_df = df.dropna(subset=['代碼']).copy() if '代碼' in df.columns else df
+    json_data = clean_df.to_json(orient='records', date_format='iso')
+    try:
+        cell = portfolio_sheet.find(username)
+        if cell:
+            portfolio_sheet.update_cell(cell.row, 2, json_data)
+        else:
+            portfolio_sheet.append_row([username, json_data])
+        return True
+    except Exception as e:
+        st.error(f"⚠️ 雲端儲存失敗: {e}")
+        return False
+
+# --- 初始化應用程式狀態 ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'current_user' not in st.session_state:
     st.session_state.current_user = None
+if 'portfolio' not in st.session_state:
+    st.session_state.portfolio = None
+if 'page' not in st.session_state:
+    st.session_state.page = "home"
+if 'data' not in st.session_state: 
+    st.session_state.data = None
 
+# --- 登入介面邏輯 ---
 def login_ui():
     st.markdown("""
         <style>
         .auth-container {
-            max-width: 400px;
-            margin: 100px auto;
-            padding: 30px;
+            max-width: 450px;
+            margin: 50px auto;
+            padding: 40px;
             background-color: #1e1e28;
-            border-radius: 15px;
-            border: 1px solid #444;
+            border-radius: 20px;
+            border: 1px solid #3e3e42;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
             text-align: center;
         }
         </style>
     """, unsafe_allow_html=True)
     
     st.markdown('<div class="auth-container">', unsafe_allow_html=True)
-    st.title("🔐 系統登入")
-    
-    tab1, tab2 = st.tabs(["帳號登入", "新用戶註冊"])
-    
+    st.title("🛡️ 投資助手系統")
+
+    user_db = get_cloud_users()
+    tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
+
     with tab1:
-        u_id = st.text_input("帳號", key="l_user")
-        u_pw = st.text_input("密碼", type="password", key="l_pw")
-        if st.button("登入系統", use_container_width=True, type="primary"):
-            if u_id in user_db and user_db[u_id] == u_pw:
+        u_id = st.text_input("帳號名稱", key="l_user", placeholder="請輸入帳號")
+        u_pw = st.text_input("存取密碼", type="password", key="l_pw", placeholder="請輸入密碼")
+        
+        if st.button("確認登入", use_container_width=True, type="primary"):
+            if user_db.get(u_id) == u_pw:
                 st.session_state.logged_in = True
                 st.session_state.current_user = u_id
-                # 登入時載入該帳號的資料，若無則給預設 20 行空白表
-                if u_id not in all_portfolios:
-                    all_portfolios[u_id] = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
-                st.session_state.portfolio = all_portfolios[u_id]
+                st.session_state.portfolio = load_portfolio_from_cloud(u_id)
+                st.success("登入成功！")
                 st.rerun()
             else:
-                st.error("帳號或密碼錯誤")
-                
+                st.error("❌ 帳號或密碼不正確")
+
     with tab2:
+        st.info("註冊資料將儲存於雲端，重啟系統不會遺失。")
         new_u = st.text_input("設定帳號", key="r_user")
         new_p = st.text_input("設定密碼", type="password", key="r_pw")
         confirm_p = st.text_input("確認密碼", type="password", key="r_confirm")
-        if st.button("完成註冊", use_container_width=True):
+        
+        if st.button("提交註冊", use_container_width=True):
             if new_u in user_db:
-                st.warning("此帳號已存在")
+                st.warning("⚠️ 帳號已存在")
             elif new_p != confirm_p:
-                st.error("密碼不一致")
-            elif not new_u or not new_p:
-                st.error("請填寫帳號密碼")
+                st.error("❌ 密碼不一致")
+            elif len(new_u) < 2 or len(new_p) < 4:
+                st.error("❌ 長度不足 (帳號需2字元, 密碼需4字元)")
             else:
-                user_db[new_u] = new_p
-                # 初始化該新帳號的 20 行空白投資清單
-                all_portfolios[new_u] = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
-                st.success("註冊成功！請切換至登入分頁")
+                user_sheet.append_row([new_u, new_p])
+                default_df = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
+                save_portfolio_to_cloud(new_u, default_df)
+                st.success("✅ 註冊成功！請切換至登入分頁。")
                 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -87,25 +158,7 @@ if not st.session_state.logged_in:
     login_ui()
     st.stop()
 
-# --- 1. 網頁全域設定 ---
-st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
-
-# 設定台灣時區
-tw_tz = pytz.timezone('Asia/Taipei')
-
-# --- 2. 初始化頁面狀態 ---
-if 'page' not in st.session_state:
-    st.session_state.page = "home"
-if 'data' not in st.session_state: 
-    st.session_state.data = None
-# 確保 session_state 裡有當前使用者的資料
-if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = all_portfolios.get(
-        st.session_state.current_user, 
-        pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
-    )
-
-# --- 3. 自定義 CSS ---
+# --- 自定義 CSS ---
 st.markdown("""
     <style>
     .main { background-color: #121218; color: #ffffff; }
@@ -125,7 +178,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. 核心數據抓取函數 ---
+# --- 核心數據抓取函數 ---
 def get_stock_info(symbol):
     user_agents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
     headers = {'User-Agent': random.choice(user_agents)}
@@ -191,13 +244,13 @@ def get_safe_data_etf(symbol):
         "last_date": last_date, "price_hist": info["hist"], "full_ticker": info["full_ticker"]
     }
 
-# --- 5. 導覽邏輯 ---
+# --- 導覽邏輯 ---
 def go_to(page_name):
     st.session_state.page = page_name
     st.rerun()
 
 # ==========================================
-# 首頁
+# 頁面 A：首頁
 # ==========================================
 if st.session_state.page == "home":
     with st.sidebar:
@@ -230,7 +283,7 @@ if st.session_state.page == "home":
             go_to("portfolio")
 
 # ==========================================
-# 頁面 A：個股查詢系統
+# 頁面 B：個股查詢系統
 # ==========================================
 elif st.session_state.page == "stock_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -278,7 +331,7 @@ elif st.session_state.page == "stock_query":
         st.info("計算公式：EPS × 自訂本益比 = 參考價")
 
 # ==========================================
-# 頁面 B：ETF 分析系統
+# 頁面 C：ETF 分析系統 (全功能完整保留)
 # ==========================================
 elif st.session_state.page == "etf_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -351,7 +404,7 @@ elif st.session_state.page == "etf_query":
             st.markdown(table_html, unsafe_allow_html=True)
 
             st.divider()
-            st.subheader("💰 持有張數試算")
+            st.subheader("💰 持有張數試算 (含稅費)")
             ratio_54c = st.slider("54C 股利佔比 (%)", 0, 100, 40)
             calc_c1, calc_c2 = st.columns([1, 2])
             with calc_c1: hold_lots = st.number_input("持有張數", min_value=0, value=10, step=1)
@@ -359,7 +412,7 @@ elif st.session_state.page == "etf_query":
                 total_shares = hold_lots * 1000
                 total_raw = total_shares * d1
                 
-                # --- 稅費計算 (僅保留二代健保) ---
+                # 稅費計算 (保留二代健保計算)
                 div_54c_part = total_raw * (ratio_54c/100)
                 nhi_amt = div_54c_part * 0.0211 if div_54c_part >= 20000 else 0
                 net_per_period = total_raw - nhi_amt
@@ -373,7 +426,7 @@ elif st.session_state.page == "etf_query":
                     一年累計實領：{(net_per_period * d['multiplier']):,.0f} 元
                 </div>""", unsafe_allow_html=True)
 
-            # --- 存股未來複利試算 ---
+            # 存股未來複利試算
             st.divider()
             st.subheader("🔮 存股未來財富試算")
             with st.container():
@@ -411,7 +464,7 @@ elif st.session_state.page == "etf_query":
         st.success("系統正常運行中")
 
 # ==========================================
-# 頁面 C：PK 對比工具
+# 頁面 D：PK 對比工具 (完整對比表)
 # ==========================================
 elif st.session_state.page == "pk_tool":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -452,59 +505,47 @@ elif st.session_state.page == "pk_tool":
                 st.table(df)
 
 # ==========================================
-# 頁面 D：個人投資組合 (含 CSV 匯入)
+# 頁面 E：個人投資組合 (雲端儲存版 + 圓餅圖)
 # ==========================================
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
     
-    # --- CSV 匯入區 ---
     with st.expander("📥 匯入投資清單 (CSV)"):
         uploaded_file = st.file_uploader("選擇 CSV 檔案", type="csv")
-        if uploaded_file is not None:
-            try:
-                import_df = pd.read_csv(uploaded_file)
-                if "代碼" in import_df.columns and "張數" in import_df.columns:
-                    # 抓取檔案中的資料
-                    new_data = import_df[["代碼", "張數"]].copy()
-                    # 補滿到 20 行
-                    if len(new_data) < 20:
-                        padding = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20 - len(new_data))])
-                        new_data = pd.concat([new_data, padding], ignore_index=True)
-                    
-                    st.session_state.portfolio = new_data
-                    st.success("CSV 資料已載入編輯器，請檢查後點擊下方儲存按鈕。")
-                else:
-                    st.error("CSV 格式錯誤！必須包含『代碼』與『張數』兩個欄位。")
-            except Exception as e:
-                st.error(f"讀取失敗：{e}")
+        if uploaded_file:
+            import_df = pd.read_csv(uploaded_file)
+            if "代碼" in import_df.columns and "張數" in import_df.columns:
+                new_data = import_df[["代碼", "張數"]].copy()
+                if len(new_data) < 20:
+                    padding = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20 - len(new_data))])
+                    new_data = pd.concat([new_data, padding], ignore_index=True)
+                st.session_state.portfolio = new_data
+                st.success("CSV 已載入編輯器，請檢查後點擊下方儲存。")
+            else:
+                st.error("CSV 格式錯誤！需包含『代碼』與『張數』兩個欄位。")
 
-    st.markdown("### 📝 編輯並儲存清單")
+    st.markdown("### 📝 編輯投資清單")
+    if st.session_state.portfolio is None or len(st.session_state.portfolio) == 0:
+        st.session_state.portfolio = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
     
-    # 確保目前的資料至少有 20 行
-    if len(st.session_state.portfolio) < 20:
-        padding_df = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20 - len(st.session_state.portfolio))])
-        st.session_state.portfolio = pd.concat([st.session_state.portfolio, padding_df], ignore_index=True)
+    edited_df = st.data_editor(st.session_state.portfolio, num_rows="dynamic", use_container_width=True)
 
-    edited_df = st.data_editor(
-        st.session_state.portfolio, 
-        num_rows="dynamic", 
-        use_container_width=True,
-        key="portfolio_editor"
-    )
-
-    if st.button("💾 更新並永久儲存至帳號", type="primary"):
+    if st.button("💾 儲存變更至雲端資料庫", type="primary"):
         st.session_state.portfolio = edited_df
-        all_portfolios[st.session_state.current_user] = edited_df
-        
-        results = []
-        total_market_val = 0
-        total_annual_div = 0
-        
-        valid_df = edited_df.dropna(subset=["代碼", "張數"])
-        valid_df = valid_df[valid_df["代碼"].astype(str).str.strip() != ""]
-        
-        if not valid_df.empty:
+        if save_portfolio_to_cloud(st.session_state.current_user, edited_df):
+            st.success("✅ 投資組合已成功同步至 Google Sheets 雲端！")
+
+    st.divider()
+    st.markdown("### 📊 資產市值與配置分析")
+    valid_df = edited_df.dropna(subset=["代碼", "張數"])
+    valid_df = valid_df[valid_df["代碼"].astype(str).str.strip() != ""]
+    
+    if not valid_df.empty:
+        if st.button("開始計算當前市值"):
+            results = []
+            total_market_val = 0
+            total_annual_div = 0
             with st.spinner("同步市場最新價格中..."):
                 for index, row in valid_df.iterrows():
                     try:
@@ -525,7 +566,6 @@ elif st.session_state.page == "portfolio":
 
             if results:
                 res_df = pd.DataFrame(results)
-                st.divider()
                 m1, m2, m3 = st.columns(3)
                 m1.metric("總資產規模", f"${total_market_val:,.0f}")
                 m2.metric("預估年領股息", f"${total_annual_div:,.0f}")
@@ -542,6 +582,6 @@ elif st.session_state.page == "portfolio":
                     st.write("#### 詳細數據")
                     st.dataframe(res_df, use_container_width=True)
             else:
-                st.error("未能抓取到數據，請檢查代碼。")
-        else:
-            st.warning("清單為空。")
+                st.error("未能抓取到有效數據，請確認代碼是否正確。")
+    else:
+        st.info("請先在上方表格輸入股票代碼與持有張數。")
