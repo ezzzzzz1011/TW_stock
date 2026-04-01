@@ -15,15 +15,15 @@ from google.oauth2.service_account import Credentials
 
 @st.cache_resource
 def init_connection():
-    """建立與 Google Sheets 的連線，簡化金鑰處理以避免解析位移"""
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    
-    # 讀取 Secrets
     creds_dict = st.secrets["gcp_service_account"].to_dict()
     
-    # 僅處理轉義的換行符，其餘依賴 Secrets 的原始格式
+    # 關鍵修正：將 "\\n" (字面上兩個字元) 轉為真正的 "\n" (換行符號)
+    # 並處理 JSON 匯入時可能多出的雙引號
     if "private_key" in creds_dict:
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        pk = creds_dict["private_key"]
+        pk = pk.replace("\\n", "\n").replace('"', '')
+        creds_dict["private_key"] = pk
     
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
@@ -56,8 +56,11 @@ except Exception as e:
     st.stop()
 
 def get_cloud_users():
-    """即時從雲端讀取用戶清單"""
+    """從雲端獲取最新帳密，確保型別皆為字串"""
+    # 讀取所有資料，gspread 會回傳 list of dict
     records = user_sheet.get_all_records()
+    
+    # 強制將 username 與 password 欄位轉為 str，避免 0000 變成 0
     return {str(row['username']): str(row['password']) for row in records}
 
 def load_portfolio_from_cloud(username):
