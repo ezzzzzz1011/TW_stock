@@ -265,9 +265,7 @@ with st.sidebar:
         st.session_state.logged_in = False
         st.session_state.current_user = None
         st.rerun()
-    st.title("🚀 台股個股/ETF查詢 Ez開發")
-    st.write("請選擇功能進入：")
-    st.divider()
+
     
 # ==========================================
 # 頁面 A：首頁
