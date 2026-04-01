@@ -640,42 +640,44 @@ elif st.session_state.page == "portfolio":
 
 
 # ==========================================
-# 頁面 F：我的關注 (優化防崩潰版)
+# 頁面 F：我的關注 (防崩潰穩定版)
 # ==========================================
 elif st.session_state.page == "watchlist":
     if st.button("⬅️ 返回首頁"): go_to("home")
     st.title("⭐ 我的雲端關注清單")
 
-    # --- 1. 只有在 Session 裡沒資料時，才去讀取一次 Google Sheets ---
+    # 1. 只有在 Session 裡沒資料時，才去讀取一次雲端
     if 'watchlist_data' not in st.session_state:
-        with st.spinner("正在同步雲端資料..."):
-            # 這裡只會執行一次，不會每 10 秒執行
+        try:
             st.session_state.watchlist_data = load_watchlist_from_cloud()
+        except:
+            st.session_state.watchlist_data = []
 
-    # --- 2. 新增功能區 (在 fragment 之外) ---
-    col_in, col_btn = st.columns([3, 1])
-    # 使用 key 確保輸入框狀態穩定
-    new_code = col_in.text_input("輸入台股代碼", placeholder="例如: 2330", key="watch_input").strip().upper()
-    
-    if col_btn.button("確認加入", use_container_width=True):
-        if new_code and new_code not in st.session_state.watchlist_data:
-            info = get_stock_info(new_code)
-            if info:
-                st.session_state.watchlist_data.append(new_code)
-                # 只有加入時才寫入雲端
-                save_watchlist_to_cloud(st.session_state.watchlist_data)
-                st.rerun()
+    # 2. 使用 st.form 包裹輸入框 [重要：防止打字時 API 崩潰]
+    with st.form("add_stock_form", clear_on_submit=True):
+        st.write("### ➕ 新增追蹤標的")
+        new_code = st.text_input("輸入台股代碼", placeholder="例如: 2330").strip().upper()
+        submit_button = st.form_submit_button("確認加入", use_container_width=True)
+        
+        if submit_button and new_code:
+            if new_code not in st.session_state.watchlist_data:
+                info = get_stock_info(new_code) # 抓股價不佔用 Google 額度
+                if info:
+                    st.session_state.watchlist_data.append(new_code)
+                    # 只有點擊提交時才寫入一次雲端
+                    save_watchlist_to_cloud(st.session_state.watchlist_data)
+                    st.success(f"✅ {new_code} 加入成功！")
+                    st.rerun()
+                else:
+                    st.error("❌ 找不到代碼")
 
     st.divider()
 
-    # --- 3. 自動刷新區塊 (只抓股價，不抓 Sheets) ---
+    # 3. 自動刷新行情區 (僅刷新 UI 與股價，不讀取 Sheets)
     @st.fragment(run_every=10)
-    def refresh_watchlist_only():
-        # 這裡只讀取 st.session_state.watchlist_data 的內存清單
+    def refresh_watchlist_view():
         if st.session_state.watchlist_data:
-            st.write(f"⏱️ 行情自動更新中... ({time.strftime('%H:%M:%S')})")
-            
-            # 抓取最新股價 (這是抓 Yahoo Finance，不會卡 Google API 額度)
+            st.caption(f"⏱️ 行情自動刷新中... ({time.strftime('%H:%M:%S')})")
             for code in st.session_state.watchlist_data:
                 item = get_stock_info(code)
                 if item:
@@ -691,6 +693,9 @@ elif st.session_state.page == "watchlist":
                         st.rerun()
                     st.divider()
         else:
-            st.info("目前清單為空。")
+            st.info("清單空空如也，請在上方新增標的。")
 
-    refresh_watchlist_only()
+    refresh_watchlist_view()
+
+
+
