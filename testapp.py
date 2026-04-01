@@ -114,8 +114,7 @@ def login_ui():
     
     st.markdown('<div class="auth-container">', unsafe_allow_html=True)
     st.title("🛡️ 投資助手系統")
-    
-    tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
+
     # 取得最新帳密資料
 user_db = get_cloud_users()
     # 必須先建立 tabs 變數
