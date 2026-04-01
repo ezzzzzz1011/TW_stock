@@ -87,6 +87,10 @@ if 'current_user' not in st.session_state:
     st.session_state.current_user = None
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = None
+if 'page' not in st.session_state:
+    st.session_state.page = "home"
+if 'data' not in st.session_state: 
+    st.session_state.data = None
 
 # --- 登入介面邏輯 ---
 def login_ui():
@@ -100,6 +104,7 @@ def login_ui():
             border-radius: 20px;
             border: 1px solid #3e3e42;
             box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            text-align: center;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -153,11 +158,6 @@ if not st.session_state.logged_in:
 # --- 1. 網頁全域設定 ---
 st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
 tw_tz = pytz.timezone('Asia/Taipei')
-
-if 'page' not in st.session_state:
-    st.session_state.page = "home"
-if 'data' not in st.session_state: 
-    st.session_state.data = None
 
 # --- 3. 自定義 CSS ---
 st.markdown("""
@@ -306,15 +306,41 @@ elif st.session_state.page == "etf_query":
         symbol_input = st.text_input("ETF 代號", placeholder="例如: 00919").strip().upper()
         if st.button("開始計算", type="primary") and symbol_input:
             st.session_state.data = get_safe_data_etf(symbol_input)
+        
         if st.session_state.data and st.session_state.data.get("success"):
             d = st.session_state.data
-            st.markdown(f"## {d['name']}")
+            st.markdown(f"## {d['name']} ({d['freq_label']}配)")
             st.write(f"現價: {d['price']:.2f}")
+            
             st.divider()
-            st.subheader("💰 持有張數試算")
+            st.subheader("💰 持有張數與稅費試算")
+            ratio_54c = st.slider("54C 股利佔比 (%)", 0, 100, 40)
             hold_lots = st.number_input("持有張數", min_value=0, value=10)
-            total_raw = hold_lots * 1000 * float(d["raw_divs"][0])
-            st.markdown(f"<div class='calc-box'>每期預計配息：{total_raw:,.0f} 元</div>", unsafe_allow_html=True)
+            
+            total_shares = hold_lots * 1000
+            total_raw = total_shares * float(d["raw_divs"][0])
+            div_54c_part = total_raw * (ratio_54c/100)
+            nhi_amt = div_54c_part * 0.0211 if div_54c_part >= 20000 else 0
+            net_per_period = total_raw - nhi_amt
+            
+            st.markdown(f"""<div class="calc-box">
+                每{d['freq_label']}總配息：{total_raw:,.0f} 元<br>
+                <span style="color: #ffb7b7;">└ 二代健保扣費：-{nhi_amt:,.0f} 元</span><br>
+                <b>每{d['freq_label']}實領金額：{net_per_period:,.0f} 元</b>
+            </div>""", unsafe_allow_html=True)
+
+            st.divider()
+            st.subheader("🔮 存股未來複利試算")
+            f_col1, f_col2, f_col3 = st.columns(3)
+            with f_col1: custom_monthly = st.number_input("每月投入 (元)", value=10000)
+            with f_col2: custom_yield = st.number_input("年化殖利率 (%)", value=7.0)
+            with f_col3: custom_years = st.slider("投入年數", 1, 40, 10)
+            
+            r = (custom_yield / 100) / 12
+            n = custom_years * 12
+            fv = custom_monthly * (((1 + r)**n - 1) / r) * (1 + r) if r > 0 else custom_monthly * n
+            st.markdown(f"<div class='calc-box'>預期資產終值：<span class='highlight-val'>${fv:,.0f}</span></div>", unsafe_allow_html=True)
+
     with side_col:
         st.success("系統正常運行中")
 
@@ -327,7 +353,12 @@ elif st.session_state.page == "pk_tool":
     if st.button("開始對比"):
         r1, r2 = get_safe_data_etf(code1), get_safe_data_etf(code2)
         if r1["success"] and r2["success"]:
-            st.write(f"對比結果: {r1['name']} vs {r2['name']}")
+            df_pk = pd.DataFrame({
+                "指標": ["價格", "漲跌幅", "配息頻率"],
+                code1: [f"{r1['price']:.2f}", f"{r1['pct']:.2f}%", r1['freq_label']],
+                code2: [f"{r2['price']:.2f}", f"{r2['pct']:.2f}%", r2['freq_label']]
+            })
+            st.table(df_pk)
 
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -345,7 +376,6 @@ elif st.session_state.page == "portfolio":
                 st.session_state.portfolio = new_data
                 st.success("CSV 已載入！")
 
-    # 確保資料結構正確
     if st.session_state.portfolio is None:
         st.session_state.portfolio = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
     
@@ -356,16 +386,19 @@ elif st.session_state.page == "portfolio":
         if save_portfolio_to_cloud(st.session_state.current_user, edited_df):
             st.success("雲端同步成功！")
 
-    # 計算資產價值
     valid_df = edited_df.dropna(subset=["代碼", "張數"])
     valid_df = valid_df[valid_df["代碼"].astype(str).str.strip() != ""]
     if not valid_df.empty and st.button("📊 計算當前市值分析"):
         results = []
+        total_val = 0
         for _, row in valid_df.iterrows():
             d = get_safe_data_etf(str(row["代碼"]).strip().upper())
             if d["success"]:
                 shares = float(row["張數"]) * 1000
-                results.append({"名稱": d["name"], "持有價值": d["price"] * shares})
+                val = d["price"] * shares
+                results.append({"名稱": d["name"], "持有價值": val})
+                total_val += val
         if results:
             res_df = pd.DataFrame(results)
+            st.metric("總資產價值", f"${total_val:,.0f}")
             st.plotly_chart(px.pie(res_df, values='持有價值', names='名稱', title="資產分佈"))
