@@ -15,34 +15,35 @@ from google.oauth2.service_account import Credentials
 
 @st.cache_resource
 def init_connection():
-    """建立與 Google Sheets 的連線，強制修正 PEM 金鑰格式"""
+    """建立與 Google Sheets 的連線，強力修正 PEM 金鑰格式問題"""
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     
-    # 讀取 Secrets
+    # 讀取 Secrets 並轉為字典格式
     creds_dict = st.secrets["gcp_service_account"].to_dict()
     
-    # 強力修正 private_key
-    pk = creds_dict["private_key"]
-    # 1. 處理常見的轉義字元錯誤
-    pk = pk.replace("\\n", "\n")
-    # 2. 確保頭尾沒有多餘空格
-    pk = pk.strip()
-    # 3. 確保 BEGIN/END 標籤存在且格式正確
-    if "-----BEGIN PRIVATE KEY-----" not in pk:
-        pk = "-----BEGIN PRIVATE KEY-----\n" + pk
-    if "-----END PRIVATE KEY-----" not in pk:
-        pk = pk + "\n-----END PRIVATE KEY-----"
-    
-    creds_dict["private_key"] = pk
+    # --- 核心修正區：強制格式化 Private Key ---
+    if "private_key" in creds_dict:
+        pk = creds_dict["private_key"]
+        # 1. 處理常見的轉義字元，將 "\\n" 轉回真正的換行符 "\n"
+        pk = pk.replace("\\n", "\n")
+        # 2. 去除頭尾可能誤入的空格或換行
+        pk = pk.strip()
+        # 3. 確保 BEGIN/END 標籤格式正確（處理手動貼上可能遺失的換行）
+        if "-----BEGIN PRIVATE KEY-----" in pk and not pk.startswith("-----BEGIN PRIVATE KEY-----\n"):
+            pk = pk.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n")
+        if "-----END PRIVATE KEY-----" in pk and not pk.endswith("\n-----END PRIVATE KEY-----"):
+            pk = pk.replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----")
+        
+        creds_dict["private_key"] = pk
     
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
     return client
 
-# 初始化資料庫物件
+# 初始化資料庫物件與分頁檢查
 try:
     conn = init_connection()
-    # 開啟試算表 (請確保試算表名稱正確且已與服務帳號共用)
+    # 開啟試算表 (名稱須與 Google Sheets 標題完全一致)
     sh = conn.open("streamlit_db")
     
     # 檢查或建立「帳號表」
@@ -51,7 +52,7 @@ try:
     except:
         user_sheet = sh.add_worksheet(title="users", rows="100", cols="2")
         user_sheet.append_row(["username", "password"])
-        user_sheet.append_row(["admin", "8888"]) # 預設管理者帳密
+        user_sheet.append_row(["admin", "8888"])
     
     # 檢查或建立「投資組合儲存表」
     try:
@@ -62,48 +63,43 @@ try:
         
 except Exception as e:
     st.error(f"❌ 雲端資料庫連線失敗：{e}")
-    st.info("💡 請確認 Google Sheet 已分享編輯權限給服務帳號電子郵件。")
+    st.info("💡 提示：若顯示 PEM 錯誤，請確認 Secrets 中的 private_key 是否使用了三個引號 \"\"\" 包裹。")
     st.stop()
 
 def get_cloud_users():
-    """即時從雲端讀取最新的帳密清單"""
+    """從雲端獲取最新帳密"""
     records = user_sheet.get_all_records()
     return {str(row['username']): str(row['password']) for row in records}
 
 def load_portfolio_from_cloud(username):
-    """從雲端讀取特定使用者的投資組合 JSON 並轉回 DataFrame"""
+    """載入使用者的雲端投資組合"""
     try:
         cell = portfolio_sheet.find(username)
         if cell:
             json_data = portfolio_sheet.cell(cell.row, 2).value
-            # 將儲存的 JSON 字串還原為 DataFrame
-            df = pd.read_json(io.StringIO(json_data))
-            return df
+            return pd.read_json(io.StringIO(json_data))
     except Exception:
         pass
-    # 若查無資料，回傳預設 20 行空白投資組合
     return pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
 
 def save_portfolio_to_cloud(username, df):
-    """將投資組合 DataFrame 轉為 JSON 儲存至雲端"""
-    # 清理 DataFrame，移除完全空白的行以節省空間
+    """儲存投資組合至雲端"""
+    # 過濾空白行以優化儲存空間
     clean_df = df.dropna(subset=['代碼']).copy() if '代碼' in df.columns else df
     json_data = clean_df.to_json(orient='records', date_format='iso')
     
     try:
         cell = portfolio_sheet.find(username)
         if cell:
-            # 找到現有使用者，更新資料
             portfolio_sheet.update_cell(cell.row, 2, json_data)
         else:
-            # 新使用者，新增一行
             portfolio_sheet.append_row([username, json_data])
         return True
     except Exception as e:
-        st.error(f"儲存至雲端時發生錯誤: {e}")
+        st.error(f"⚠️ 雲端儲存失敗: {e}")
         return False
 
-# --- 初始化應用程式狀態 ---
+# --- 應用程式 Session 狀態初始化 ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'current_user' not in st.session_state:
@@ -112,7 +108,7 @@ if 'portfolio' not in st.session_state:
     st.session_state.portfolio = None
 
 def login_ui():
-    """渲染登入/註冊介面"""
+    """顯示登入與註冊介面"""
     st.markdown("""
         <style>
         .auth-container {
@@ -132,7 +128,7 @@ def login_ui():
     
     tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
     
-    # 每次渲染登入介面時重新抓取雲端用戶
+    # 每次渲染介面時同步雲端用戶資料
     user_db = get_cloud_users()
     
     with tab1:
@@ -143,37 +139,34 @@ def login_ui():
             if u_id in user_db and str(user_db[u_id]) == u_pw:
                 st.session_state.logged_in = True
                 st.session_state.current_user = u_id
-                # 登入成功時載入資料
                 st.session_state.portfolio = load_portfolio_from_cloud(u_id)
-                st.success(f"登入成功！歡迎回來 {u_id}")
+                st.success(f"登入成功！")
                 st.rerun()
             else:
                 st.error("❌ 帳號或密碼不正確")
                 
     with tab2:
-        st.info("註冊後資料將儲存於雲端，重啟系統不會遺失。")
+        st.info("註冊資料將儲存於雲端 Google Sheets。")
         new_u = st.text_input("設定帳號", key="r_user")
         new_p = st.text_input("設定密碼", type="password", key="r_pw")
         confirm_p = st.text_input("確認密碼", type="password", key="r_confirm")
         
         if st.button("提交註冊", use_container_width=True):
             if new_u in user_db:
-                st.warning("⚠️ 此帳號名稱已被註冊")
+                st.warning("⚠️ 帳號已存在")
             elif new_p != confirm_p:
-                st.error("❌ 兩次輸入的密碼不一致")
+                st.error("❌ 密碼不一致")
             elif len(new_u) < 2 or len(new_p) < 4:
-                st.error("❌ 帳號或密碼長度太短")
+                st.error("❌ 長度不足")
             else:
-                # 寫入雲端 users 表
                 user_sheet.append_row([new_u, new_p])
-                # 初始化該帳號的空白清單
                 default_df = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
                 save_portfolio_to_cloud(new_u, default_df)
-                st.success("✅ 註冊成功！請切換至「帳號登入」分頁進入系統。")
+                st.success("✅ 註冊成功！請切換至登入分頁。")
                 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# 執行門禁檢查
+# 門禁檢查邏輯
 if not st.session_state.logged_in:
     login_ui()
     st.stop()
