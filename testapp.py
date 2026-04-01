@@ -15,10 +15,16 @@ from google.oauth2.service_account import Credentials
 
 @st.cache_resource
 def init_connection():
-    """建立與 Google Sheets 的連線，使用 cache 避免重複登入"""
+    """建立與 Google Sheets 的連線並處理金鑰換行問題"""
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    # 直接讀取 st.secrets 中的字典
-    creds_dict = st.secrets["gcp_service_account"]
+    
+    # 讀取 Secrets
+    creds_dict = st.secrets["gcp_service_account"].to_dict()
+    
+    # 核心修正：將多行字串中的 \\n 替換回真正的換行符，並去除前後空格
+    if "private_key" in creds_dict:
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
+    
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
     return client
