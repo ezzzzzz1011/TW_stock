@@ -8,21 +8,70 @@ from datetime import datetime
 import pytz
 import plotly.express as px
 import io
+import gspread
+from google.oauth2.service_account import Credentials
 
-# --- 0. 帳號與獨立儲存系統邏輯 ---
-@st.cache_resource
-def get_user_db():
-    # 儲存 帳號:密碼
-    return {"admin": "8888"}
+# --- 0. 雲端資料庫連線與帳號邏輯 ---
 
-@st.cache_resource
-def get_all_portfolios():
-    # 儲存 帳號:DataFrame (這會模擬資料庫儲存每個人的內容)
-    return {}
+def init_connection():
+    """建立與 Google Sheets 的連線"""
+    scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds_dict = st.secrets["gcp_service_account"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    client = gspread.authorize(creds)
+    return client
 
-user_db = get_user_db()
-all_portfolios = get_all_portfolios()
+# 初始化連線與開啟工作表
+try:
+    conn = init_connection()
+    sh = conn.open("streamlit_db")
+    
+    # 檢查或建立「帳號表」
+    try:
+        user_sheet = sh.worksheet("users")
+    except:
+        user_sheet = sh.add_worksheet(title="users", rows="100", cols="2")
+        user_sheet.append_row(["username", "password"])
+        user_sheet.append_row(["admin", "8888"])
+    
+    # 檢查或建立「投資組合儲存表」
+    try:
+        portfolio_sheet = sh.worksheet("portfolios")
+    except:
+        portfolio_sheet = sh.add_worksheet(title="portfolios", rows="1000", cols="2")
+        portfolio_sheet.append_row(["username", "data_json"])
+        
+except Exception as e:
+    st.error(f"資料庫連線失敗，請檢查 Secrets 格式或表格名稱：{e}")
+    st.stop()
 
+def get_cloud_users():
+    """從雲端讀取所有帳密"""
+    records = user_sheet.get_all_records()
+    return {str(row['username']): str(row['password']) for row in records}
+
+def load_portfolio_from_cloud(username):
+    """從雲端讀取使用者的投資清單"""
+    try:
+        cell = portfolio_sheet.find(username)
+        if cell:
+            json_data = portfolio_sheet.cell(cell.row, 2).value
+            return pd.read_json(io.StringIO(json_data))
+    except:
+        pass
+    # 找不到則回傳預設 20 行空白表
+    return pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
+
+def save_portfolio_to_cloud(username, df):
+    """將投資清單存回雲端"""
+    json_data = df.to_json(orient='records')
+    cell = portfolio_sheet.find(username)
+    if cell:
+        portfolio_sheet.update_cell(cell.row, 2, json_data)
+    else:
+        portfolio_sheet.append_row([username, json_data])
+
+# 初始化 Session State
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'current_user' not in st.session_state:
@@ -48,6 +97,9 @@ def login_ui():
     
     tab1, tab2 = st.tabs(["帳號登入", "新用戶註冊"])
     
+    # 取得最新雲端帳號清單
+    user_db = get_cloud_users()
+    
     with tab1:
         u_id = st.text_input("帳號", key="l_user")
         u_pw = st.text_input("密碼", type="password", key="l_pw")
@@ -55,10 +107,8 @@ def login_ui():
             if u_id in user_db and user_db[u_id] == u_pw:
                 st.session_state.logged_in = True
                 st.session_state.current_user = u_id
-                # 登入時載入該帳號的資料，若無則給預設 20 行空白表
-                if u_id not in all_portfolios:
-                    all_portfolios[u_id] = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
-                st.session_state.portfolio = all_portfolios[u_id]
+                # 登入時載入雲端資料
+                st.session_state.portfolio = load_portfolio_from_cloud(u_id)
                 st.rerun()
             else:
                 st.error("帳號或密碼錯誤")
@@ -75,9 +125,11 @@ def login_ui():
             elif not new_u or not new_p:
                 st.error("請填寫帳號密碼")
             else:
-                user_db[new_u] = new_p
-                # 初始化該新帳號的 20 行空白投資清單
-                all_portfolios[new_u] = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
+                # 寫入新帳號到 Google Sheets
+                user_sheet.append_row([new_u, new_p])
+                # 初始化該新帳號的雲端投資清單
+                default_df = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
+                save_portfolio_to_cloud(new_u, default_df)
                 st.success("註冊成功！請切換至登入分頁")
                 
     st.markdown('</div>', unsafe_allow_html=True)
@@ -86,7 +138,6 @@ def login_ui():
 if not st.session_state.logged_in:
     login_ui()
     st.stop()
-
 # --- 1. 網頁全域設定 ---
 st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
 
@@ -486,12 +537,29 @@ elif st.session_state.page == "portfolio":
         padding_df = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20 - len(st.session_state.portfolio))])
         st.session_state.portfolio = pd.concat([st.session_state.portfolio, padding_df], ignore_index=True)
 
-    edited_df = st.data_editor(
-        st.session_state.portfolio, 
-        num_rows="dynamic", 
-        use_container_width=True,
-        key="portfolio_editor"
-    )
+    # 1. 顯示編輯器，並取得編輯後的結果
+edited_df = st.data_editor(
+    st.session_state.portfolio, 
+    num_rows="dynamic", 
+    use_container_width=True,
+    key="portfolio_editor"
+)
+
+# 2. 加入存檔按鈕與邏輯
+col1, col2 = st.columns([1, 5])
+with col1:
+    if st.button("💾 儲存至雲端", type="primary", use_container_width=True):
+        # 更新 session_state
+        st.session_state.portfolio = edited_df
+        # 呼叫我們先前定義好的存檔函數
+        try:
+            save_portfolio_to_cloud(st.session_state.current_user, edited_df)
+            st.success("儲存成功！資料已同步至 Google Sheets。")
+        except Exception as e:
+            st.error(f"儲存失敗：{e}")
+
+with col2:
+    st.info("💡 編輯完代碼或張數後，請務必點擊左側儲存按鈕，帳號重啟後資料才不會消失。")
 
     if st.button("💾 更新並永久儲存至帳號", type="primary"):
         st.session_state.portfolio = edited_df
