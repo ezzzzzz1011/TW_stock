@@ -640,64 +640,57 @@ elif st.session_state.page == "portfolio":
 
 
 # ==========================================
-# 頁面 F：我的關注 (支援 10 秒自動刷新版)
+# 頁面 F：我的關注 (優化防崩潰版)
 # ==========================================
 elif st.session_state.page == "watchlist":
     if st.button("⬅️ 返回首頁"): go_to("home")
     st.title("⭐ 我的雲端關注清單")
 
-    # --- 初始化：首次進入頁面時從雲端抓取 ---
+    # --- 1. 只有在 Session 裡沒資料時，才去讀取一次 Google Sheets ---
     if 'watchlist_data' not in st.session_state:
         with st.spinner("正在同步雲端資料..."):
+            # 這裡只會執行一次，不會每 10 秒執行
             st.session_state.watchlist_data = load_watchlist_from_cloud()
 
-    # --- 新增功能區 ---
+    # --- 2. 新增功能區 (在 fragment 之外) ---
     col_in, col_btn = st.columns([3, 1])
-    new_code = col_in.text_input("輸入台股代碼", placeholder="例如: 2330").strip().upper()
+    # 使用 key 確保輸入框狀態穩定
+    new_code = col_in.text_input("輸入台股代碼", placeholder="例如: 2330", key="watch_input").strip().upper()
     
     if col_btn.button("確認加入", use_container_width=True):
         if new_code and new_code not in st.session_state.watchlist_data:
-            # 先驗證代碼是否有效
             info = get_stock_info(new_code)
             if info:
                 st.session_state.watchlist_data.append(new_code)
-                # 【關鍵】同步到雲端
+                # 只有加入時才寫入雲端
                 save_watchlist_to_cloud(st.session_state.watchlist_data)
-                st.success(f"✅ {new_code} 已同步至雲端")
                 st.rerun()
-            else:
-                st.error("找不到此代碼")
 
     st.divider()
 
-    # --- 自動刷新行情區塊 ---
+    # --- 3. 自動刷新區塊 (只抓股價，不抓 Sheets) ---
     @st.fragment(run_every=10)
-    def refresh_watchlist_data():
+    def refresh_watchlist_only():
+        # 這裡只讀取 st.session_state.watchlist_data 的內存清單
         if st.session_state.watchlist_data:
-            st.write(f"⏱️ 自動更新中... (最後更新: {time.strftime('%H:%M:%S')})")
+            st.write(f"⏱️ 行情自動更新中... ({time.strftime('%H:%M:%S')})")
             
-            watch_list_info = []
+            # 抓取最新股價 (這是抓 Yahoo Finance，不會卡 Google API 額度)
             for code in st.session_state.watchlist_data:
-                info = get_stock_info(code)
-                if info: watch_list_info.append(info)
-
-            for item in watch_list_info:
-                c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
-                color = "#ff4b4b" if item['change'] > 0 else "#00ff00"
-                
-                c1.markdown(f"**{item['name']}**")
-                c2.markdown(f"<span style='color:{color}; font-size:1.3rem; font-weight:bold;'>{item['price']:.2f}</span>", unsafe_allow_html=True)
-                c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
-                
-                # --- 移除功能 ---
-                if c4.button("🗑️", key=f"del_{item['full_ticker']}"):
-                    code_to_remove = item['full_ticker'].split('.')[0]
-                    st.session_state.watchlist_data.remove(code_to_remove)
-                    # 【關鍵】同步刪除結果到雲端
-                    save_watchlist_to_cloud(st.session_state.watchlist_data)
-                    st.rerun()
-                st.divider()
+                item = get_stock_info(code)
+                if item:
+                    c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
+                    color = "#ff4b4b" if item['change'] > 0 else "#00ff00"
+                    c1.markdown(f"**{item['name']}**")
+                    c2.markdown(f"<span style='color:{color}; font-size:1.3rem; font-weight:bold;'>{item['price']:.2f}</span>", unsafe_allow_html=True)
+                    c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
+                    
+                    if c4.button("🗑️", key=f"del_{item['full_ticker']}"):
+                        st.session_state.watchlist_data.remove(item['full_ticker'].split('.')[0])
+                        save_watchlist_to_cloud(st.session_state.watchlist_data)
+                        st.rerun()
+                    st.divider()
         else:
-            st.info("清單空空如也，資料將同步於雲端。")
+            st.info("目前清單為空。")
 
-    refresh_watchlist_data()
+    refresh_watchlist_only()
