@@ -596,3 +596,83 @@ elif st.session_state.page == "portfolio":
                 st.error("未能抓取到有效數據，請確認代碼是否正確。")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
+
+
+# ==========================================
+# 頁面 F：我的關注 (手動自訂關注清單)
+# ==========================================
+elif st.session_state.page == "watchlist":
+    if st.button("⬅️ 返回首頁"): go_to("home")
+    st.title("⭐ 我的專屬關注清單")
+    st.write("在這裡加入你感興趣的股票或 ETF，隨時監控行情。")
+
+    # 初始化清單儲存空間 (Session State)
+    if 'watchlist_data' not in st.session_state:
+        st.session_state.watchlist_data = [] # 初始為空，讓你自由加入
+
+    # --- 新增功能區 ---
+    st.markdown("### ➕ 新增追蹤標的")
+    col_in, col_btn = st.columns([3, 1])
+    with col_in:
+        new_code = st.text_input("輸入台股代碼", placeholder="例如: 2330, 00919, 2454", key="add_watch_input").strip().upper()
+    with col_btn:
+        st.write("") # 垂直對齊
+        if st.button("確認加入", use_container_width=True, type="primary"):
+            if new_code:
+                if new_code not in st.session_state.watchlist_data:
+                    # 測試是否能抓到資料
+                    with st.spinner(f"正在驗證 {new_code}..."):
+                        test_info = get_stock_info(new_code)
+                        if test_info:
+                            st.session_state.watchlist_data.append(new_code)
+                            st.success(f"✅ 已將 {test_info['name']} 加入清單")
+                            st.rerun()
+                        else:
+                            st.error("❌ 找不到此代碼，請確認是否正確")
+                else:
+                    st.warning("⚠️ 此代碼已在清單中")
+
+    st.divider()
+
+    # --- 顯示監控清單 ---
+    if st.session_state.watchlist_data:
+        st.markdown(f"### 📊 即時監控中心 (共 {len(st.session_state.watchlist_data)} 檔)")
+        
+        # 抓取清單內所有股票的最新資訊
+        watch_list_info = []
+        with st.spinner("同步市場行情中..."):
+            for code in st.session_state.watchlist_data:
+                info = get_stock_info(code)
+                if info:
+                    watch_list_info.append(info)
+
+        # 表頭
+        h1, h2, h3, h4 = st.columns([2, 2, 2, 1])
+        h1.write("**股票名稱**")
+        h2.write("**最新價格**")
+        h3.write("**今日漲跌**")
+        h4.write("**管理**")
+        st.markdown("<hr style='margin: 0px 0px 10px 0px;'>", unsafe_allow_html=True)
+
+        # 內容行
+        for item in watch_list_info:
+            c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
+            
+            # 判斷顏色
+            color = "#ff4b4b" if item['change'] > 0 else "#00ff00" if item['change'] < 0 else "#ffffff"
+            
+            c1.markdown(f"**{item['name']}** \n<small>{item['full_ticker'].split('.')[0]}</small>", unsafe_allow_html=True)
+            c2.markdown(f"<span style='color:{color}; font-size:1.4rem; font-weight:bold; font-family:Consolas;'>{item['price']:.2f}</span>", unsafe_allow_html=True)
+            c3.markdown(f"<span style='color:{color}; font-weight:bold;'>{item['change']:+.2f}<br>({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
+            
+            # 移除按鈕
+            if c4.button("🗑️", key=f"del_{item['full_ticker']}", help=f"取消關注 {item['name']}"):
+                st.session_state.watchlist_data.remove(item['full_ticker'].split('.')[0])
+                st.rerun()
+            
+            st.markdown("<hr style='margin: 5px 0px; border-color: #333;'>", unsafe_allow_html=True)
+            
+        if st.button("🔄 立即重新整理行情"):
+            st.rerun()
+    else:
+        st.info("💡 你的關注清單目前是空的。請在上方輸入股票代碼開始追蹤！")
