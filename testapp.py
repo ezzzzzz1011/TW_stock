@@ -249,23 +249,36 @@ def go_to(page_name):
     st.session_state.page = page_name
     st.rerun()
 
-# ==========================================
-# 頁面 A：首頁 (更新版)
-# ==========================================
-if st.session_state.page == "home":
-    with st.sidebar:
-        st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
-        if st.button("🚪 登出系統"):
-            st.session_state.logged_in = False
-            st.session_state.current_user = None
-            st.rerun()
-
+# --- 側邊欄導覽 ---
+with st.sidebar:
+    st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
+    
+    # 【新增】放置於最上方的關注清單按鈕
+    if st.button("⭐ 我的關注清單", use_container_width=True):
+        go_to("watchlist")
+    
+    # 視覺分割線，讓功能與登出按鈕有明顯區隔
+    st.markdown("<hr style='margin: 10px 0; border-color: #444;'>", unsafe_allow_html=True)
+    
+    # 【移動】登出系統按鈕往下移
+    if st.button("🚪 登出系統", use_container_width=True):
+        st.session_state.logged_in = False
+        st.session_state.current_user = None
+        st.rerun()
     st.title("🚀 台股個股/ETF查詢 Ez開發")
     st.write("請選擇功能進入：")
     st.divider()
     
-    # 改為 5 個欄位
-    col_a, col_b, col_c, col_d, col_e = st.columns(5)
+# ==========================================
+# 頁面 A：首頁
+# ==========================================
+if st.session_state.page == "home":
+    st.title("🚀 台股個股/ETF查詢 Ez開發")
+    st.write("請選擇功能進入：")
+    st.divider()
+    
+    # 恢復為 4 個欄位，確保視覺美感
+    col_a, col_b, col_c, col_d = st.columns(4)
     with col_a:
         st.subheader("📈 個股分析")
         if st.button("個股查詢與估價", use_container_width=True, type="primary"):
@@ -282,11 +295,6 @@ if st.session_state.page == "home":
         st.subheader("💼 我的資產")
         if st.button("個人投資組合", use_container_width=True, type="primary"):
             go_to("portfolio")
-    # --- 新增的部分 ---
-    with col_e:
-        st.subheader("⭐ 我的關注")
-        if st.button("關注清單管理", use_container_width=True, type="primary"):
-            go_to("watchlist")
 # ==========================================
 # 頁面 B：個股查詢系統
 # ==========================================
