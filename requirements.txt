@@ -10,4 +10,3 @@ gspread
 google-auth
 st-gsheets-connection
 streamlit>=1.37.0
-fugle-marketdata
