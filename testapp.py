@@ -172,9 +172,15 @@ if not st.session_state.logged_in:
             else:
                 st.error("❌ 帳號或密碼不正確")
 
-    with tab2:
-        # ... 註冊邏輯 ...
-        st.info("註冊功能請洽系統管理員。")
+    # 找到類似處理 "新用戶註冊" 的 Tab
+with tab2: # 或者是你定義的註冊分頁變數
+    st.subheader("📝 新用戶註冊")
+    new_user = st.text_input("請輸入新帳號", key="new_user")
+    new_password = st.text_input("請輸入新密碼", type="password", key="new_pwd")
+    
+    if st.button("確認註冊"):
+        # 這裡會接著寫將 A1 欄位對應的 Google Sheet 寫入新資料的邏輯
+        st.success("註冊成功！")
 
     # 容器閉合
     st.markdown("</div>", unsafe_allow_html=True)
