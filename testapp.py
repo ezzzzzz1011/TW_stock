@@ -90,7 +90,7 @@ if 'current_user' not in st.session_state:
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = None
 if 'page' not in st.session_state:
-    st.session_state.page = "home"
+    st.session_state.page = "watchlist"  # 👈 第1處修改：登入預設改為關注清單
 if 'data' not in st.session_state: 
     st.session_state.data = None
 
@@ -317,6 +317,7 @@ def get_safe_data_etf(symbol):
         "price_hist": None, 
         "full_ticker": info["full_ticker"]
     }
+
 # --- 導覽邏輯 ---
 def go_to(page_name):
     st.session_state.page = page_name
@@ -328,6 +329,9 @@ with st.sidebar:
     
     if st.button("⭐ 我的關注清單", use_container_width=True):
         go_to("watchlist")
+        
+    if st.button("🚀 台股查詢", use_container_width=True):  # 👈 第2處修改：側邊欄加入台股查詢
+        go_to("home")
     
     st.markdown("<hr style='margin: 10px 0; border-color: #444;'>", unsafe_allow_html=True)
     
@@ -713,11 +717,12 @@ elif st.session_state.page == "portfolio":
                 st.error("未能抓取到有效數據，請確認代碼是否正確。")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
+
 # ==========================================
 # 頁面 F：我的關注
 # ==========================================
 elif st.session_state.page == "watchlist":
-    if st.button("⬅️ 返回首頁"): go_to("home")
+    # 👈 第3處修改：移除返回首頁按鈕
     st.title("⭐ 我的雲端關注清單")
 
     if 'watchlist_data' not in st.session_state:
