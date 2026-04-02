@@ -90,11 +90,9 @@ if 'current_user' not in st.session_state:
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = None
 if 'page' not in st.session_state:
-    st.session_state.page = "welcome"  
+    st.session_state.page = "welcome"  # 改成 "welcome" (空白歡迎頁)
 if 'data' not in st.session_state: 
     st.session_state.data = None
-if 'auto_close' not in st.session_state:       # 👈 新增這兩行
-    st.session_state.auto_close = False        # 👈 用來控制側邊欄收合
 
 # --- 登入介面邏輯 ---
 def login_ui():
@@ -317,35 +315,8 @@ def get_safe_data_etf(symbol):
 # --- 導覽邏輯 ---
 def go_to(page_name):
     st.session_state.page = page_name
-    st.session_state.auto_close = True  
     st.rerun()
 
-# --- 🪄 黑科技：自動收合側邊欄 (手機 + 電腦 通用版) ---
-if st.session_state.get('auto_close', False):
-    st.markdown(
-        """
-        <script>
-        setTimeout(function() {
-            // 1. 嘗試尋找電腦版的收合按鈕
-            var pcBtn = window.parent.document.querySelector('[data-testid="stSidebarCollapseButton"]');
-            
-            // 2. 嘗試尋找手機版的關閉按鈕 (通常是一個大大的 X)
-            var mobileBtn = window.parent.document.querySelector('button[kind="header"]');
-
-            // 優先執行：如果是電腦版且選單是開著的，就點它
-            if (pcBtn) {
-                pcBtn.click();
-            } 
-            // 如果是手機版，點擊 Header 區域通常能觸發收回
-            else if (mobileBtn) {
-                mobileBtn.click();
-            }
-        }, 100); // 稍微增加延遲，確保手機版反應時間足夠
-        </script>
-        """,
-        unsafe_allow_html=True
-    )
-    st.session_state.auto_close = False
 # --- 側邊欄導覽 ---
 with st.sidebar:
     st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
