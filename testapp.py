@@ -185,34 +185,70 @@ if not st.session_state.logged_in:
     login_ui()
     st.stop()
 
-# --- 自定義 CSS ---
+# --- 自定義 CSS (淺色模式優化版) ---
 st.markdown("""
     <style>
-    /* 設定功能區塊卡片樣式 */
+    /* 基礎背景與文字 */
+    .main { background-color: #ffffff; color: #31333F; }
+    
+    /* 按鈕樣式 */
+    .stButton>button { 
+        width: 100%; 
+        border-radius: 12px; 
+        font-weight: bold; 
+        background-color: #f0f2f6; 
+        color: #31333F; 
+        border: 1px solid #d1d5db; 
+        height: 3.5em; 
+    }
+    
+    /* 數值與標題文字 */
+    .metric-val { font-family: 'Consolas'; font-size: 3.5rem; font-weight: bold; line-height: 1.1; color: #1f1f1f; }
+    .highlight-val { font-size: 2.5rem; font-family: 'Consolas'; font-weight: bold; color: #1f1f1f; }
+    
+    /* 輸入框樣式 */
+    .stTextInput>div>div>input, .stNumberInput>div>div>input { 
+        background-color: #ffffff !important; 
+        color: #31333F !important; 
+        border: 1px solid #d1d5db !important;
+        border-radius: 8px !important; 
+    }
+    
+    /* 功能卡片樣式 */
     .feature-card {
-        background-color: #ffffff;
+        background-color: #f8f9fa;
         padding: 30px;
         border-radius: 20px;
         border: 1px solid #e1e4e8;
         box-shadow: 0 4px 15px rgba(0,0,0,0.05);
         text-align: center;
         transition: all 0.3s ease;
-        cursor: pointer;
         margin-bottom: 20px;
     }
-
-    /* 滑鼠懸停效果：卡片浮起、陰影加深、邊框變亮 */
     .feature-card:hover {
         transform: translateY(-5px);
         box-shadow: 0 8px 25px rgba(0,0,0,0.1);
         border-color: #4A90E2;
     }
-
-    /* 標題與說明文字顏色 */
     .feature-title { font-size: 1.5rem; font-weight: bold; color: #1f1f1f; margin-bottom: 10px; }
     .feature-desc { color: #666; font-size: 1rem; }
-    </style>
 
+    /* 計算盒子與分析盒 */
+    .calc-box, .plan-box, .pk-card { 
+        background-color: #f8f9fa; 
+        padding: 20px; 
+        border-radius: 15px; 
+        border: 1px solid #dee2e6; 
+        margin-top: 10px; 
+        color: #31333F;
+    }
+
+    /* 表格樣式 */
+    .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
+    .styled-table th { background-color: #f1f3f5; color: #31333F; text-align: left; padding: 12px; border-bottom: 2px solid #dee2e6; }
+    .styled-table td { padding: 12px; border-bottom: 1px solid #dee2e6; color: #495057; }
+    </style>
+    """, unsafe_allow_html=True)
 # --- Fugle API 初始化 ---
 FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
 client = RestClient(api_key=FUGLE_TOKEN)
