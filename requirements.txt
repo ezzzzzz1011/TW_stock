@@ -2,8 +2,6 @@ streamlit>=1.37.0
 pandas
 pytz
 plotly
-extra-streamlit-components
 gspread
 google-auth
-st-gsheets-connection
 fugle-marketdata
