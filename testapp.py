@@ -619,11 +619,17 @@ elif st.session_state.page == "portfolio":
 
     st.divider()
     st.markdown("### 📊 資產市值與配置分析")
+    
+    # --- 新增：總成本輸入框 ---
+    col_cost1, col_cost2 = st.columns([1, 2])
+    with col_cost1:
+        total_cost_input = st.number_input("💵 請輸入總成本 (自行填寫)", min_value=0.0, value=0.0, step=10000.0)
+
     valid_df = edited_df.dropna(subset=["代碼", "張數"])
     valid_df = valid_df[valid_df["代碼"].astype(str).str.strip() != ""]
     
     if not valid_df.empty:
-        if st.button("開始計算當前市值"):
+        if st.button("開始計算當前市值", type="primary"):
             results = []
             total_market_val = 0
             total_annual_div = 0
@@ -647,12 +653,50 @@ elif st.session_state.page == "portfolio":
 
             if results:
                 res_df = pd.DataFrame(results)
-                m1, m2, m3 = st.columns(3)
-                m1.metric("總資產規模", f"${total_market_val:,.0f}")
-                m2.metric("預估年領股息", f"${total_annual_div:,.0f}")
-                avg_yield = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
-                m3.metric("組合平均殖利率", f"{avg_yield:.2f}%")
                 
+                # --- 新增：質感儀表板計算與顯示 ---
+                return_amt = total_market_val - total_cost_input
+                return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
+                
+                # 判斷顏色 (台股：紅漲綠跌)
+                ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
+                # 避免報酬率超過100%導致圓環圖破圖
+                circle_pct = min(abs(return_pct), 100)
+                
+                dashboard_html = f"""
+                <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: #1e1e28; padding: 25px; border-radius: 15px; border: 1px solid #444; margin-bottom: 20px;">
+                    <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_pct}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
+                        <div style="position: absolute; width: 125px; height: 125px; background-color: #1e1e28; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                            <span style="color: #aaa; font-size: 16px;">股票報酬</span>
+                            <span style="color: {ret_color}; font-size: 22px; font-weight: bold;">{return_pct:+.2f}%</span>
+                        </div>
+                    </div>
+                    
+                    <div style="min-width: 280px; margin-top: 10px;">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 8px;">
+                            <span style="color: #ccc; font-size: 18px;">股票市值：</span>
+                            <span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_market_val:,.0f}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 15px;">
+                            <span style="color: #ccc; font-size: 18px;">總成本：</span>
+                            <span style="color: #00bfff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_cost_input:,.0f}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #ccc; font-size: 18px;">總報酬：</span>
+                            <span style="color: {ret_color}; font-size: 26px; font-weight: bold; font-family: 'Consolas';">{return_amt:+,.0f}</span>
+                        </div>
+                    </div>
+                </div>
+                """
+                st.markdown(dashboard_html, unsafe_allow_html=True)
+                
+                # --- 股息與殖利率保留 ---
+                m1, m2 = st.columns(2)
+                m1.metric("預估年領股息", f"${total_annual_div:,.0f}")
+                avg_yield = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
+                m2.metric("組合平均殖利率", f"{avg_yield:.2f}%")
+                
+                # --- 原本的圓餅圖與表格 ---
                 col_chart, col_table = st.columns([1, 1])
                 with col_chart:
                     fig = px.pie(res_df, values='持有價值', names='名稱', 
@@ -666,7 +710,6 @@ elif st.session_state.page == "portfolio":
                 st.error("未能抓取到有效數據，請確認代碼是否正確。")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
-
 # ==========================================
 # 頁面 F：我的關注
 # ==========================================
