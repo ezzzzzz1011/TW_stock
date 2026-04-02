@@ -312,6 +312,72 @@ def get_safe_data_etf(symbol):
         "full_ticker": info["full_ticker"]
     }
 
+# --- 新增：配息時間抓取與月曆生成邏輯 ---
+def get_dividend_calendar(symbol):
+    """抓取單一股票的除息日與發放日預估"""
+    try:
+        # 清除後綴，確信用 yfinance 抓取
+        clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
+        for suffix in [".TW", ".TWO"]:
+            t = yf.Ticker(f"{clean_symbol}{suffix}")
+            divs = t.dividends
+            if not divs.empty:
+                # 取得最近一次配息資訊
+                last_div_date = divs.index[-1]
+                last_amt = divs.iloc[-1]
+                
+                # 台灣市場慣例：發放日約在除息日後 30 天
+                est_pay_date = last_div_date + pd.DateOffset(days=30)
+                
+                return {
+                    "symbol": clean_symbol,
+                    "ex_date": last_div_date.strftime('%Y-%m-%d'),
+                    "pay_date": est_pay_date.strftime('%Y-%m-%d'),
+                    "amount": last_amt,
+                    "success": True
+                }
+    except Exception:
+        pass
+    return {"success": False}
+
+def generate_user_calendar():
+    """讀取 session_state 中的 portfolio 並彙整成月曆表格"""
+    if st.session_state.portfolio is None:
+        return None
+        
+    portfolio_df = st.session_state.portfolio
+    valid_assets = portfolio_df.dropna(subset=["代碼", "張數"])
+    valid_assets = valid_assets[valid_assets["代碼"].astype(str).str.strip() != ""]
+    
+    if valid_assets.empty:
+        st.warning("⚠️ 您的投資組合目前是空的，請先在上方輸入持股。")
+        return None
+
+    calendar_list = []
+    progress_text = st.empty()
+    progress_bar = st.progress(0)
+    
+    for i, (index, row) in enumerate(valid_assets.iterrows()):
+        code = str(row["代碼"]).strip().upper()
+        lots = float(row["張數"])
+        progress_text.text(f"正在分析 {code} 的配息時程...")
+        
+        div_info = get_dividend_calendar(code)
+        if div_info["success"]:
+            total_pay = div_info["amount"] * lots * 1000
+            calendar_list.append({
+                "股票名稱": code,
+                "預計除息日": div_info["ex_date"],
+                "預計發放日 (預估)": div_info["pay_date"],
+                "每股配息": f"${div_info['amount']:.2f}",
+                "預估入帳金額": int(total_pay)
+            })
+        progress_bar.progress((i + 1) / len(valid_assets))
+    
+    progress_text.empty()
+    progress_bar.empty()
+    return pd.DataFrame(calendar_list)
+
 # --- 導覽邏輯 ---
 def go_to(page_name):
     st.session_state.page = page_name
@@ -717,6 +783,25 @@ elif st.session_state.page == "portfolio":
                 st.error("未能抓取到有效數據，請確認代碼是否正確。")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
+
+# --- 新增：領息月曆按鈕與顯示區 ---
+                st.divider()
+                st.subheader("📅 自動化領息排程月曆")
+                st.info("系統將根據您上方的持股清單，自動追蹤最新的除息紀錄並預估入帳時間。")
+                
+                if st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary"):
+                    cal_df = generate_user_calendar()
+                    
+                    if cal_df is not None and not cal_df.empty:
+                        # 依照發放日期排序 (由近到遠)
+                        cal_df = cal_df.sort_values(by="預計發放日 (預估)")
+                        
+                        st.markdown("#### 📥 預計入帳時間表")
+                        st.dataframe(cal_df, use_container_width=True, hide_index=True)
+                        
+                        total_incoming = cal_df["預估入帳金額"].sum()
+                        st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
+                        st.caption("※ 註：發放日為系統根據台股慣例（除息後約30天）自動推算，實際請以各公司公告為準。")
 
 # ==========================================
 # 頁面 F：我的關注
