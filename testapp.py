@@ -214,25 +214,28 @@ st.markdown("""
 FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
 client = RestClient(api_key=FUGLE_TOKEN)
 
-# --- 核心數據抓取函數 (Fugle 強化穩定版) ---
+# --- 核心數據抓取函數 (Fugle 修正除錯版) ---
 def get_stock_info(symbol):
     try:
-        # 清除可能來自舊資料庫的 .TW 或 .TWO 綴詞，確保 Fugle 正常運作
+        # 清除可能來自舊資料庫的後綴
         symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
         
-        stock = client.stock
-        res = stock.snapshot.quotes(symbol=symbol)
+        # 關鍵修正：改用 intraday.quote 來抓取單一股票的即時行情
+        data = client.stock.intraday.quote(symbol=symbol)
         
-        if not res or 'data' not in res or len(res['data']) == 0:
+        if not data:
             return None
             
-        data = res['data'][0]
+        # 安全取得數值 (支援盤中 lastPrice 或盤後 closePrice)
+        price = data.get('lastPrice') or data.get('closePrice') or data.get('previousClose') or 0.0
+        change = data.get('change', 0.0)
+        pct = data.get('changePercent', 0.0)
         
-        # 安全取得數值，避免 None 導致計算崩潰
-        price = data.get('lastPrice') or data.get('previousClose') or 0.0
-        change = data.get('change') or 0.0
-        pct = data.get('changePercent', 0) * 100
-        
+        # 取得成交量
+        vol = 0
+        if 'total' in data:
+            vol = data['total'].get('tradeVolume', 0)
+            
         return {
             "name": data.get('name', symbol),
             "price": float(price),
@@ -241,39 +244,15 @@ def get_stock_info(symbol):
             "high": float(data.get('highPrice') or price),
             "low": float(data.get('lowPrice') or price),
             "open": float(data.get('openPrice') or price),
-            "vol": int(data.get('totalVolume') or 0),
+            "vol": int(vol),
             "full_ticker": symbol,
             "hist": None,      
             "dividends": None  
         }
     except Exception as e:
-        print(f"Fugle 抓取失敗: {e}")
+        # 關鍵修改：將錯誤直接顯示在網頁畫面上！
+        st.error(f"⚠️ 抓取 {symbol} 失敗，錯誤訊息: {e}")
         return None
-
-# --- ETF 資料處理函數 (兼容防崩潰版) ---
-@st.cache_data(ttl=600)
-def get_safe_data_etf(symbol):
-    info = get_stock_info(symbol)
-    if not info or info["price"] <= 0: 
-        return {"success": False, "msg": f"找不到代號 {symbol} 或目前無報價"}
-    
-    return {
-        "success": True, 
-        "name": info["name"], 
-        "price": info["price"],
-        "change": info["change"], 
-        "pct": info["pct"], 
-        "high": info["high"],
-        "low": info["low"], 
-        "open": info["open"], 
-        "vol": info["vol"],
-        "raw_divs": [0.0] * 4,  # 提供安全預設值給 UI 計算
-        "multiplier": 4, 
-        "freq_label": "季",
-        "last_date": time.strftime('%Y-%m-%d'), 
-        "price_hist": None, 
-        "full_ticker": info["full_ticker"]
-    }
 
 # --- 導覽邏輯 ---
 def go_to(page_name):
