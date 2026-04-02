@@ -317,25 +317,35 @@ def get_safe_data_etf(symbol):
 # --- 導覽邏輯 ---
 def go_to(page_name):
     st.session_state.page = page_name
-    st.session_state.auto_close = True  # 👈 標記跳轉後需要自動收合
+    st.session_state.auto_close = True  
     st.rerun()
 
-# --- 🪄 黑科技：自動收合側邊欄 ---
+# --- 🪄 黑科技：自動收合側邊欄 (手機 + 電腦 通用版) ---
 if st.session_state.get('auto_close', False):
-    # 利用 JavaScript 自動觸發側邊欄的關閉按鈕
     st.markdown(
         """
         <script>
         setTimeout(function() {
-            var closeBtn = window.parent.document.querySelector('[data-testid="stSidebarCollapseButton"]');
-            if(closeBtn) { closeBtn.click(); }
-        }, 50);
+            // 1. 嘗試尋找電腦版的收合按鈕
+            var pcBtn = window.parent.document.querySelector('[data-testid="stSidebarCollapseButton"]');
+            
+            // 2. 嘗試尋找手機版的關閉按鈕 (通常是一個大大的 X)
+            var mobileBtn = window.parent.document.querySelector('button[kind="header"]');
+
+            // 優先執行：如果是電腦版且選單是開著的，就點它
+            if (pcBtn) {
+                pcBtn.click();
+            } 
+            // 如果是手機版，點擊 Header 區域通常能觸發收回
+            else if (mobileBtn) {
+                mobileBtn.click();
+            }
+        }, 100); // 稍微增加延遲，確保手機版反應時間足夠
         </script>
         """,
         unsafe_allow_html=True
     )
-    st.session_state.auto_close = False  # 執行完就重置狀態
-
+    st.session_state.auto_close = False
 # --- 側邊欄導覽 ---
 with st.sidebar:
     st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
