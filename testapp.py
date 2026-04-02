@@ -654,7 +654,7 @@ elif st.session_state.page == "portfolio":
             if results:
                 res_df = pd.DataFrame(results)
                 
-                # --- 新增：質感儀表板計算與顯示 ---
+                # --- 質感儀表板計算與顯示 ---
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
                 
