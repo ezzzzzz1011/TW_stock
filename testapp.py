@@ -212,28 +212,38 @@ client = RestClient(api_key=FUGLE_TOKEN)
 # --- 1. 新增籌碼面數據抓取函數 ---
 def get_institutional_trades(symbol):
     try:
-        # 清除後綴
+        # 清理代碼格式
         symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
-        # 抓取最近 5 日的統計資料
-        # 注意：Fugle 的 stats API 可以取得法人的買賣資訊
+        
+        # 抓取歷史統計資料 (Fugle API)
+        # 注意：這個 API 包含法人買賣超
         data = client.stock.historical.stats(symbol=symbol)
         
+        # 檢查資料結構是否正確
         if not data or 'institutionalTrades' not in data:
+            # print(f"DEBUG: {symbol} 資料結構不含 institutionalTrades") # 開發時可用
             return None
             
-        # 取得最近 5 筆資料 (Fugle 通常回傳歷史列表)
-        trades = data['institutionalTrades'][:5] 
-        df_trades = pd.DataFrame(trades)
+        trades = data['institutionalTrades']
+        if not trades:
+            return None
+
+        # 建立 DataFrame，取最近 5 筆交易日資料
+        df = pd.DataFrame(trades).head(5)
         
-        # 轉換單位：Fugle 原始數據通常是「股」，我們除以 1000 變成「張」
-        df_trades['foreign'] = df_trades['foreignNetBuySell'] / 1000
-        df_trades['investment'] = df_trades['trustNetBuySell'] / 1000
-        df_trades['dealer'] = df_trades['dealerNetBuySell'] / 1000
-        df_trades['date'] = df_trades['date']
+        # 欄位轉換：將原始股數除以 1000 轉換為「張數」
+        # Fugle 欄位名稱確認：foreignNetBuySell, trustNetBuySell, dealerNetBuySell
+        df['外資'] = df['foreignNetBuySell'] / 1000
+        df['投信'] = df['trustNetBuySell'] / 1000
+        df['自營'] = df['dealerNetBuySell'] / 1000
         
-        return df_trades[['date', 'foreign', 'investment', 'dealer']]
+        # 格式化日期，只顯示月-日
+        df['日期'] = pd.to_datetime(df['date']).dt.strftime('%m-%d')
+        
+        # 回傳精簡後的資料
+        return df[['日期', '外資', '投信', '自營']]
     except Exception as e:
-        st.error(f"⚠️ 籌碼資料抓取失敗: {e}")
+        # 這裡不報錯，回傳 None 讓 UI 顯示提示
         return None
 
 # --- 核心數據抓取函數 (Fugle 修正除錯版) ---
@@ -430,30 +440,36 @@ elif st.session_state.page == "stock_query":
                     else: st.warning(f"⚠️ 目前股價已超過目標參考價")
 
                 with tab_chip:
-                    st.subheader("近五日法人買賣超 (張)")
+                    st.subheader("📊 近五日法人買賣超 (張)")
                     chip_df = get_institutional_trades(stock_code)
-                    if chip_df is not None:
-                        # 顯示長條圖
-                        chart_data = chip_df.set_index('date')
+                    
+                    if chip_df is not None and not chip_df.empty:
+                        # 1. 顯示圖表 (修正點：對齊修正後的欄位名稱 '日期')
+                        chart_data = chip_df.set_index('日期')
                         st.bar_chart(chart_data)
                         
-                        # 計算合計
-                        f_sum = chip_df['foreign'].sum()
-                        i_sum = chip_df['investment'].sum()
+                        # 2. 計算合計 (修正點：對齊修正後的中文欄位)
+                        f_sum = chip_df['外資'].sum()
+                        i_sum = chip_df['投信'].sum()
                         
                         c1, c2, c3 = st.columns(3)
-                        c1.metric("外資累計", f"{f_sum:+.0f} 張", delta_color="normal")
-                        c2.metric("投信累計", f"{i_sum:+.0f} 張", delta_color="normal")
+                        c1.metric("外資累計", f"{f_sum:+.0f} 張")
+                        c2.metric("投信累計", f"{i_sum:+.0f} 張")
                         
-                        # 自動判斷短評
+                        # 3. 自動判斷短評
                         if f_sum > 0 and i_sum > 0:
                             st.success("🔥 籌碼強勢：外資與投信同步買超！")
                         elif f_sum < 0 and i_sum < 0:
                             st.error("❄️ 籌碼渙散：法人集體大賣，請小心。")
                         else:
                             st.info("⚖️ 籌碼拉鋸：法人動向不一，建議觀望。")
+                        
+                        # 4. 補充：顯示小表格供精確查看
+                        with st.expander("查看精確張數"):
+                            st.dataframe(chip_df, use_container_width=True, hide_index=True)
                     else:
-                        st.warning("暫無籌碼數據（可能為新上市或 API 限制）")
+                        # 這裡就是你截圖出現的地方，如果 API 沒抓到會走這
+                        st.warning("⚠️ 暫無籌碼數據。請確認是否為盤後時間 (15:30後) 或該股交易量極低。")
     with side_col:
         st.write("### 📖 說明")
         st.caption("1. 輸入股票代碼。")
