@@ -185,7 +185,7 @@ if not st.session_state.logged_in:
     login_ui()
     st.stop()
 
-# --- 自定義 CSS (淺色模式優化版) ---
+# --- 自定義 CSS (修正大數字與表格文字顏色版) ---
 st.markdown("""
     <style>
     /* 基礎背景與文字 */
@@ -202,9 +202,9 @@ st.markdown("""
         height: 3.5em; 
     }
     
-    /* 數值與標題文字 */
-    .metric-val { font-family: 'Consolas'; font-size: 3.5rem; font-weight: bold; line-height: 1.1; color: #1f1f1f; }
-    .highlight-val { font-size: 2.5rem; font-family: 'Consolas'; font-weight: bold; color: #1f1f1f; }
+    /* 數值與標題文字 (強制改為白色，確保在深色背景非常明顯) */
+    .metric-val { font-family: 'Consolas'; font-size: 3.5rem; font-weight: bold; line-height: 1.1; color: #ffffff !important; }
+    .highlight-val { font-size: 2.5rem; font-family: 'Consolas'; font-weight: bold; color: #ffffff !important; }
     
     /* 輸入框樣式 */
     .stTextInput>div>div>input, .stNumberInput>div>div>input { 
@@ -243,10 +243,10 @@ st.markdown("""
         color: #31333F;
     }
 
-    /* 表格樣式 */
+    /* 表格樣式 (調整為深色底白字，解決看不見的問題) */
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
-    .styled-table th { background-color: #f1f3f5; color: #31333F; text-align: left; padding: 12px; border-bottom: 2px solid #dee2e6; }
-    .styled-table td { padding: 12px; border-bottom: 1px solid #dee2e6; color: #495057; }
+    .styled-table th { background-color: #1e1e28; color: #ffffff; text-align: left; padding: 12px; border-bottom: 2px solid #ffffff; }
+    .styled-table td { padding: 12px; border-bottom: 1px solid #444; color: #ffffff !important; }
     </style>
     """, unsafe_allow_html=True)
 # --- Fugle API 初始化 ---
