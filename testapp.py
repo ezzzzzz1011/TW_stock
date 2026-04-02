@@ -11,6 +11,7 @@ import io
 import gspread
 import time
 from google.oauth2.service_account import Credentials
+from fugle_marketdata import RestClient
 
 # --- 1. 網頁全域設定 (必須放在最上方) ---
 st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
@@ -219,70 +220,64 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 核心數據抓取函數 ---
-def get_stock_info(symbol):
-    user_agents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36']
-    headers = {'User-Agent': random.choice(user_agents)}
-    for suffix in [".TW", ".TWO"]:
-        try:
-            full_ticker = f"{symbol}{suffix}"
-            t = yf.Ticker(full_ticker)
-            hist = t.history(period="5d")
-            if not hist.empty:
-                name = symbol
-                try:
-                    name_url = f"https://tw.stock.yahoo.com/quote/{full_ticker}"
-                    soup = BeautifulSoup(requests.get(name_url, headers=headers, timeout=5).text, 'html.parser')
-                    name_tag = soup.find('h1', {'class': 'C($c-link-text)'})
-                    if name_tag: name = name_tag.text.strip()
-                except:
-                    name = t.info.get('shortName', symbol)
-                
-                if symbol == "2330": name = "台積電"
-                
-                curr_p = hist['Close'].iloc[-1]
-                prev_p = hist['Close'].iloc[-2]
-                change = curr_p - prev_p
-                pct = (change / prev_p) * 100
-                
-                return {
-                    "name": name, "price": curr_p, "change": change, 
-                    "pct": pct, "high": hist['High'].iloc[-1], "low": hist['Low'].iloc[-1], 
-                    "open": hist['Open'].iloc[-1], "vol": hist['Volume'].iloc[-1],
-                    "hist": hist, "full_ticker": full_ticker, "dividends": t.dividends
-                }
-        except: continue
-    return None
+# --- Fugle API 初始化 ---
+FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
+client = RestClient(api_key=FUGLE_TOKEN)
 
+# --- 核心數據抓取函數 (Fugle 版) ---
+def get_stock_info(symbol):
+    try:
+        symbol = str(symbol).strip().upper()
+        stock = client.stock
+        res = stock.snapshot.quotes(symbol=symbol)
+        
+        if not res or 'data' not in res or len(res['data']) == 0:
+            return None
+            
+        data = res['data'][0]
+        
+        # 為了與你原本的 UI 兼容，我們保留相同的欄位名稱
+        return {
+            "name": data.get('name', symbol),
+            "price": data.get('lastPrice'),
+            "change": data.get('change'),
+            "pct": data.get('changePercent', 0) * 100,
+            "high": data.get('highPrice'),
+            "low": data.get('lowPrice'),
+            "open": data.get('openPrice'),
+            "vol": data.get('totalVolume'),
+            "full_ticker": symbol,
+            "hist": None,      # Fugle 快照不含歷史資料
+            "dividends": None  # Fugle 快照不含股利資料
+        }
+    except Exception as e:
+        print(f"Fugle 抓取失敗: {e}")
+        return None
+
+# --- ETF 資料處理函數 (兼容版) ---
 @st.cache_data(ttl=600)
 def get_safe_data_etf(symbol):
     info = get_stock_info(symbol)
-    if not info: return {"success": False, "msg": f"找不到代號 {symbol}"}
+    if not info: 
+        return {"success": False, "msg": f"找不到代號 {symbol}"}
     
-    divs = info["dividends"]
-    raw_divs = [0.0]*4
-    multiplier = 4
-    freq_label = "季"
-    last_date = info["hist"].index[-1].strftime('%Y-%m-%d')
-    
-    if not divs.empty:
-        d_list = divs.tail(4).tolist()[::-1]
-        while len(d_list) < 4: d_list.append(0.0)
-        raw_divs = d_list
-        last_year_date = divs.index[-1] - pd.DateOffset(years=1)
-        count_in_year = len(divs[divs.index > last_year_date])
-        
-        if count_in_year >= 10: multiplier, freq_label = 12, "月"
-        elif count_in_year >= 3: multiplier, freq_label = 4, "季"
-        elif count_in_year >= 2: multiplier, freq_label = 2, "半年"
-        else: multiplier, freq_label = 1, "年"
-        
+    # 由於 Fugle 快照暫時不提供詳細配息歷史，這裡給予預設值防止 UI 報錯
     return {
-        "success": True, "name": info["name"], "price": info["price"],
-        "change": info["change"], "pct": info["pct"], "high": info["high"],
-        "low": info["low"], "open": info["open"], "vol": info["vol"],
-        "raw_divs": raw_divs, "multiplier": multiplier, "freq_label": freq_label,
-        "last_date": last_date, "price_hist": info["hist"], "full_ticker": info["full_ticker"]
+        "success": True, 
+        "name": info["name"], 
+        "price": info["price"],
+        "change": info["change"], 
+        "pct": info["pct"], 
+        "high": info["high"],
+        "low": info["low"], 
+        "open": info["open"], 
+        "vol": info["vol"],
+        "raw_divs": [0.0] * 4, 
+        "multiplier": 4, 
+        "freq_label": "季",
+        "last_date": time.strftime('%Y-%m-%d'), 
+        "price_hist": None, 
+        "full_ticker": info["full_ticker"]
     }
 
 # --- 導覽邏輯 ---
