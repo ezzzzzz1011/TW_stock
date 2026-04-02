@@ -621,12 +621,20 @@ elif st.session_state.page == "etf_query":
                 net_per_period = total_raw - nhi_amt
                 
                 st.markdown(f"""<div class="calc-box">
-                    預估總投入：{(total_shares * d['price'] * 1.001425):,.0f} 元<br>
-                    每{d['freq_label']}總配息：{total_raw:,.0f} 元<br>
-                    <span style="color: #ffb7b7;">└ 二代健保扣費：-{nhi_amt:,.0f} 元</span><br>
-                    <b>每{d['freq_label']}實領金額：{net_per_period:,.0f} 元</b><br>
-                    <hr style="border: 0.5px solid #444;">
-                    一年累計實領：{(net_per_period * d['multiplier']):,.0f} 元
+                    # --- 預先計算數值，避免 f-string 解析錯誤 ---
+                val_total_invest = f"{(total_shares * d['price'] * 1.001425):,.0f}"
+                val_total_raw = f"{total_raw:,.0f}"
+                val_nhi = f"{nhi_amt:,.0f}"
+                val_net_period = f"{net_per_period:,.0f}"
+                val_annual_net = f"{(net_per_period * d['multiplier']):,.0f}"
+
+                st.markdown(f"""<div class="calc-box">
+                    預估總投入：{val_total_invest} 元<br>
+                    每{d['freq_label']}總配息：{val_total_raw} 元<br>
+                    <span style="color: #ffb7b7;">└ 二代健保扣費：-{val_nhi} 元</span><br>
+                    <b>每{d['freq_label']}實領金額：{val_net_period} 元</b><br>
+                    <hr style="border: 0.5px solid #dee2e6;">
+                    一年累計實領：{val_annual_net} 元
                 </div>""", unsafe_allow_html=True)
 
             st.divider()
