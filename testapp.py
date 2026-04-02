@@ -590,13 +590,14 @@ elif st.session_state.page == "etf_query":
             rec = "💎 便宜買入" if d['price'] <= p_cheap and p_cheap > 0 else "✅ 合理持有" if d['price'] <= p_fair and p_fair > 0 else "❌ 昂貴不建議"
             st.markdown(f"<div class='calc-box'>系統建議：<b>{rec}</b></div>", unsafe_allow_html=True)
 
+           # --- 修正版：移除可能導致報錯的 Emoji 符號 ---
             table_html = f"""
             <table class="styled-table">
                 <thead><tr><th>估值位階</th><th>建議價格參考</th></tr></thead>
                 <tbody>
-                    <tr><td>💎 便宜價 (10%)</td><td>{p_cheap:.2f} 以下</td></tr>
-                    <tr><td>🔔 合理價 (7%)</td><td>{p_cheap:.2f} ~ {p_fair:.2f}</td></tr>
-                    <tr><td>❌ 昂貴價 (5%)</td><td>高於 {p_high:.2f}</td></tr>
+                    <tr><td>Cheap Price (10%)</td><td>{p_cheap:.2f} 以下</td></tr>
+                    <tr><td>Fair Price (7%)</td><td>{p_cheap:.2f} ~ {p_fair:.2f}</td></tr>
+                    <tr><td>Expensive Price (5%)</td><td>高於 {p_high:.2f}</td></tr>
                 </tbody>
             </table>
             """
