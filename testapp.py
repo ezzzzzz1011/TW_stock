@@ -343,10 +343,9 @@ if st.session_state.page == "welcome":
     st.markdown("<br><br><br><h3 style='text-align: center; color: #555;'>👈 請從左側選單選擇功能</h3>", unsafe_allow_html=True)
 
 # ==========================================
-# 頁面 A：首頁 (工具箱)
+# 頁面 A：首頁
 # ==========================================
-elif st.session_state.page == "home":  # 👈 這裡的 if 要記得改成 elif
-    st.title("🚀 台股個股/ETF查詢 Ez開發")
+elif st.session_state.page == "home":
     st.write("請選擇功能進入：")
     st.divider()
     
