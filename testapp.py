@@ -188,22 +188,30 @@ if not st.session_state.logged_in:
 # --- 自定義 CSS ---
 st.markdown("""
     <style>
-    .main { background-color: #121218; color: #ffffff; }
-    .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; background-color: #ffffff; color: black; border: none; height: 3.5em; }
-    .metric-val { font-family: 'Consolas'; font-size: 3.5rem; font-weight: bold; line-height: 1.1; }
-    .stTextInput>div>div>input, .stNumberInput>div>div>input { background-color: #1e1e28 !important; color: white !important; border-radius: 8px !important; }
-    .white-text { color: #ffffff !important; font-weight: bold; }
-    .date-text { color: #ffffff; opacity: 0.9; font-size: 1.1rem; margin-bottom: 10px; font-weight: bold; }
-    .calc-box { background-color: #1e1e28; padding: 20px; border-radius: 15px; border: 1px solid #444; margin-top: 10px; }
-    .tax-text { color: #ffffff; font-size: 1rem; font-weight: normal; opacity: 0.8; }
-    .plan-box { background-color: #1e1e28; padding: 18px; border-radius: 10px; border: 1.5px solid #ffffff; }
-    .highlight-val { font-size: 2.5rem; font-family: 'Consolas'; font-weight: bold; color: #ffffff; }
-    .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
-    .styled-table th { background-color: #1e1e28; color: #ffffff; text-align: left; padding: 12px; border-bottom: 2px solid #ffffff; }
-    .styled-table td { padding: 12px; border-bottom: 1px solid #444; color: #ffffff; }
-    .pk-card { background-color: #1e1e28; padding: 20px; border-radius: 15px; border: 1px solid #555; text-align: center; }
+    /* 設定功能區塊卡片樣式 */
+    .feature-card {
+        background-color: #ffffff;
+        padding: 30px;
+        border-radius: 20px;
+        border: 1px solid #e1e4e8;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        text-align: center;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        margin-bottom: 20px;
+    }
+
+    /* 滑鼠懸停效果：卡片浮起、陰影加深、邊框變亮 */
+    .feature-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        border-color: #4A90E2;
+    }
+
+    /* 標題與說明文字顏色 */
+    .feature-title { font-size: 1.5rem; font-weight: bold; color: #1f1f1f; margin-bottom: 10px; }
+    .feature-desc { color: #666; font-size: 1rem; }
     </style>
-    """, unsafe_allow_html=True)
 
 # --- Fugle API 初始化 ---
 FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
@@ -425,30 +433,53 @@ if st.session_state.page == "welcome":
     st.markdown("<br><br><br><h3 style='text-align: center; color: #555;'>👈 請從左側選單選擇功能</h3>", unsafe_allow_html=True)
 
 # ==========================================
-# 頁面 A：首頁
+# 頁面 A：首頁 (樣式強化版)
 # ==========================================
 elif st.session_state.page == "home":
-    st.write("請選擇功能進入：")
+    st.markdown("<h3 style='color: #333;'>請選擇功能進入：</h3>", unsafe_allow_html=True)
     st.divider()
     
     col_a, col_b, col_c, col_d = st.columns(4)
+    
     with col_a:
-        st.subheader("📈 個股分析")
-        if st.button("個股查詢與估價", use_container_width=True, type="primary"):
+        st.markdown("""
+            <div class="feature-card">
+                <div class="feature-title">📈 個股分析</div>
+                <div class="feature-desc">個股查詢與估價</div>
+            </div>
+        """, unsafe_allow_html=True)
+        if st.button("進入個股分析", use_container_width=True, type="primary"):
             go_to("stock_query")
-    with col_b:
-        st.subheader("📊 ETF 分析")
-        if st.button("ETF 試算與規劃", use_container_width=True, type="primary"):
-            go_to("etf_query")
-    with col_c:
-        st.subheader("⚔️ ETF對比")
-        if st.button("ETF對比工具", use_container_width=True, type="primary"):
-            go_to("pk_tool")
-    with col_d:
-        st.subheader("💼 我的資產")
-        if st.button("個人投資組合", use_container_width=True, type="primary"):
-            go_to("portfolio")
 
+    with col_b:
+        st.markdown("""
+            <div class="feature-card">
+                <div class="feature-title">📊 ETF 分析</div>
+                <div class="feature-desc">ETF 試算與規劃</div>
+            </div>
+        """, unsafe_allow_html=True)
+        if st.button("進入 ETF 分析", use_container_width=True, type="primary"):
+            go_to("etf_query")
+
+    with col_c:
+        st.markdown("""
+            <div class="feature-card">
+                <div class="feature-title">⚔️ ETF 對比</div>
+                <div class="feature-desc">ETF 對比工具</div>
+            </div>
+        """, unsafe_allow_html=True)
+        if st.button("進入對比工具", use_container_width=True, type="primary"):
+            go_to("pk_tool")
+
+    with col_d:
+        st.markdown("""
+            <div class="feature-card">
+                <div class="feature-title">💼 我的資產</div>
+                <div class="feature-desc">個人投資組合</div>
+            </div>
+        """, unsafe_allow_html=True)
+        if st.button("進入我的資產", use_container_width=True, type="primary"):
+            go_to("portfolio")
 # ==========================================
 # 頁面 B：個股查詢系統
 # ==========================================
