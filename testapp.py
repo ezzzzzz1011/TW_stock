@@ -126,6 +126,7 @@ def login_ui():
                 st.session_state.logged_in = True
                 st.session_state.current_user = u_id
                 st.session_state.portfolio = load_portfolio_from_cloud(u_id)
+                st.session_state.page = "watchlist"  # 👈 加上這行：登入後強制跳轉到關注清單
                 st.success("登入成功！")
                 st.rerun()
             else:
