@@ -1,4 +1,5 @@
 import streamlit as st
+import yfinance as yf
 import pandas as pd
 from datetime import datetime
 import pytz
@@ -254,16 +255,42 @@ def get_stock_info(symbol):
         st.error(f"⚠️ 抓取 {symbol} 失敗，錯誤訊息: {e}")
         return None
 
-# --- ETF 資料處理函數 (兼容防崩潰版) ---
-@st.cache_data(ttl=600)
+# --- ETF 資料處理函數 (Fugle報價 + yfinance配息 混血版) ---
+@st.cache_data(ttl=3600) # 配息資料不常變，快取設久一點(1小時)
 def get_safe_data_etf(symbol):
     info = get_stock_info(symbol)
     
-    # 檢查 info 是否存在以及價格是否有效
     if not info or info["price"] <= 0: 
         return {"success": False, "msg": f"找不到代號 {symbol} 或目前無報價"}
     
-    # 補足 ETF 頁面需要的特定欄位，給予安全預設值防止報錯
+    # 預設值
+    raw_divs = [0.0] * 4
+    multiplier = 4
+    freq_label = "季"
+    
+    # --- 偷偷用 yfinance 抓配息紀錄 ---
+    try:
+        # yfinance 需要 .TW 才能抓台股
+        t = yf.Ticker(f"{symbol}.TW")
+        divs = t.dividends
+        
+        if not divs.empty:
+            # 取得最近 4 次配息
+            d_list = divs.tail(4).tolist()[::-1]
+            while len(d_list) < 4: d_list.append(0.0)
+            raw_divs = d_list
+            
+            # 判斷配息頻率 (月/季/半年/年)
+            last_year_date = divs.index[-1] - pd.DateOffset(years=1)
+            count_in_year = len(divs[divs.index > last_year_date])
+            
+            if count_in_year >= 10: multiplier, freq_label = 12, "月"
+            elif count_in_year >= 3: multiplier, freq_label = 4, "季"
+            elif count_in_year >= 2: multiplier, freq_label = 2, "半年"
+            else: multiplier, freq_label = 1, "年"
+    except Exception as e:
+        print(f"抓取配息失敗: {e}") # 如果抓不到就維持預設的 0.0
+
     return {
         "success": True, 
         "name": info["name"], 
@@ -274,14 +301,13 @@ def get_safe_data_etf(symbol):
         "low": info["low"], 
         "open": info["open"], 
         "vol": info["vol"],
-        "raw_divs": [0.0] * 4,  # 提供空的配息陣列讓 UI 去算
-        "multiplier": 4, 
-        "freq_label": "季",
+        "raw_divs": raw_divs,       # <--- 這裡會帶入真實抓到的配息
+        "multiplier": multiplier,   # <--- 自動判定月配或季配
+        "freq_label": freq_label,
         "last_date": time.strftime('%Y-%m-%d'), 
         "price_hist": None, 
         "full_ticker": info["full_ticker"]
     }
-
 # --- 導覽邏輯 ---
 def go_to(page_name):
     st.session_state.page = page_name
