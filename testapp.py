@@ -625,11 +625,11 @@ elif st.session_state.page == "etf_query":
             rec = "💎 便宜買入" if d['price'] <= p_cheap and p_cheap > 0 else "✅ 合理持有" if d['price'] <= p_fair and p_fair > 0 else "❌ 昂貴不建議"
             st.markdown(f"<div class='calc-box'>系統建議：<b>{rec}</b></div>", unsafe_allow_html=True)
 
-           p_cheap_val = f"{p_cheap:.2f}"
+            # --- 安全的中文化表格 (這裡的縮排已經嚴格對齊) ---
+            p_cheap_val = f"{p_cheap:.2f}"
             p_fair_val = f"{p_fair:.2f}"
             p_high_val = f"{p_high:.2f}"
             
-            # --- 繁體中文版表格 ---
             table_html = f"""
             <table class="styled-table">
                 <thead><tr><th>估值位階</th><th>建議價格參考</th></tr></thead>
