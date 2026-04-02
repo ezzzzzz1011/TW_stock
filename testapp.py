@@ -185,41 +185,35 @@ if not st.session_state.logged_in:
     login_ui()
     st.stop()
 
-# --- 自定義 CSS (修正大數字與表格文字顏色版) ---
+# --- 自定義 CSS (深淺雙棲自動適應版) ---
 st.markdown("""
     <style>
-    /* 基礎背景與文字 */
-    .main { background-color: #ffffff; color: #31333F; }
+    /* 移除寫死的 .main 背景，把控制權還給 Streamlit 原生系統 */
     
     /* 按鈕樣式 */
     .stButton>button { 
         width: 100%; 
         border-radius: 12px; 
         font-weight: bold; 
-        background-color: #f0f2f6; 
-        color: #31333F; 
-        border: 1px solid #d1d5db; 
+        border: 1px solid rgba(128, 128, 128, 0.3); /* 使用半透明邊框適應各種背景 */
         height: 3.5em; 
     }
     
-    /* 數值與標題文字 (強制改為白色，確保在深色背景非常明顯) */
-    .metric-val { font-family: 'Consolas'; font-size: 3.5rem; font-weight: bold; line-height: 1.1; color: #ffffff !important; }
-    .highlight-val { font-size: 2.5rem; font-family: 'Consolas'; font-weight: bold; color: #ffffff !important; }
+    /* 數值與標題文字：使用 var(--text-color) 讓它自動黑白反轉 */
+    .metric-val { font-family: 'Consolas'; font-size: 3.5rem; font-weight: bold; line-height: 1.1; color: var(--text-color) !important; }
+    .highlight-val { font-size: 2.5rem; font-family: 'Consolas'; font-weight: bold; color: var(--text-color) !important; }
     
-    /* 輸入框樣式 */
+    /* 輸入框樣式：讓 Streamlit 自動控制顏色，我們只保留圓角 */
     .stTextInput>div>div>input, .stNumberInput>div>div>input { 
-        background-color: #ffffff !important; 
-        color: #31333F !important; 
-        border: 1px solid #d1d5db !important;
         border-radius: 8px !important; 
     }
     
-    /* 功能卡片樣式 */
+    /* 功能卡片樣式：使用 Streamlit 的次要背景色變數 */
     .feature-card {
-        background-color: #f8f9fa;
+        background-color: var(--secondary-background-color);
         padding: 30px;
         border-radius: 20px;
-        border: 1px solid #e1e4e8;
+        border: 1px solid rgba(128, 128, 128, 0.2);
         box-shadow: 0 4px 15px rgba(0,0,0,0.05);
         text-align: center;
         transition: all 0.3s ease;
@@ -227,26 +221,36 @@ st.markdown("""
     }
     .feature-card:hover {
         transform: translateY(-5px);
-        box-shadow: 0 8px 25px rgba(0,0,0,0.1);
-        border-color: #4A90E2;
+        box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        border-color: var(--primary-color);
     }
-    .feature-title { font-size: 1.5rem; font-weight: bold; color: #1f1f1f; margin-bottom: 10px; }
-    .feature-desc { color: #666; font-size: 1rem; }
+    .feature-title { font-size: 1.5rem; font-weight: bold; color: var(--text-color); margin-bottom: 10px; }
+    .feature-desc { color: var(--text-color); opacity: 0.7; font-size: 1rem; }
 
     /* 計算盒子與分析盒 */
     .calc-box, .plan-box, .pk-card { 
-        background-color: #f8f9fa; 
+        background-color: var(--secondary-background-color); 
         padding: 20px; 
         border-radius: 15px; 
-        border: 1px solid #dee2e6; 
+        border: 1px solid rgba(128, 128, 128, 0.3); 
         margin-top: 10px; 
-        color: #31333F;
+        color: var(--text-color);
     }
 
-    /* 表格樣式 (調整為深色底白字，解決看不見的問題) */
+    /* 表格樣式：自動適應黑白模式 */
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
-    .styled-table th { background-color: #1e1e28; color: #ffffff; text-align: left; padding: 12px; border-bottom: 2px solid #ffffff; }
-    .styled-table td { padding: 12px; border-bottom: 1px solid #444; color: #ffffff !important; }
+    .styled-table th { 
+        background-color: var(--secondary-background-color); 
+        color: var(--text-color); 
+        text-align: left; 
+        padding: 12px; 
+        border-bottom: 2px solid var(--text-color); 
+    }
+    .styled-table td { 
+        padding: 12px; 
+        border-bottom: 1px solid rgba(128, 128, 128, 0.3); 
+        color: var(--text-color) !important; 
+    }
     </style>
     """, unsafe_allow_html=True)
 # --- Fugle API 初始化 ---
