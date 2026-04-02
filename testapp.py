@@ -728,12 +728,9 @@ elif st.session_state.page == "portfolio":
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
                 
-                # 判斷顏色 (台股：紅漲綠跌)
                 ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
-                # 避免報酬率超過100%導致圓環圖破圖
                 circle_pct = min(abs(return_pct), 100)
                 
-                # 確保 HTML 靠左對齊，總成本與市值位置對調，並將總成本改為白色
                 dashboard_html = f"""
 <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: #1e1e28; padding: 25px; border-radius: 15px; border: 1px solid #444; margin-bottom: 20px;">
     <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_pct}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
@@ -763,13 +760,11 @@ elif st.session_state.page == "portfolio":
 """
                 st.markdown(dashboard_html, unsafe_allow_html=True)
                 
-                # --- 股息與殖利率保留 ---
                 m1, m2 = st.columns(2)
                 m1.metric("預估年領股息", f"${total_annual_div:,.0f}")
                 avg_yield = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
                 m2.metric("組合平均殖利率", f"{avg_yield:.2f}%")
                 
-                # --- 原本的圓餅圖與表格 ---
                 col_chart, col_table = st.columns([1, 1])
                 with col_chart:
                     fig = px.pie(res_df, values='持有價值', names='名稱', 
@@ -779,29 +774,25 @@ elif st.session_state.page == "portfolio":
                 with col_table:
                     st.write("#### 詳細數據")
                     st.dataframe(res_df, use_container_width=True)
-            else:
-                st.error("未能抓取到有效數據，請確認代碼是否正確。")
+
+        # --- 領息月曆按鈕：放置於 if not valid_df.empty 內 ---
+        st.divider()
+        st.subheader("📅 自動化領息排程月曆")
+        st.info("系統將根據您上方的持股清單，自動追蹤最新的除息紀錄並預估入帳時間。")
+        
+        if st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary"):
+            cal_df = generate_user_calendar()
+            
+            if cal_df is not None and not cal_df.empty:
+                cal_df = cal_df.sort_values(by="預計發放日 (預估)")
+                st.markdown("#### 📥 預計入帳時間表")
+                st.dataframe(cal_df, use_container_width=True, hide_index=True)
+                
+                total_incoming = cal_df["預估入帳金額"].sum()
+                st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
+                st.caption("※ 註：發放日為系統根據台股慣例（除息後約30天）自動推算，實際請以各公司公告為準。")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
-
-    # --- 新增：領息月曆按鈕與顯示區 ---
-                st.divider()
-                st.subheader("📅 自動化領息排程月曆")
-                st.info("系統將根據您上方的持股清單，自動追蹤最新的除息紀錄並預估入帳時間。")
-                
-                if st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary"):
-                    cal_df = generate_user_calendar()
-                    
-                    if cal_df is not None and not cal_df.empty:
-                        # 依照發放日期排序 (由近到遠)
-                        cal_df = cal_df.sort_values(by="預計發放日 (預估)")
-                        
-                        st.markdown("#### 📥 預計入帳時間表")
-                        st.dataframe(cal_df, use_container_width=True, hide_index=True)
-                        
-                        total_incoming = cal_df["預估入帳金額"].sum()
-                        st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
-                        st.caption("※ 註：發放日為系統根據台股慣例（除息後約30天）自動推算，實際請以各公司公告為準。")
 
 
 # ==========================================
