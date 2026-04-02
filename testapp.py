@@ -90,9 +90,11 @@ if 'current_user' not in st.session_state:
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = None
 if 'page' not in st.session_state:
-    st.session_state.page = "welcome"  # 改成 "welcome" (空白歡迎頁)
+    st.session_state.page = "welcome"  
 if 'data' not in st.session_state: 
     st.session_state.data = None
+if 'auto_close' not in st.session_state:       # 👈 新增這兩行
+    st.session_state.auto_close = False        # 👈 用來控制側邊欄收合
 
 # --- 登入介面邏輯 ---
 def login_ui():
@@ -315,7 +317,24 @@ def get_safe_data_etf(symbol):
 # --- 導覽邏輯 ---
 def go_to(page_name):
     st.session_state.page = page_name
+    st.session_state.auto_close = True  # 👈 標記跳轉後需要自動收合
     st.rerun()
+
+# --- 🪄 黑科技：自動收合側邊欄 ---
+if st.session_state.get('auto_close', False):
+    # 利用 JavaScript 自動觸發側邊欄的關閉按鈕
+    st.markdown(
+        """
+        <script>
+        setTimeout(function() {
+            var closeBtn = window.parent.document.querySelector('[data-testid="stSidebarCollapseButton"]');
+            if(closeBtn) { closeBtn.click(); }
+        }, 50);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
+    st.session_state.auto_close = False  # 執行完就重置狀態
 
 # --- 側邊欄導覽 ---
 with st.sidebar:
