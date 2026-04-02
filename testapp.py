@@ -784,7 +784,7 @@ elif st.session_state.page == "portfolio":
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
 
-# --- 新增：領息月曆按鈕與顯示區 ---
+    # --- 新增：領息月曆按鈕與顯示區 ---
                 st.divider()
                 st.subheader("📅 自動化領息排程月曆")
                 st.info("系統將根據您上方的持股清單，自動追蹤最新的除息紀錄並預估入帳時間。")
@@ -802,6 +802,7 @@ elif st.session_state.page == "portfolio":
                         total_incoming = cal_df["預估入帳金額"].sum()
                         st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
                         st.caption("※ 註：發放日為系統根據台股慣例（除息後約30天）自動推算，實際請以各公司公告為準。")
+
 
 # ==========================================
 # 頁面 F：我的關注
