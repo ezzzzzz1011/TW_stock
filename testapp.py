@@ -433,7 +433,7 @@ if st.session_state.page == "welcome":
     st.markdown("<br><br><br><h3 style='text-align: center; color: #555;'>👈 請從左側選單選擇功能</h3>", unsafe_allow_html=True)
 
 # ==========================================
-# 頁面 A：首頁 (樣式強化版)
+# 頁面 A：首頁 (修正版)
 # ==========================================
 elif st.session_state.page == "home":
     st.markdown("<h3 style='color: #333;'>請選擇功能進入：</h3>", unsafe_allow_html=True)
@@ -442,44 +442,45 @@ elif st.session_state.page == "home":
     col_a, col_b, col_c, col_d = st.columns(4)
     
     with col_a:
-        st.markdown("""
+        st.markdown('''
             <div class="feature-card">
-                <div class="feature-title">📈 個股分析</div>
+                <div class="feature-title">Stock Analysis</div>
                 <div class="feature-desc">個股查詢與估價</div>
             </div>
-        """, unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
         if st.button("進入個股分析", use_container_width=True, type="primary"):
             go_to("stock_query")
 
     with col_b:
-        st.markdown("""
+        st.markdown('''
             <div class="feature-card">
-                <div class="feature-title">📊 ETF 分析</div>
+                <div class="feature-title">ETF Analysis</div>
                 <div class="feature-desc">ETF 試算與規劃</div>
             </div>
-        """, unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
         if st.button("進入 ETF 分析", use_container_width=True, type="primary"):
             go_to("etf_query")
 
     with col_c:
-        st.markdown("""
+        st.markdown('''
             <div class="feature-card">
-                <div class="feature-title">⚔️ ETF 對比</div>
+                <div class="feature-title">ETF PK Tool</div>
                 <div class="feature-desc">ETF 對比工具</div>
             </div>
-        """, unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
         if st.button("進入對比工具", use_container_width=True, type="primary"):
             go_to("pk_tool")
 
     with col_d:
-        st.markdown("""
+        st.markdown('''
             <div class="feature-card">
-                <div class="feature-title">💼 我的資產</div>
+                <div class="feature-title">My Portfolio</div>
                 <div class="feature-desc">個人投資組合</div>
             </div>
-        """, unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
         if st.button("進入我的資產", use_container_width=True, type="primary"):
             go_to("portfolio")
+
 # ==========================================
 # 頁面 B：個股查詢系統
 # ==========================================
