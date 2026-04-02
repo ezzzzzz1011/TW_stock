@@ -255,9 +255,13 @@ def get_stock_info(symbol):
         st.error(f"⚠️ 抓取 {symbol} 失敗，錯誤訊息: {e}")
         return None
 
-# --- ETF 資料處理函數 (Fugle報價 + yfinance配息 混血版) ---
-@st.cache_data(ttl=3600) # 配息資料不常變，快取設久一點(1小時)
+# --- ETF 資料處理函數 (Fugle報價 + yfinance配息 雙市場強化版) ---
+@st.cache_data(ttl=3600) 
 def get_safe_data_etf(symbol):
+    import time
+    import pandas as pd
+    import yfinance as yf
+    
     info = get_stock_info(symbol)
     
     if not info or info["price"] <= 0: 
@@ -270,10 +274,15 @@ def get_safe_data_etf(symbol):
     
     # --- 偷偷用 yfinance 抓配息紀錄 ---
     try:
-        # yfinance 需要 .TW 才能抓台股
-        t = yf.Ticker(f"{symbol}.TW")
-        divs = t.dividends
-        
+        divs = pd.Series(dtype='float64')
+        # 自動測試上市(.TW)與上櫃(.TWO)，抓到就停
+        for suffix in [".TW", ".TWO"]:
+            t = yf.Ticker(f"{symbol}{suffix}")
+            temp_divs = t.dividends
+            if not temp_divs.empty:
+                divs = temp_divs
+                break 
+                
         if not divs.empty:
             # 取得最近 4 次配息
             d_list = divs.tail(4).tolist()[::-1]
@@ -289,7 +298,7 @@ def get_safe_data_etf(symbol):
             elif count_in_year >= 2: multiplier, freq_label = 2, "半年"
             else: multiplier, freq_label = 1, "年"
     except Exception as e:
-        print(f"抓取配息失敗: {e}") # 如果抓不到就維持預設的 0.0
+        print(f"抓取配息失敗: {e}") 
 
     return {
         "success": True, 
@@ -301,8 +310,8 @@ def get_safe_data_etf(symbol):
         "low": info["low"], 
         "open": info["open"], 
         "vol": info["vol"],
-        "raw_divs": raw_divs,       # <--- 這裡會帶入真實抓到的配息
-        "multiplier": multiplier,   # <--- 自動判定月配或季配
+        "raw_divs": raw_divs,       
+        "multiplier": multiplier,   
         "freq_label": freq_label,
         "last_date": time.strftime('%Y-%m-%d'), 
         "price_hist": None, 
