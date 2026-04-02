@@ -1,9 +1,5 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-import random
 from datetime import datetime
 import pytz
 import plotly.express as px
@@ -157,7 +153,6 @@ def login_ui():
 
 
 # --- 雲端關注清單同步函數 ---
-
 def load_watchlist_from_cloud():
     try:
         ws = sh.worksheet("watchlist")
@@ -166,7 +161,6 @@ def load_watchlist_from_cloud():
             if row.get('username') == st.session_state.current_user:
                 raw_codes = str(row.get('codes', "")).replace("'", "").strip()
                 if raw_codes:
-                    # 分解字串，並且只保留長度小於 10 的代碼 (過濾掉那串長亂碼)
                     valid_codes = [
                         c.strip() for c in raw_codes.split(',') 
                         if 0 < len(c.strip()) < 10
@@ -180,21 +174,17 @@ def load_watchlist_from_cloud():
 def save_watchlist_to_cloud(codes_list):
     try:
         ws = sh.worksheet("watchlist")
-        # 重新搜尋使用者所在位置
         cell = ws.find(st.session_state.current_user)
-        
-        # 加上 ' 是為了強迫 Sheets 視為文字，並確保代碼間有逗號
         codes_str = "'" + ",".join([str(c).strip() for c in codes_list])
         
         if cell:
-            # 使用 update() 並指定座標，確保是「取代」該儲存格內容
             ws.update(range_name=f"B{cell.row}", values=[[codes_str]])
         else:
-            # 如果是新用戶，新增一列
             ws.append_row([st.session_state.current_user, codes_str])
             
     except Exception as e:
         st.error(f"雲端儲存失敗: {e}")
+
 # 執行登入檢查
 if not st.session_state.logged_in:
     login_ui()
@@ -224,10 +214,12 @@ st.markdown("""
 FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
 client = RestClient(api_key=FUGLE_TOKEN)
 
-# --- 核心數據抓取函數 (Fugle 版) ---
+# --- 核心數據抓取函數 (Fugle 強化穩定版) ---
 def get_stock_info(symbol):
     try:
-        symbol = str(symbol).strip().upper()
+        # 清除可能來自舊資料庫的 .TW 或 .TWO 綴詞，確保 Fugle 正常運作
+        symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
+        
         stock = client.stock
         res = stock.snapshot.quotes(symbol=symbol)
         
@@ -236,32 +228,35 @@ def get_stock_info(symbol):
             
         data = res['data'][0]
         
-        # 為了與你原本的 UI 兼容，我們保留相同的欄位名稱
+        # 安全取得數值，避免 None 導致計算崩潰
+        price = data.get('lastPrice') or data.get('previousClose') or 0.0
+        change = data.get('change') or 0.0
+        pct = data.get('changePercent', 0) * 100
+        
         return {
             "name": data.get('name', symbol),
-            "price": data.get('lastPrice'),
-            "change": data.get('change'),
-            "pct": data.get('changePercent', 0) * 100,
-            "high": data.get('highPrice'),
-            "low": data.get('lowPrice'),
-            "open": data.get('openPrice'),
-            "vol": data.get('totalVolume'),
+            "price": float(price),
+            "change": float(change),
+            "pct": float(pct),
+            "high": float(data.get('highPrice') or price),
+            "low": float(data.get('lowPrice') or price),
+            "open": float(data.get('openPrice') or price),
+            "vol": int(data.get('totalVolume') or 0),
             "full_ticker": symbol,
-            "hist": None,      # Fugle 快照不含歷史資料
-            "dividends": None  # Fugle 快照不含股利資料
+            "hist": None,      
+            "dividends": None  
         }
     except Exception as e:
         print(f"Fugle 抓取失敗: {e}")
         return None
 
-# --- ETF 資料處理函數 (兼容版) ---
+# --- ETF 資料處理函數 (兼容防崩潰版) ---
 @st.cache_data(ttl=600)
 def get_safe_data_etf(symbol):
     info = get_stock_info(symbol)
-    if not info: 
-        return {"success": False, "msg": f"找不到代號 {symbol}"}
+    if not info or info["price"] <= 0: 
+        return {"success": False, "msg": f"找不到代號 {symbol} 或目前無報價"}
     
-    # 由於 Fugle 快照暫時不提供詳細配息歷史，這裡給予預設值防止 UI 報錯
     return {
         "success": True, 
         "name": info["name"], 
@@ -272,7 +267,7 @@ def get_safe_data_etf(symbol):
         "low": info["low"], 
         "open": info["open"], 
         "vol": info["vol"],
-        "raw_divs": [0.0] * 4, 
+        "raw_divs": [0.0] * 4,  # 提供安全預設值給 UI 計算
         "multiplier": 4, 
         "freq_label": "季",
         "last_date": time.strftime('%Y-%m-%d'), 
@@ -289,14 +284,11 @@ def go_to(page_name):
 with st.sidebar:
     st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
     
-    # 【新增】放置於最上方的關注清單按鈕
     if st.button("⭐ 我的關注清單", use_container_width=True):
         go_to("watchlist")
     
-    # 視覺分割線，讓功能與登出按鈕有明顯區隔
     st.markdown("<hr style='margin: 10px 0; border-color: #444;'>", unsafe_allow_html=True)
     
-    # 【移動】登出系統按鈕往下移
     if st.button("🚪 登出系統", use_container_width=True):
         st.session_state.logged_in = False
         st.session_state.current_user = None
@@ -311,7 +303,6 @@ if st.session_state.page == "home":
     st.write("請選擇功能進入：")
     st.divider()
     
-    # 恢復為 4 個欄位，確保視覺美感
     col_a, col_b, col_c, col_d = st.columns(4)
     with col_a:
         st.subheader("📈 個股分析")
@@ -329,6 +320,7 @@ if st.session_state.page == "home":
         st.subheader("💼 我的資產")
         if st.button("個人投資組合", use_container_width=True, type="primary"):
             go_to("portfolio")
+
 # ==========================================
 # 頁面 B：個股查詢系統
 # ==========================================
@@ -378,7 +370,7 @@ elif st.session_state.page == "stock_query":
         st.info("計算公式：EPS × 自訂本益比 = 參考價")
 
 # ==========================================
-# 頁面 C：ETF 分析系統 (全功能完整保留)
+# 頁面 C：ETF 分析系統
 # ==========================================
 elif st.session_state.page == "etf_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -395,7 +387,7 @@ elif st.session_state.page == "etf_query":
             st.write("")
             if st.button("開始計算", type="primary"):
                 if symbol_input:
-                    with st.spinner('偵測頻率與抓取數據中...'):
+                    with st.spinner('抓取數據中...'):
                         st.session_state.data = get_safe_data_etf(symbol_input)
 
         if st.session_state.data and st.session_state.data.get("success"):
@@ -422,7 +414,7 @@ elif st.session_state.page == "etf_query":
             d4 = e_cols[3].number_input("前三", value=float(d["raw_divs"][3]), format="%.3f")
             
             avg_annual = (sum([d1, d2, d3, d4]) / 4) * d["multiplier"]
-            real_yield = (avg_annual / d['price']) * 100
+            real_yield = (avg_annual / d['price']) * 100 if d['price'] > 0 else 0
             
             stat_c1, stat_c2 = st.columns(2)
             with stat_c1:
@@ -434,8 +426,8 @@ elif st.session_state.page == "etf_query":
 
             st.divider()
             st.subheader("📊 估值位階參考")
-            p_cheap, p_fair, p_high = avg_annual/0.10, avg_annual/0.07, avg_annual/0.05
-            rec = "💎 便宜買入" if d['price'] <= p_cheap else "✅ 合理持有" if d['price'] <= p_fair else "❌ 昂貴不建議"
+            p_cheap, p_fair, p_high = avg_annual/0.10 if avg_annual>0 else 0, avg_annual/0.07 if avg_annual>0 else 0, avg_annual/0.05 if avg_annual>0 else 0
+            rec = "💎 便宜買入" if d['price'] <= p_cheap and p_cheap > 0 else "✅ 合理持有" if d['price'] <= p_fair and p_fair > 0 else "❌ 昂貴不建議"
             st.markdown(f"<div class='calc-box'>系統建議：<b>{rec}</b></div>", unsafe_allow_html=True)
 
             table_html = f"""
@@ -459,7 +451,6 @@ elif st.session_state.page == "etf_query":
                 total_shares = hold_lots * 1000
                 total_raw = total_shares * d1
                 
-                # 稅費計算 (保留二代健保計算)
                 div_54c_part = total_raw * (ratio_54c/100)
                 nhi_amt = div_54c_part * 0.0211 if div_54c_part >= 20000 else 0
                 net_per_period = total_raw - nhi_amt
@@ -473,7 +464,6 @@ elif st.session_state.page == "etf_query":
                     一年累計實領：{(net_per_period * d['multiplier']):,.0f} 元
                 </div>""", unsafe_allow_html=True)
 
-            # 存股未來複利試算
             st.divider()
             st.subheader("🔮 存股未來財富試算")
             with st.container():
@@ -506,12 +496,12 @@ elif st.session_state.page == "etf_query":
     with side_col:
         st.write("### 📖 說明")
         st.caption("1. 輸入代號後點擊開始計算。")
-        st.caption("2. 系統自動偵測配息頻率。")
+        st.caption("2. 手動輸入配息即可試算。")
         st.divider()
         st.success("系統正常運行中")
 
 # ==========================================
-# 頁面 D：PK 對比工具 (完整對比表)
+# 頁面 D：PK 對比工具
 # ==========================================
 elif st.session_state.page == "pk_tool":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -550,9 +540,11 @@ elif st.session_state.page == "pk_tool":
                     f"{code2}": [f"{r2['price']:.2f}", f"{r2['pct']:.2f}%", r2['freq_label'], f"{analysis[1]['annual_div']:.2f}", f"{analysis[1]['yield']:.2f}%"]
                 })
                 st.table(df)
+            else:
+                st.error("查無資料，請確認代碼是否輸入正確。")
 
 # ==========================================
-# 頁面 E：個人投資組合 (雲端儲存版 + 圓餅圖)
+# 頁面 E：個人投資組合 
 # ==========================================
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -633,42 +625,39 @@ elif st.session_state.page == "portfolio":
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
 
-
 # ==========================================
-# 頁面 F：我的關注 (防崩潰穩定版)
+# 頁面 F：我的關注
 # ==========================================
 elif st.session_state.page == "watchlist":
     if st.button("⬅️ 返回首頁"): go_to("home")
     st.title("⭐ 我的雲端關注清單")
 
-    # 1. 只有在 Session 裡沒資料時，才去讀取一次雲端
     if 'watchlist_data' not in st.session_state:
         try:
             st.session_state.watchlist_data = load_watchlist_from_cloud()
         except:
             st.session_state.watchlist_data = []
 
-    # 2. 使用 st.form 包裹輸入框 [重要：防止打字時 API 崩潰]
     with st.form("add_stock_form", clear_on_submit=True):
         st.write("### ➕ 新增追蹤標的")
         new_code = st.text_input("輸入台股代碼", placeholder="例如: 2330").strip().upper()
         submit_button = st.form_submit_button("確認加入", use_container_width=True)
         
         if submit_button and new_code:
-            if new_code not in st.session_state.watchlist_data:
-                info = get_stock_info(new_code) # 抓股價不佔用 Google 額度
+            # 清除輸入中的後綴，確保存入的都是純代碼
+            clean_code = new_code.replace('.TW', '').replace('.TWO', '')
+            if clean_code not in st.session_state.watchlist_data:
+                info = get_stock_info(clean_code)
                 if info:
-                    st.session_state.watchlist_data.append(new_code)
-                    # 只有點擊提交時才寫入一次雲端
+                    st.session_state.watchlist_data.append(clean_code)
                     save_watchlist_to_cloud(st.session_state.watchlist_data)
-                    st.success(f"✅ {new_code} 加入成功！")
+                    st.success(f"✅ {clean_code} 加入成功！")
                     st.rerun()
                 else:
                     st.error("❌ 找不到代碼")
 
     st.divider()
 
-    # 3. 自動刷新行情區 (僅刷新 UI 與股價，不讀取 Sheets)
     @st.fragment(run_every=10)
     def refresh_watchlist_view():
         if st.session_state.watchlist_data:
@@ -683,7 +672,10 @@ elif st.session_state.page == "watchlist":
                     c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
                     
                     if c4.button("🗑️", key=f"del_{item['full_ticker']}"):
-                        st.session_state.watchlist_data.remove(item['full_ticker'].split('.')[0])
+                        try:
+                            st.session_state.watchlist_data.remove(item['full_ticker'])
+                        except ValueError:
+                            pass
                         save_watchlist_to_cloud(st.session_state.watchlist_data)
                         st.rerun()
                     st.divider()
@@ -691,6 +683,3 @@ elif st.session_state.page == "watchlist":
             st.info("清單空空如也，請在上方新增標的。")
 
     refresh_watchlist_view()
-
-
-
