@@ -254,6 +254,34 @@ def get_stock_info(symbol):
         st.error(f"⚠️ 抓取 {symbol} 失敗，錯誤訊息: {e}")
         return None
 
+# --- ETF 資料處理函數 (兼容防崩潰版) ---
+@st.cache_data(ttl=600)
+def get_safe_data_etf(symbol):
+    info = get_stock_info(symbol)
+    
+    # 檢查 info 是否存在以及價格是否有效
+    if not info or info["price"] <= 0: 
+        return {"success": False, "msg": f"找不到代號 {symbol} 或目前無報價"}
+    
+    # 補足 ETF 頁面需要的特定欄位，給予安全預設值防止報錯
+    return {
+        "success": True, 
+        "name": info["name"], 
+        "price": info["price"],
+        "change": info["change"], 
+        "pct": info["pct"], 
+        "high": info["high"],
+        "low": info["low"], 
+        "open": info["open"], 
+        "vol": info["vol"],
+        "raw_divs": [0.0] * 4,  # 提供空的配息陣列讓 UI 去算
+        "multiplier": 4, 
+        "freq_label": "季",
+        "last_date": time.strftime('%Y-%m-%d'), 
+        "price_hist": None, 
+        "full_ticker": info["full_ticker"]
+    }
+
 # --- 導覽邏輯 ---
 def go_to(page_name):
     st.session_state.page = page_name
