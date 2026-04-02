@@ -209,6 +209,33 @@ st.markdown("""
 FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
 client = RestClient(api_key=FUGLE_TOKEN)
 
+# --- 1. 新增籌碼面數據抓取函數 ---
+def get_institutional_trades(symbol):
+    try:
+        # 清除後綴
+        symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
+        # 抓取最近 5 日的統計資料
+        # 注意：Fugle 的 stats API 可以取得法人的買賣資訊
+        data = client.stock.historical.stats(symbol=symbol)
+        
+        if not data or 'institutionalTrades' not in data:
+            return None
+            
+        # 取得最近 5 筆資料 (Fugle 通常回傳歷史列表)
+        trades = data['institutionalTrades'][:5] 
+        df_trades = pd.DataFrame(trades)
+        
+        # 轉換單位：Fugle 原始數據通常是「股」，我們除以 1000 變成「張」
+        df_trades['foreign'] = df_trades['foreignNetBuySell'] / 1000
+        df_trades['investment'] = df_trades['trustNetBuySell'] / 1000
+        df_trades['dealer'] = df_trades['dealerNetBuySell'] / 1000
+        df_trades['date'] = df_trades['date']
+        
+        return df_trades[['date', 'foreign', 'investment', 'dealer']]
+    except Exception as e:
+        st.error(f"⚠️ 籌碼資料抓取失敗: {e}")
+        return None
+
 # --- 核心數據抓取函數 (Fugle 修正除錯版) ---
 def get_stock_info(symbol):
     try:
@@ -377,36 +404,56 @@ elif st.session_state.page == "stock_query":
     main_col, side_col = st.columns([8, 4])
     with main_col:
         stock_code = st.text_input("請輸入台股代碼 (例如: 2330)", value="")
-        current_price = 0.0
         if stock_code:
             info = get_stock_info(stock_code)
             if info:
-                current_price = info['price']
-                st.markdown(f"## {info['name']}")
-                st.markdown(f"<div class='date-text'>資料日期：{datetime.now(tw_tz).strftime('%Y-%m-%d')}</div>", unsafe_allow_html=True)
+                st.markdown(f"## {info['name']} ({stock_code})")
                 
-                cp1, cp2 = st.columns([2, 1])
-                with cp1:
+                # 使用 Tabs 分開估價與籌碼
+                tab_price, tab_chip = st.tabs(["💰 價值評估", "📊 法人籌碼"])
+                
+                with tab_price:
+                    # [原本的估價邏輯內容]
+                    current_price = info['price']
                     color = "#ff4b4b" if info['change'] > 0 else "#00ff00" if info['change'] < 0 else "#FFFFFF"
                     st.markdown(f"<div class='metric-val' style='color:{color}'>{current_price:.2f}</div>", unsafe_allow_html=True)
                     st.markdown(f"<span style='color:{color}; font-weight:bold; font-size:1.5rem;'>{info['change']:+.2f} ({info['pct']:+.2f}%)</span>", unsafe_allow_html=True)
-                with cp2:
-                    st.caption("今日行情細節")
-                    st.write(f"最高: {info['high']:.2f} / 最低: {info['low']:.2f}")
-                    st.write(f"開盤: {info['open']:.2f} / 總量: {int(info['vol']/1000):,} 張")
-                st.divider()
+                    
+                    st.divider()
+                    col_eps, col_pe = st.columns(2)
+                    with col_eps: eps = st.number_input("該股 EPS (4季累積)", min_value=0.01, step=0.1, value=10.0)
+                    with col_pe: pe_target = st.number_input("自訂參考本益比 (PE)", value=15.0, step=0.1)
+                    
+                    fair_price = eps * pe_target
+                    st.markdown(f"<div class='calc-box'>合理價參考：<span class='highlight-val'>{fair_price:.2f}</span></div>", unsafe_allow_html=True)
+                    if current_price <= fair_price: st.success(f"✅ 目前股價低於目標參考價")
+                    else: st.warning(f"⚠️ 目前股價已超過目標參考價")
 
-        col_eps, col_pe = st.columns(2)
-        with col_eps: eps = st.number_input("輸入該股 EPS (4季累積)", min_value=0.01, step=0.1, value=10.0)
-        with col_pe: pe_target = st.number_input("自訂參考本益比 (PE)", value=15.0, step=0.1)
-        
-        if current_price > 0:
-            fair_price = eps * pe_target
-            st.subheader("📊 換算結果")
-            st.markdown(f"<div class='calc-box'>合理價參考：<span class='highlight-val'>{fair_price:.2f}</span></div>", unsafe_allow_html=True)
-            if current_price <= fair_price: st.success(f"✅ 目前股價 {current_price:.2f} 低於目標參考價")
-            else: st.warning(f"⚠️ 目前股價 {current_price:.2f} 已超過目標參考價")
-
+                with tab_chip:
+                    st.subheader("近五日法人買賣超 (張)")
+                    chip_df = get_institutional_trades(stock_code)
+                    if chip_df is not None:
+                        # 顯示長條圖
+                        chart_data = chip_df.set_index('date')
+                        st.bar_chart(chart_data)
+                        
+                        # 計算合計
+                        f_sum = chip_df['foreign'].sum()
+                        i_sum = chip_df['investment'].sum()
+                        
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("外資累計", f"{f_sum:+.0f} 張", delta_color="normal")
+                        c2.metric("投信累計", f"{i_sum:+.0f} 張", delta_color="normal")
+                        
+                        # 自動判斷短評
+                        if f_sum > 0 and i_sum > 0:
+                            st.success("🔥 籌碼強勢：外資與投信同步買超！")
+                        elif f_sum < 0 and i_sum < 0:
+                            st.error("❄️ 籌碼渙散：法人集體大賣，請小心。")
+                        else:
+                            st.info("⚖️ 籌碼拉鋸：法人動向不一，建議觀望。")
+                    else:
+                        st.warning("暫無籌碼數據（可能為新上市或 API 限制）")
     with side_col:
         st.write("### 📖 說明")
         st.caption("1. 輸入股票代碼。")
