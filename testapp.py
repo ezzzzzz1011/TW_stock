@@ -211,40 +211,44 @@ client = RestClient(api_key=FUGLE_TOKEN)
 
 def get_institutional_trades(symbol):
     try:
-        # 清理代碼
+        # 1. 清理代碼
         symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
         
-        # 呼叫 Fugle API
+        # 2. 呼叫 Fugle API
+        # 使用 historical.stats 取得法人買賣超
         data = client.stock.historical.stats(symbol=symbol)
         
-        # --- 除錯專用：如果抓不到，會在網頁顯示原始資料內容 ---
-        if not data or 'institutionalTrades' not in data:
-            # 如果你想知道為什麼沒資料，可以暫時取消下面這行的註解
-            # st.write(f"DEBUG: API回傳內容為 {data}") 
+        # --- 關鍵修正：更嚴謹的資料結構檢查 ---
+        if not data:
             return None
             
+        # 取得法人買賣資料清單
         trades_list = data.get('institutionalTrades', [])
+        
         if not trades_list:
             return None
 
-        # 轉換為 DataFrame 並取最近 5 筆
+        # 3. 轉換為 DataFrame 並取最近 5 筆
         df = pd.DataFrame(trades_list).head(5)
         
-        # 欄位對齊：使用 .get 預防欄位缺失
+        # 4. 欄位對齊 (Fugle 原始欄位對應)
+        # 外資: foreignNetBuySell, 投信: trustNetBuySell, 自營商: dealerNetBuySell
+        # 同時預防欄位不存在的情況，給予預設值 0
         df['外資'] = df.get('foreignNetBuySell', 0) / 1000
         df['投信'] = df.get('trustNetBuySell', 0) / 1000
         df['自營'] = df.get('dealerNetBuySell', 0) / 1000
         
-        # 日期處理
+        # 5. 日期處理
         if 'date' in df.columns:
             df['日期'] = pd.to_datetime(df['date']).dt.strftime('%m-%d')
         else:
-            df['日期'] = [f"D-{i}" for i in range(len(df))]
+            df['日期'] = range(len(df)) # 萬一沒日期就給序號
             
         return df[['日期', '外資', '投信', '自營']]
         
     except Exception as e:
-        st.error(f"❌ 籌碼函數報錯: {e}")
+        # 如果發生錯誤，可以在後台印出方便除錯
+        print(f"Fugle API Error: {e}")
         return None
 
 # --- 核心數據抓取函數 (Fugle 修正除錯版) ---
