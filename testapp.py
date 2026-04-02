@@ -663,7 +663,7 @@ elif st.session_state.page == "portfolio":
                 # 避免報酬率超過100%導致圓環圖破圖
                 circle_pct = min(abs(return_pct), 100)
                 
-                # 確保 HTML 靠左對齊，避免 Markdown 判定為程式碼區塊
+                # 確保 HTML 靠左對齊，並在右下角加入手續費提示
                 dashboard_html = f"""
 <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: #1e1e28; padding: 25px; border-radius: 15px; border: 1px solid #444; margin-bottom: 20px;">
     <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_pct}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
@@ -684,6 +684,9 @@ elif st.session_state.page == "portfolio":
         <div style="display: flex; justify-content: space-between;">
             <span style="color: #ccc; font-size: 18px;">總報酬：</span>
             <span style="color: {ret_color}; font-size: 26px; font-weight: bold; font-family: 'Consolas';">{return_amt:+,.0f}</span>
+        </div>
+        <div style="text-align: right; margin-top: 5px;">
+            <span style="color: #888; font-size: 13px;">(無加上手續費用)</span>
         </div>
     </div>
 </div>
