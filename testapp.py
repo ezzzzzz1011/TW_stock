@@ -616,10 +616,10 @@ elif st.session_state.page == "portfolio":
     
     edited_df = st.data_editor(st.session_state.portfolio, num_rows="dynamic", use_container_width=True)
 
-    if st.button("💾 儲存變更至雲端資料庫", type="primary"):
+    if st.button("💾 儲存變更至資料庫", type="primary"):
         st.session_state.portfolio = edited_df
         if save_portfolio_to_cloud(st.session_state.current_user, edited_df):
-            st.success("✅ 投資組合已成功同步至 Google Sheets 雲端！")
+            st.success("✅ 投資組合已成功同步至資料庫")
 
     st.divider()
     st.markdown("### 📊 資產市值與配置分析")
@@ -723,7 +723,7 @@ elif st.session_state.page == "portfolio":
 # ==========================================
 elif st.session_state.page == "watchlist":
     # 👈 第3處修改：移除返回首頁按鈕
-    st.title("⭐ 我的雲端關注清單")
+    st.title("⭐ 我的關注清單")
 
     if 'watchlist_data' not in st.session_state:
         try:
