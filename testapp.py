@@ -96,11 +96,11 @@ if 'data' not in st.session_state:
 
 # --- 登入介面邏輯 ---
 def login_ui():
-    # 加入 font-size 強制縮小字體，避免文字因為太長而斷行
+    # 將背景顏色從 #1e1e28 (深色) 改為 #f8f9fa (淺灰白)，並加深文字顏色
     st.markdown("""
-        <div style="max-width: 400px; margin: 40px auto 20px auto; padding: 25px; background-color: #1e1e28; border-radius: 15px; border: 1px solid #3e3e42; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center;">
-            <h2 style="margin: 0; color: #ffffff; font-size: 24px;">🚀 台股個股/ETF查詢</h2>
-            <p style="color: #aaa; margin-top: 8px; margin-bottom: 0; font-size: 14px;">Ez開發 - 投資助手系統</p>
+        <div style="max-width: 400px; margin: 40px auto 20px auto; padding: 25px; background-color: #f8f9fa; border-radius: 15px; border: 1px solid #dee2e6; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center;">
+            <h2 style="margin: 0; color: #1f1f1f; font-size: 24px;">🚀 台股個股/ETF查詢</h2>
+            <p style="color: #666; margin-top: 8px; margin-bottom: 0; font-size: 14px;">Ez開發 - 投資助手系統</p>
         </div>
     """, unsafe_allow_html=True)
 
