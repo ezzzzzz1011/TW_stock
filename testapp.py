@@ -90,7 +90,7 @@ if 'current_user' not in st.session_state:
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = None
 if 'page' not in st.session_state:
-    st.session_state.page = "watchlist"  # 👈 第1處修改：登入預設改為關注清單
+    st.session_state.page = "welcome"  # 改成 "welcome" (空白歡迎頁)
 if 'data' not in st.session_state: 
     st.session_state.data = None
 
@@ -126,7 +126,7 @@ def login_ui():
                 st.session_state.logged_in = True
                 st.session_state.current_user = u_id
                 st.session_state.portfolio = load_portfolio_from_cloud(u_id)
-                st.session_state.page = "watchlist"  # 👈 加上這行：登入後強制跳轉到關注清單
+                st.session_state.page = "welcome"  # 改成 "welcome" (空白歡迎頁)
                 st.success("登入成功！")
                 st.rerun()
             else:
@@ -343,9 +343,16 @@ with st.sidebar:
 
     
 # ==========================================
-# 頁面 A：首頁
+# 頁面：空白歡迎頁 (一進來的預設畫面)
 # ==========================================
-if st.session_state.page == "home":
+if st.session_state.page == "welcome":
+    # 這裡什麼都不放，或者只放一句低調的提示，維持極致乾淨
+    st.markdown("<br><br><br><h3 style='text-align: center; color: #555;'>👈 請從左側選單選擇功能</h3>", unsafe_allow_html=True)
+
+# ==========================================
+# 頁面 A：首頁 (工具箱)
+# ==========================================
+elif st.session_state.page == "home":  # 👈 這裡的 if 要記得改成 elif
     st.title("🚀 台股個股/ETF查詢 Ez開發")
     st.write("請選擇功能進入：")
     st.divider()
