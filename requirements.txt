@@ -5,3 +5,4 @@ plotly
 gspread
 google-auth
 fugle-marketdata
+yfinance
