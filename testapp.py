@@ -663,7 +663,7 @@ elif st.session_state.page == "portfolio":
                 # 避免報酬率超過100%導致圓環圖破圖
                 circle_pct = min(abs(return_pct), 100)
                 
-                # 確保 HTML 靠左對齊，並在右下角加入手續費提示
+                # 確保 HTML 靠左對齊，總成本與市值位置對調
                 dashboard_html = f"""
 <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: #1e1e28; padding: 25px; border-radius: 15px; border: 1px solid #444; margin-bottom: 20px;">
     <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_pct}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
@@ -674,12 +674,12 @@ elif st.session_state.page == "portfolio":
     </div>
     <div style="min-width: 280px; margin-top: 10px;">
         <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 8px;">
-            <span style="color: #ccc; font-size: 18px;">股票市值：</span>
-            <span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_market_val:,.0f}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 15px;">
             <span style="color: #ccc; font-size: 18px;">總成本：</span>
             <span style="color: #00bfff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_cost_input:,.0f}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 15px;">
+            <span style="color: #ccc; font-size: 18px;">股票市值：</span>
+            <span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_market_val:,.0f}</span>
         </div>
         <div style="display: flex; justify-content: space-between;">
             <span style="color: #ccc; font-size: 18px;">總報酬：</span>
