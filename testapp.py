@@ -932,10 +932,10 @@ elif st.session_state.page == "watchlist":
 
     st.divider()
 
-    @st.fragment(run_every=10)
+    @st.fragment(run_every=5)
     def refresh_watchlist_view():
         if st.session_state.watchlist_data:
-            # --- 修正：使用 tw_tz 抓取精確的台灣時間 ---
+            # 2. 使用 datetime.now(tw_tz) 抓取台灣時間
             now_tw = datetime.now(tw_tz).strftime('%H:%M:%S')
             st.caption(f"⏱️ 行情自動刷新中... ({now_tw})")
             
