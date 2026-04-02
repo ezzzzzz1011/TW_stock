@@ -96,60 +96,54 @@ if 'data' not in st.session_state:
 
 # --- 登入介面邏輯 ---
 def login_ui():
+    # 解決原本 HTML <div> 無法包覆導致出現「空灰框」的 Bug
+    # 直接將標題文字放入灰框中，打造高質感的登入 Header
     st.markdown("""
-        <style>
-        .auth-container {
-            max-width: 450px;
-            margin: 50px auto;
-            padding: 40px;
-            background-color: #1e1e28;
-            border-radius: 20px;
-            border: 1px solid #3e3e42;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-            text-align: center;
-        }
-        </style>
+        <div style="max-width: 400px; margin: 40px auto 20px auto; padding: 25px; background-color: #1e1e28; border-radius: 15px; border: 1px solid #3e3e42; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center;">
+            <h2 style="margin: 0; color: #ffffff;">🚀 台股個股/ETF查詢</h2>
+            <p style="color: #aaa; margin-top: 8px; margin-bottom: 0;">Ez開發 - 投資助手系統</p>
+        </div>
     """, unsafe_allow_html=True)
-    
-    st.markdown('<div class="auth-container">', unsafe_allow_html=True)
-    st.title("🛡️ 投資助手系統")
 
-    user_db = get_cloud_users()
-    tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
+    # 使用 Streamlit 的 columns 將下方的輸入表單完美置中
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        user_db = get_cloud_users()
+        tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
 
-    with tab1:
-        u_id = st.text_input("帳號名稱", key="l_user", placeholder="請輸入帳號")
-        u_pw = st.text_input("存取密碼", type="password", key="l_pw", placeholder="請輸入密碼")
-        
-        if st.button("確認登入", use_container_width=True, type="primary"):
-            if user_db.get(u_id) == u_pw:
-                st.session_state.logged_in = True
-                st.session_state.current_user = u_id
-                st.session_state.portfolio = load_portfolio_from_cloud(u_id)
-                st.session_state.page = "welcome"  # 改成 "welcome" (空白歡迎頁)
-                st.success("登入成功！")
-                st.rerun()
-            else:
-                st.error("❌ 帳號或密碼不正確")
+        with tab1:
+            u_id = st.text_input("帳號名稱", key="l_user", placeholder="請輸入帳號")
+            u_pw = st.text_input("存取密碼", type="password", key="l_pw", placeholder="請輸入密碼")
+            
+            if st.button("確認登入", use_container_width=True, type="primary"):
+                if user_db.get(u_id) == u_pw:
+                    st.session_state.logged_in = True
+                    st.session_state.current_user = u_id
+                    st.session_state.portfolio = load_portfolio_from_cloud(u_id)
+                    st.session_state.page = "welcome"  # 登入後進入空白歡迎頁
+                    st.success("登入成功！")
+                    st.rerun()
+                else:
+                    st.error("❌ 帳號或密碼不正確")
 
-    with tab2:
-        st.info("註冊資料將儲存於雲端，重啟系統不會遺失。")
-        new_u = st.text_input("設定帳號", key="r_user")
-        new_p = st.text_input("設定密碼", type="password", key="r_pw")
-        confirm_p = st.text_input("確認密碼", type="password", key="r_confirm")
-        
-        if st.button("提交註冊", use_container_width=True):
-            if new_u in user_db:
-                st.warning("⚠️ 帳號已存在")
-            elif new_p != confirm_p:
-                st.error("❌ 密碼不一致")
-            elif len(new_u) < 2 or len(new_p) < 4:
-                st.error("❌ 長度不足 (帳號需2字元, 密碼需4字元)")
-            else:
-                user_sheet.append_row([new_u, new_p])
-                default_df = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
-                save_portfolio_to_cloud(new_u, default_df)
-                st.success("✅ 註冊成功！請切換至登入分頁。")
+        with tab2:
+            st.info("註冊資料將儲存於雲端，重啟系統不會遺失。")
+            new_u = st.text_input("設定帳號", key="r_user")
+            new_p = st.text_input("設定密碼", type="password", key="r_pw")
+            confirm_p = st.text_input("確認密碼", type="password", key="r_confirm")
+            
+            if st.button("提交註冊", use_container_width=True):
+                if new_u in user_db:
+                    st.warning("⚠️ 帳號已存在")
+                elif new_p != confirm_p:
+                    st.error("❌ 密碼不一致")
+                elif len(new_u) < 2 or len(new_p) < 4:
+                    st.error("❌ 長度不足 (帳號需2字元, 密碼需4字元)")
+                else:
+                    user_sheet.append_row([new_u, new_p])
+                    default_df = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
+                    save_portfolio_to_cloud(new_u, default_df)
+                    st.success("✅ 註冊成功！請切換至登入分頁。")
                 
     st.markdown('</div>', unsafe_allow_html=True)
 
