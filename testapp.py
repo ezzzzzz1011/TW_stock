@@ -341,7 +341,7 @@ def get_dividend_calendar(symbol):
     return {"success": False}
 
 def generate_user_calendar():
-    """讀取 session_state 中的 portfolio 並彙整成月曆表格"""
+    """讀取 session_state 中的 portfolio 並彙整成月曆表格 (僅顯示未來標的)"""
     if st.session_state.portfolio is None:
         return None
         
@@ -354,6 +354,9 @@ def generate_user_calendar():
         return None
 
     calendar_list = []
+    # 取得今天的日期 (使用台灣時區確保準確)
+    today_date = datetime.now(tw_tz).date()
+    
     progress_text = st.empty()
     progress_bar = st.progress(0)
     
@@ -364,19 +367,32 @@ def generate_user_calendar():
         
         div_info = get_dividend_calendar(code)
         if div_info["success"]:
-            total_pay = div_info["amount"] * lots * 1000
-            calendar_list.append({
-                "股票名稱": code,
-                "預計除息日": div_info["ex_date"],
-                "預計發放日 (預估)": div_info["pay_date"],
-                "每股配息": f"${div_info['amount']:.2f}",
-                "預估入帳金額": int(total_pay)
-            })
+            # 將字串格式的發放日轉換回日期對象進行比較
+            pay_date_obj = datetime.strptime(div_info["pay_date"], '%Y-%m-%d').date()
+            
+            # --- 關鍵改動：只加入發放日還沒到的資料 ---
+            if pay_date_obj >= today_date:
+                total_pay = div_info["amount"] * lots * 1000
+                calendar_list.append({
+                    "股票名稱": code,
+                    "預計除息日": div_info["ex_date"],
+                    "預計發放日 (預估)": div_info["pay_date"],
+                    "每股配息": f"${div_info['amount']:.2f}",
+                    "預估入帳金額": int(total_pay)
+                })
+        
         progress_bar.progress((i + 1) / len(valid_assets))
     
     progress_text.empty()
     progress_bar.empty()
-    return pd.DataFrame(calendar_list)
+    
+    # 建立 DataFrame 並檢查是否為空
+    result_df = pd.DataFrame(calendar_list)
+    if result_df.empty:
+        st.info("📅 近期暫無預計入帳的配息項目。")
+        return None
+        
+    return result_df
 
 # --- 導覽邏輯 ---
 def go_to(page_name):
