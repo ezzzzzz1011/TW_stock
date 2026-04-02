@@ -94,9 +94,9 @@ if 'page' not in st.session_state:
 if 'data' not in st.session_state: 
     st.session_state.data = None
 
-# --- 登入介面邏輯 ---
+# --- 登入介面邏輯 (淺色模式優化版) ---
 def login_ui():
-    # 將背景顏色從 #1e1e28 (深色) 改為 #f8f9fa (淺灰白)，並加深文字顏色
+    # 使用 st.markdown 定義外層裝飾容器，背景改為淺灰白 (#f8f9fa)，文字改為深色
     st.markdown("""
         <div style="max-width: 400px; margin: 40px auto 20px auto; padding: 25px; background-color: #f8f9fa; border-radius: 15px; border: 1px solid #dee2e6; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center;">
             <h2 style="margin: 0; color: #1f1f1f; font-size: 24px;">🚀 台股個股/ETF查詢</h2>
@@ -104,7 +104,7 @@ def login_ui():
         </div>
     """, unsafe_allow_html=True)
 
-    # 下方保持不變...
+    # 使用 Streamlit 欄位將登入表單居中
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         user_db = get_cloud_users()
@@ -144,8 +144,8 @@ def login_ui():
                     save_portfolio_to_cloud(new_u, default_df)
                     st.success("✅ 註冊成功！請切換至登入分頁。")
                 
+    # 關閉 HTML div 標籤
     st.markdown('</div>', unsafe_allow_html=True)
-
 
 # --- 雲端關注清單同步函數 ---
 def load_watchlist_from_cloud():
