@@ -656,22 +656,22 @@ elif st.session_state.page == "etf_query":
                 nhi_amt = div_54c_part * 0.0211 if div_54c_part >= 20000 else 0
                 net_per_period = total_raw - nhi_amt
                 
-                st.markdown(f"""<div class="calc-box">
-                    # --- 預先計算數值，避免 f-string 解析錯誤 ---
-                val_total_invest = f"{(total_shares * d['price'] * 1.001425):,.0f}"
-                val_total_raw = f"{total_raw:,.0f}"
-                val_nhi = f"{nhi_amt:,.0f}"
-                val_net_period = f"{net_per_period:,.0f}"
-                val_annual_net = f"{(net_per_period * d['multiplier']):,.0f}"
+                # --- 預先計算數值，避免 f-string 在中文字元旁解析出錯 ---
+            # 區塊 1: 持有張數試算資料
+            val_invest_total = f"{(total_shares * d['price'] * 1.001425):,.0f}"
+            val_raw_div = f"{total_raw:,.0f}"
+            val_nhi_deduct = f"{nhi_amt:,.0f}"
+            val_net_amt = f"{net_per_period:,.0f}"
+            val_annual_net_amt = f"{(net_per_period * d['multiplier']):,.0f}"
 
-                st.markdown(f"""<div class="calc-box">
-                    預估總投入：{val_total_invest} 元<br>
-                    每{d['freq_label']}總配息：{val_total_raw} 元<br>
-                    <span style="color: #ffb7b7;">└ 二代健保扣費：-{val_nhi} 元</span><br>
-                    <b>每{d['freq_label']}實領金額：{val_net_period} 元</b><br>
-                    <hr style="border: 0.5px solid #dee2e6;">
-                    一年累計實領：{val_annual_net} 元
-                </div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="calc-box">
+                預估總投入: {val_invest_total} 元<br>
+                每{d['freq_label']}總配息: {val_raw_div} 元<br>
+                <span style="color: #d9534f;">└ 二代健保扣費: -{val_nhi_deduct} 元</span><br>
+                <b>每{d['freq_label']}實領金額: {val_net_amt} 元</b><br>
+                <hr style="border: 0.5px solid #dee2e6;">
+                一年累計實領: {val_annual_net_amt} 元
+            </div>""", unsafe_allow_html=True)
 
             st.divider()
             st.subheader("🔮 存股未來財富試算")
@@ -690,14 +690,22 @@ elif st.session_state.page == "etf_query":
                     fv = custom_initial + (custom_monthly * n)
                 
                 total_invested = custom_initial + (custom_monthly * n)
+                
+                # 區塊 2: 未來財富試算預處理
+                val_fv = f"{fv:,.0f}"
+                val_total_invested = f"{total_invested:,.0f}"
+                val_growth_ratio = f"{fv/total_invested if total_invested > 0 else 0:.2f}"
+                val_monthly_passive = f"{(fv * (custom_yield / 100)) / 12:,.0f}"
+
+                # 調整為深色文字 (#1f1f1f) 以適應白色背景
                 st.markdown(f"""
-                <div class="calc-box" style="border: 2px solid #ffffff; padding: 25px;">
-                    <div style="font-size: 3.2rem; font-weight: bold; color: #ffffff;">$ {fv:,.0f} <small style="font-size: 1.2rem;">元</small></div>
-                    <hr style="border: 0.5px solid #444;">
-                    <p style="font-size: 1rem; color: #fff; line-height: 1.8;">
-                        累積投入本金：<b>{total_invested:,.0f}</b> 元 | 
-                        資產成長倍數：<b>{fv/total_invested if total_invested > 0 else 0:.2f}</b> 倍<br>
-                        <span style="color: #00ff00; font-weight: bold;">每月預計領取被動收入：{(fv * (custom_yield / 100)) / 12:,.0f} 元</span>
+                <div class="calc-box" style="border: 2px solid #dee2e6; padding: 25px; background-color: #f8f9fa;">
+                    <div style="font-size: 3.2rem; font-weight: bold; color: #1f1f1f;">$ {val_fv} <small style="font-size: 1.2rem;">元</small></div>
+                    <hr style="border: 0.5px solid #dee2e6;">
+                    <p style="font-size: 1rem; color: #333; line-height: 1.8;">
+                        累積投入本金: <b>{val_total_invested}</b> 元 | 
+                        資產成長倍數: <b>{val_growth_ratio}</b> 倍<br>
+                        <span style="color: #28a745; font-weight: bold;">每月預計領取被動收入: {val_monthly_passive} 元</span>
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
