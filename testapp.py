@@ -96,16 +96,15 @@ if 'data' not in st.session_state:
 
 # --- 登入介面邏輯 ---
 def login_ui():
-    # 解決原本 HTML <div> 無法包覆導致出現「空灰框」的 Bug
-    # 直接將標題文字放入灰框中，打造高質感的登入 Header
+    # 加入 font-size 強制縮小字體，避免文字因為太長而斷行
     st.markdown("""
         <div style="max-width: 400px; margin: 40px auto 20px auto; padding: 25px; background-color: #1e1e28; border-radius: 15px; border: 1px solid #3e3e42; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center;">
-            <h2 style="margin: 0; color: #ffffff;">🚀 台股個股/ETF查詢</h2>
-            <p style="color: #aaa; margin-top: 8px; margin-bottom: 0;">Ez開發 - 投資助手系統</p>
+            <h2 style="margin: 0; color: #ffffff; font-size: 24px;">🚀 台股個股/ETF查詢</h2>
+            <p style="color: #aaa; margin-top: 8px; margin-bottom: 0; font-size: 14px;">Ez開發 - 投資助手系統</p>
         </div>
     """, unsafe_allow_html=True)
 
-    # 使用 Streamlit 的 columns 將下方的輸入表單完美置中
+    # 下方保持不變...
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         user_db = get_cloud_users()
@@ -120,7 +119,7 @@ def login_ui():
                     st.session_state.logged_in = True
                     st.session_state.current_user = u_id
                     st.session_state.portfolio = load_portfolio_from_cloud(u_id)
-                    st.session_state.page = "welcome"  # 登入後進入空白歡迎頁
+                    st.session_state.page = "welcome"  
                     st.success("登入成功！")
                     st.rerun()
                 else:
