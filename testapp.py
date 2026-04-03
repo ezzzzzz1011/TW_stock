@@ -304,43 +304,60 @@ def get_safe_data_etf(symbol):
     import pandas as pd
     import yfinance as yf
     
+    # 1. 取得即時價格與基本資訊
     info = get_stock_info(symbol)
     
     if not info or info["price"] <= 0: 
         return {"success": False, "msg": f"找不到代號 {symbol} 或目前無報價"}
     
-    # 預設值
+    # 預設值初始化
     raw_divs = [0.0] * 4
     multiplier = 4
     freq_label = "季"
     
-    # --- 偷偷用 yfinance 抓配息紀錄 ---
+    # --- 強化版配息抓取邏輯 ---
     try:
         divs = pd.Series(dtype='float64')
-        # 自動測試上市(.TW)與上櫃(.TWO)，抓到就停
+        # 針對債券 ETF (通常 5 碼)，強制嘗試兩種類型的後綴
+        clean_symbol = str(symbol).strip().upper()
+        
         for suffix in [".TW", ".TWO"]:
-            t = yf.Ticker(f"{symbol}{suffix}")
+            t = yf.Ticker(f"{clean_symbol}{suffix}")
+            # 優先嘗試專用的 dividends 屬性
             temp_divs = t.dividends
+            
+            # 如果 dividends 為空，嘗試從歷史紀錄提取 (備援方案)
+            if temp_divs.empty:
+                hist = t.history(period="1y", actions=True)
+                if not hist.empty and "Dividends" in hist.columns:
+                    temp_divs = hist[hist["Dividends"] > 0]["Dividends"]
+            
             if not temp_divs.empty:
                 divs = temp_divs
                 break 
                 
         if not divs.empty:
-            # 取得最近 4 次配息
+            # 取得最近 4 次配息並反轉 (最新在前)
             d_list = divs.tail(4).tolist()[::-1]
             while len(d_list) < 4: d_list.append(0.0)
-            raw_divs = d_list
+            raw_divs = [float(d) for d in d_list]
             
             # 判斷配息頻率 (月/季/半年/年)
+            # 債券 ETF 如 00937B 多為月配，偵測過去一年配息次數
             last_year_date = divs.index[-1] - pd.DateOffset(years=1)
             count_in_year = len(divs[divs.index > last_year_date])
             
-            if count_in_year >= 10: multiplier, freq_label = 12, "月"
-            elif count_in_year >= 3: multiplier, freq_label = 4, "季"
-            elif count_in_year >= 2: multiplier, freq_label = 2, "半年"
-            else: multiplier, freq_label = 1, "年"
+            if count_in_year >= 10: 
+                multiplier, freq_label = 12, "月"
+            elif count_in_year >= 3: 
+                multiplier, freq_label = 4, "季"
+            elif count_in_year >= 2: 
+                multiplier, freq_label = 2, "半年"
+            else: 
+                multiplier, freq_label = 1, "年"
+                
     except Exception as e:
-        print(f"抓取配息失敗: {e}") 
+        print(f"抓取 {symbol} 配息失敗: {e}") 
 
     return {
         "success": True, 
@@ -355,11 +372,10 @@ def get_safe_data_etf(symbol):
         "raw_divs": raw_divs,       
         "multiplier": multiplier,   
         "freq_label": freq_label,
-        "last_date": time.strftime('%Y-%m-%d'), 
+        "last_date": datetime.now(tw_tz).strftime('%Y-%m-%d'), 
         "price_hist": None, 
         "full_ticker": info["full_ticker"]
     }
-
 # --- 新增：配息時間抓取與月曆生成邏輯 ---
 def get_dividend_calendar(symbol):
     """抓取單一股票的除息日與發放日預估"""
@@ -367,7 +383,7 @@ def get_dividend_calendar(symbol):
         # 清除後綴，確信用 yfinance 抓取
         clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
         for suffix in [".TW", ".TWO"]:
-            t = yf.Ticker(f"{clean_symbol}{suffix}")
+            t = yf.Ticker(f"{clean_symbol}{suffix}")get_safe_data_etf
             divs = t.dividends
             if not divs.empty:
                 # 取得最近一次配息資訊
