@@ -379,28 +379,49 @@ def get_safe_data_etf(symbol):
 # --- 新增：配息時間抓取與月曆生成邏輯 ---
 def get_dividend_calendar(symbol):
     """抓取單一股票的除息日與發放日預估"""
+    # --- 偷偷用 yfinance 抓配息紀錄 ---
     try:
-        # 清除後綴，確信用 yfinance 抓取
-        clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
+        divs = pd.Series(dtype='float64')
+        # 修正處：確保這一行後面沒有多餘的文字
         for suffix in [".TW", ".TWO"]:
-            t = yf.Ticker(f"{clean_symbol}{suffix}")get_safe_data_etf
-            divs = t.dividends
-            if not divs.empty:
-                # 取得最近一次配息資訊
-                last_div_date = divs.index[-1]
-                last_amt = divs.iloc[-1]
+            t = yf.Ticker(f"{symbol}{suffix}") 
+            temp_divs = t.dividends
+            if not temp_divs.empty:
+                divs = temp_divs
+                break 
                 
-                # 台灣市場慣例：發放日約在除息日後 30 天
-                est_pay_date = last_div_date + pd.DateOffset(days=30)
-                
-                return {
-                    "symbol": clean_symbol,
-                    "ex_date": last_div_date.strftime('%Y-%m-%d'),
-                    "pay_date": est_pay_date.strftime('%Y-%m-%d'),
-                    "amount": last_amt,
-                    "success": True
-                }
-    except Exception:
+        if not divs.empty:
+            d_list = divs.tail(4).tolist()[::-1]
+            while len(d_list) < 4: d_list.append(0.0)
+            raw_divs = d_list
+            # ... (中間邏輯保持不變) ...
+    except Exception as e:
+        print(f"yfinance 抓取配息失敗: {e}") 
+
+    # =======================================================
+    # 💡 終極即時爬蟲救援 (針對 yfinance 抓不到的 00937B 等債券 ETF)
+    # =======================================================
+    if sum(raw_divs) == 0:
+        import requests
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        for suffix in ['.TW', '.TWO']:
+            try:
+                # 攔截台灣 Yahoo 股市 API
+                url = f"https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.dividends;symbol={symbol}{suffix}"
+                res = requests.get(url, headers=headers, timeout=5)
+                if res.status_code == 200:
+                    data = res.json()
+                    if 'dividends' in data and len(data['dividends']) > 0:
+                        divs_data = data['dividends']
+                        # 抓取最新真實配息
+                        d_list = [float(d.get('cashDividend', 0.0)) for d in divs_data[:4]]
+                        while len(d_list) < 4: d_list.append(0.0)
+                        raw_divs = d_list
+                        # 自動判斷頻率
+                        multiplier = 12 if len(divs_data) >= 10 else 4 if len(divs_data) >= 3 else 1
+                        freq_label = "月" if multiplier == 12 else "季" if multiplier == 4 else "年"
+                        break
+            except: continue
         pass
     return {"success": False}
 
