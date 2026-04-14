@@ -379,7 +379,7 @@ def get_dividend_calendar(symbol):
         ex_date_str = latest['date']
         try:
             ex_dt = datetime.strptime(ex_date_str, "%Y-%m-%d")
-            pay_date = (ex_dt + pd.DateOffset(days=27)).strftime('%Y-%m-%d')
+            pay_date = (ex_dt + pd.DateOffset(days=28)).strftime('%Y-%m-%d')
             return {
                 "symbol": clean_symbol,
                 "ex_date": ex_date_str,
