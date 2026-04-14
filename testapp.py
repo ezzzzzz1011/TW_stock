@@ -855,7 +855,7 @@ elif st.session_state.page == "watchlist":
 
     st.divider()
 
-    @st.fragment(run_every=5)
+    @st.fragment(run_every=120)
     def refresh_watchlist_view():
         if st.session_state.watchlist_data:
             now_tw = datetime.now(tw_tz).strftime('%H:%M:%S')
