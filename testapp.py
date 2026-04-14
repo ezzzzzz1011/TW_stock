@@ -31,7 +31,6 @@ def init_connection():
     client = gspread.authorize(creds)
     return client
 
-# 初始化資料庫物件
 try:
     conn = init_connection()
     sh = conn.open("streamlit_db")
@@ -93,7 +92,7 @@ if 'page' not in st.session_state:
 if 'data' not in st.session_state: 
     st.session_state.data = None
 
-# --- 登入介面邏輯 (淺色模式優化版) ---
+# --- 登入介面邏輯 ---
 def login_ui():
     st.markdown("""
         <div style="max-width: 400px; margin: 40px auto 20px auto; padding: 25px; background-color: #f8f9fa; border-radius: 15px; border: 1px solid #dee2e6; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center;">
@@ -168,7 +167,6 @@ def save_watchlist_to_cloud(codes_list):
             ws.update(range_name=f"B{cell.row}", values=[[codes_str]])
         else:
             ws.append_row([st.session_state.current_user, codes_str])
-            
     except Exception as e:
         st.error(f"雲端儲存失敗: {e}")
 
@@ -204,14 +202,9 @@ client = RestClient(api_key=FUGLE_TOKEN)
 def get_stock_info(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     
-    # 優先使用 Yahoo API 確保成交量準確
     try:
-        session = requests.Session()
-        session.headers.update({'User-Agent': 'Mozilla/5.0'})
-        session.get('https://tw.stock.yahoo.com/', timeout=3)
-        
         url = f"https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.quotes;symbols={clean_symbol}.TW,{clean_symbol}.TWO"
-        res = session.get(url, timeout=5)
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         if res.status_code == 200:
             data = res.json()
             if data and isinstance(data, list):
@@ -219,6 +212,7 @@ def get_stock_info(symbol):
                 price = float(q.get('price', q.get('previousClose', 0.0)))
                 if price > 0:
                     vol_shares = int(q.get('volume', 0))
+                    vol_lots = (vol_shares // 1000) if vol_shares > 1000 else vol_shares
                     return {
                         "name": q.get('symbolName', clean_symbol),
                         "price": price,
@@ -227,19 +221,18 @@ def get_stock_info(symbol):
                         "high": float(q.get('regularMarketDayHigh', price)),
                         "low": float(q.get('regularMarketDayLow', price)),
                         "open": float(q.get('regularMarketDayOpen', price)),
-                        "vol": vol_shares, # 給精確股數，配合下方 UI 的 /1000 邏輯
+                        "vol": vol_lots * 1000, 
                         "full_ticker": clean_symbol,
                         "hist": None, "dividends": None
                     }
     except: pass
 
-    # 若 Yahoo 失敗，使用 Fugle 備援
     try:
         data = client.stock.intraday.quote(symbol=clean_symbol)
         if not data: return None
         price = float(data.get('lastPrice') or data.get('closePrice') or data.get('previousClose') or 0.0)
         vol = float(data.get('total', {}).get('tradeVolume', 0))
-        if 0 < vol < 500000: vol = vol * 1000 # 修復 Fugle 單位錯亂問題
+        if 0 < vol < 500000: vol = vol * 1000 
             
         return {
             "name": data.get('name', clean_symbol),
@@ -258,36 +251,34 @@ def get_stock_info(symbol):
         return None
 
 # ==========================================
-# 🚀 終極數據引擎 2：配息與日期去重複
+# 🚀 終極數據引擎 2：配息與日期去重複 (強制 range=5y 破除封鎖)
 # ==========================================
 def fetch_dividend_history_super(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
-    
-    # 第 1 重：Yahoo 台灣官方 JSON API
-    try:
-        session = requests.Session()
-        session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-        session.get('https://tw.stock.yahoo.com/', timeout=3)
-        for suffix in ['.TW', '.TWO', '']:
-            res = session.get(f"https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.dividends;symbol={clean_symbol}{suffix}", timeout=5)
-            if res.status_code == 200:
-                data = res.json().get('dividends', [])
-                if data:
-                    for d in data:
-                        amt = d.get('cashDividend')
-                        dt = d.get('exDividendAppointedDay', '')[:10]
-                        if amt is not None and dt:
-                            div_list.append({'date': dt, 'amount': float(amt)})
-                    if div_list: 
-                        break
-    except: pass
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json"
+    }
 
-    # 第 2 重：HiStock (C# 完美邏輯備援)
+    # 第 1 重：Yahoo 國際版 API (帶入 range=5y 確保回傳所有配息)
+    for suffix in ['.TW', '.TWO']:
+        try:
+            url = f"https://query2.finance.yahoo.com/v8/finance/chart/{clean_symbol}{suffix}?interval=1d&events=div&range=5y"
+            res = requests.get(url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                events = res.json().get('chart', {}).get('result', [{}])[0].get('events', {}).get('dividends', {})
+                if events:
+                    for val in events.values():
+                        dt = datetime.fromtimestamp(val['date']).strftime('%Y-%m-%d')
+                        div_list.append({'date': dt, 'amount': float(val['amount'])})
+                    if div_list: break
+        except: pass
+
+    # 第 2 重：HiStock (C# 網頁過濾備援)
     if not div_list:
         try:
             url = f"https://histock.tw/stock/financial.aspx?no={clean_symbol}&t=2"
-            headers = {"User-Agent": "Mozilla/5.0"}
             res = requests.get(url, headers=headers, timeout=5)
             if res.status_code == 200:
                 rows = re.findall(r'<tr[^>]*>(.*?)</tr>', res.text, re.IGNORECASE | re.DOTALL)
@@ -310,14 +301,12 @@ def fetch_dividend_history_super(symbol):
                     if len(div_list) >= 12: break
         except: pass
     
-    # 🟢 去重複防呆機制：確保同一天不會有兩筆配息紀錄
+    # 🟢 去重複與排序：同一天取最大金額
     if div_list:
         unique_divs = {}
         for d in div_list:
-            # 如果同一天有多筆，保留金額最大的那筆
             if d['date'] not in unique_divs or d['amount'] > unique_divs[d['date']]:
                 unique_divs[d['date']] = d['amount']
-        
         final_list = [{'date': k, 'amount': v} for k, v in unique_divs.items()]
         return sorted(final_list, key=lambda x: x['date'], reverse=True)
         
@@ -341,9 +330,8 @@ def get_safe_data_etf(symbol):
             for i in range(min(4, len(data_list))):
                 raw_divs[i] = data_list[i]['amount']
                 
-            # 🟢 全新頻率判斷：直接算「兩次配息之間的平均天數」！絕對不會因為跨年算錯
+            # 🟢 頻率精準判斷：直接算「配息間隔的平均天數」
             if len(data_list) >= 2:
-                # 取最近的幾次來算平均間隔 (最多取5次)
                 check_len = min(5, len(data_list))
                 dates = [datetime.strptime(d['date'], "%Y-%m-%d") for d in data_list[:check_len]]
                 days_diffs = [(dates[i] - dates[i+1]).days for i in range(len(dates)-1)]
@@ -660,7 +648,7 @@ elif st.session_state.page == "etf_query":
     with side_col:
         st.write("### 📖 說明")
         st.caption("1. 輸入代號後點擊開始計算。")
-        st.caption("2. 手動輸入配息即可試算。")
+        st.caption("2. 手手動輸入配息即可試算。")
         st.divider()
         st.success("系統正常運行中")
 
