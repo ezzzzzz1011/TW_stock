@@ -1,5 +1,4 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 from datetime import datetime
 import pytz
@@ -8,6 +7,7 @@ import io
 import gspread
 import time
 import requests
+import re
 from google.oauth2.service_account import Credentials
 from fugle_marketdata import RestClient
 
@@ -53,12 +53,10 @@ except Exception as e:
     st.stop()
 
 def get_cloud_users():
-    """即時從雲端讀取用戶清單"""
     records = user_sheet.get_all_records()
     return {str(row['username']).strip(): str(row['password']).strip() for row in records}
 
 def load_portfolio_from_cloud(username):
-    """載入特定使用者的投資組合"""
     try:
         cell = portfolio_sheet.find(username)
         if cell:
@@ -69,7 +67,6 @@ def load_portfolio_from_cloud(username):
     return pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
 
 def save_portfolio_to_cloud(username, df):
-    """儲存投資組合至雲端"""
     clean_df = df.dropna(subset=['代碼']).copy() if '代碼' in df.columns else df
     json_data = clean_df.to_json(orient='records', date_format='iso')
     try:
@@ -91,11 +88,11 @@ if 'current_user' not in st.session_state:
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = None
 if 'page' not in st.session_state:
-    st.session_state.page = "welcome"  # 改成 "welcome" (空白歡迎頁)
+    st.session_state.page = "welcome"  
 if 'data' not in st.session_state: 
     st.session_state.data = None
 
-# --- 登入介面邏輯 (淺色模式優化版) ---
+# --- 登入介面邏輯 ---
 def login_ui():
     st.markdown("""
         <div style="max-width: 400px; margin: 40px auto 20px auto; padding: 25px; background-color: #f8f9fa; border-radius: 15px; border: 1px solid #dee2e6; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center;">
@@ -145,7 +142,6 @@ def login_ui():
                 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 雲端關注清單同步函數 ---
 def load_watchlist_from_cloud():
     try:
         ws = sh.worksheet("watchlist")
@@ -179,7 +175,7 @@ if not st.session_state.logged_in:
     login_ui()
     st.stop()
 
-# --- 自定義 CSS (深淺雙棲自動適應版) ---
+# --- 自定義 CSS ---
 st.markdown("""
     <style>
     .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; border: 1px solid rgba(128, 128, 128, 0.3); height: 3.5em; }
@@ -201,7 +197,6 @@ st.markdown("""
 FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
 client = RestClient(api_key=FUGLE_TOKEN)
 
-# --- 核心數據抓取函數 (Fugle 修正除錯版) ---
 def get_stock_info(symbol):
     try:
         symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
@@ -229,70 +224,59 @@ def get_stock_info(symbol):
         return None
 
 # ==========================================
-# 🚀 終極配息爬蟲引擎 (三重備援機制)
+# 🚀 完美移植 C# 的 HiStock 抓取引擎
 # ==========================================
-def fetch_dividend_history(symbol):
+def fetch_dividend_history(symbol, current_price=0.0):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
-    # 偽裝成正常瀏覽器，降低被鎖 IP 機率
+    url = f"https://histock.tw/stock/financial.aspx?no={clean_symbol}&t=2"
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*'
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     }
+    
     data_list = []
-
-    # 🛡️ 策略 1: 嘗試 Yahoo 台灣 JSON API (加入各種後綴組合)
-    for suffix in ['.TW', '.TWO', '']:
-        try:
-            url = f"https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.dividends;symbol={clean_symbol}{suffix}"
-            res = requests.get(url, headers=headers, timeout=4)
-            if res.status_code == 200:
-                data = res.json().get('dividends', [])
-                if data:
-                    for d in data:
-                        if d.get('cashDividend') is not None and d.get('exDividendAppointedDay'):
-                            data_list.append({
-                                'amount': float(d['cashDividend']),
-                                'date': d['exDividendAppointedDay'][:10]
-                            })
-                    if data_list: return data_list
-        except: continue
-
-    # 🛡️ 策略 2: 嘗試 Yahoo 國際版 Chart API (避開台灣版封鎖)
-    for suffix in ['.TW', '.TWO']:
-        try:
-            url = f"https://query2.finance.yahoo.com/v8/finance/chart/{clean_symbol}{suffix}?interval=1mo&events=div"
-            res = requests.get(url, headers=headers, timeout=4)
-            if res.status_code == 200:
-                events = res.json().get('chart', {}).get('result', [{}])[0].get('events', {}).get('dividends', {})
-                if events:
-                    # 時間戳記反向排序
-                    for ts in sorted(events.keys(), reverse=True):
-                        div = events[ts]
-                        dt = datetime.fromtimestamp(div['date']).strftime('%Y-%m-%d')
-                        data_list.append({
-                            'amount': float(div['amount']),
-                            'date': dt
-                        })
-                    if data_list: return data_list
-        except: continue
-            
-    # 🛡️ 策略 3: 使用原生 yfinance 作為最後防線
     try:
-        for suffix in ['.TW', '.TWO']:
-            t = yf.Ticker(f"{clean_symbol}{suffix}")
-            divs = t.dividends
-            if divs is not None and not divs.empty:
-                for date, amount in divs.sort_index(ascending=False).items():
-                    data_list.append({
-                        'amount': float(amount),
-                        'date': date.strftime('%Y-%m-%d')
-                    })
-                if data_list: return data_list
-    except: pass
-
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            html = res.text
+            # 解析 <tr> 標籤
+            rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.IGNORECASE | re.DOTALL)
+            
+            for row in rows:
+                # 解析 <td> 標籤
+                cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
+                if len(cells) >= 3:
+                    row_date = ""
+                    row_val = None
+                    
+                    for cell in cells:
+                        clean_text = re.sub(r'<[^>]+>', '', cell).strip()
+                        
+                        # 找尋日期 (yyyy/MM/dd)
+                        if not row_date and re.search(r'\d{4}/\d{2}/\d{2}', clean_text):
+                            row_date = re.search(r'\d{4}/\d{2}/\d{2}', clean_text).group(0).replace('/', '-')
+                        
+                        # 完美重現 C# 的數值抓取邏輯
+                        if row_val is None:
+                            try:
+                                val = float(clean_text)
+                                # 這裡就是您 C# 的那段核心判斷！
+                                if 0.01 < val < 10.0 and abs(val - current_price) > 1.0:
+                                    row_val = val
+                            except ValueError:
+                                pass
+                                
+                    if row_val is not None:
+                        if not row_date: row_date = "2024-01-01" # 找不到日期給個預設值
+                        data_list.append({"amount": row_val, "date": row_date})
+                        
+                if len(data_list) >= 12: # C# 中設定的最多抓 12 筆
+                    break
+    except Exception as e:
+        print(f"HiStock Fetch Error: {e}")
+        
     return data_list
 
-# --- ETF 資料處理函數 (串接終極引擎) ---
+# --- ETF 資料處理函數 ---
 @st.cache_data(ttl=3600) 
 def get_safe_data_etf(symbol):
     info = get_stock_info(symbol)
@@ -304,22 +288,24 @@ def get_safe_data_etf(symbol):
     freq_label = "季"
     
     try:
-        # 呼叫三重備援抓取引擎
-        data_list = fetch_dividend_history(symbol)
+        # 使用 HiStock 引擎，並傳入目前的股價以供過濾
+        data_list = fetch_dividend_history(symbol, info["price"])
         
         if data_list:
             # 填入最近四次配息
             for i in range(min(4, len(data_list))):
                 raw_divs[i] = data_list[i]['amount']
                 
-            # 判斷配息頻率 (計算過去一年內的次數)
+            # 判斷配息頻率：計算過去一年配息次數
             last_year_date = datetime.now() - pd.DateOffset(years=1)
             count_in_year = 0
             for d in data_list:
-                ex_dt = datetime.strptime(d['date'], "%Y-%m-%d")
-                if ex_dt > last_year_date:
-                    count_in_year += 1
-                    
+                try:
+                    ex_dt = datetime.strptime(d['date'], "%Y-%m-%d")
+                    if ex_dt > last_year_date:
+                        count_in_year += 1
+                except: pass
+                        
             if count_in_year >= 10: multiplier, freq_label = 12, "月"
             elif count_in_year >= 3: multiplier, freq_label = 4, "季"
             elif count_in_year >= 2: multiplier, freq_label = 2, "半年"
@@ -346,25 +332,29 @@ def get_safe_data_etf(symbol):
     }
 
 def get_dividend_calendar(symbol):
-    """抓取單一股票的除息日與發放日 (串接終極引擎)"""
+    """抓取單一股票的除息日與發放日預估"""
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
-    data_list = fetch_dividend_history(symbol)
+    info = get_stock_info(symbol)
+    current_price = info['price'] if info else 0.0
+    
+    data_list = fetch_dividend_history(symbol, current_price)
     
     if data_list:
-        latest = data_list[0] # 取出最新一筆紀錄
-        ex_date_str = latest['date']
+        latest = data_list[0]
         amount = latest['amount']
+        ex_date_str = latest['date']
         
-        ex_dt = datetime.strptime(ex_date_str, "%Y-%m-%d")
-        pay_date = (ex_dt + pd.DateOffset(days=30)).strftime('%Y-%m-%d') # 預估 30 天後發放
-        
-        return {
-            "symbol": clean_symbol,
-            "ex_date": ex_date_str,
-            "pay_date": pay_date,
-            "amount": amount,
-            "success": True
-        }
+        try:
+            ex_dt = datetime.strptime(ex_date_str, "%Y-%m-%d")
+            pay_date = (ex_dt + pd.DateOffset(days=30)).strftime('%Y-%m-%d')
+            return {
+                "symbol": clean_symbol,
+                "ex_date": ex_date_str,
+                "pay_date": pay_date,
+                "amount": amount,
+                "success": True
+            }
+        except: pass
         
     return {"success": False}
 
