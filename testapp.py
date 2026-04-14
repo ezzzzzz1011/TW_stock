@@ -379,7 +379,7 @@ def get_dividend_calendar(symbol):
         ex_date_str = latest['date']
         try:
             ex_dt = datetime.strptime(ex_date_str, "%Y-%m-%d")
-            pay_date = (ex_dt + pd.DateOffset(days=30)).strftime('%Y-%m-%d')
+            pay_date = (ex_dt + pd.DateOffset(days=28)).strftime('%Y-%m-%d')
             return {
                 "symbol": clean_symbol,
                 "ex_date": ex_date_str,
@@ -823,7 +823,7 @@ elif st.session_state.page == "portfolio":
                 
                 total_incoming = cal_df["預估入帳金額"].sum()
                 st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
-                st.caption("※ 註：發放日為系統根據台股慣例（除息後約30天）自動推算，實際請以各公司公告為準。")
+                st.caption("※ 註：發放日為系統根據台股慣例（除息後約28天）自動推算，實際請以各公司公告為準。")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
 
