@@ -4,6 +4,6 @@ pytz
 plotly
 gspread
 google-auth
-yfinance
+yfinance>=0.2.40
 requests
 fugle-marketdata
