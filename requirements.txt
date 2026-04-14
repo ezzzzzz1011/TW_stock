@@ -10,3 +10,4 @@ requests
 fugle-marketdata
 lxml
 FinMind
+tqdm
