@@ -1,4 +1,5 @@
 import streamlit as st
+import yfinance as yf
 import pandas as pd
 from datetime import datetime
 import pytz
@@ -91,12 +92,13 @@ if 'current_user' not in st.session_state:
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = None
 if 'page' not in st.session_state:
-    st.session_state.page = "welcome"  
+    st.session_state.page = "welcome"  # 改成 "welcome" (空白歡迎頁)
 if 'data' not in st.session_state: 
     st.session_state.data = None
 
-# --- 登入介面邏輯 ---
+# --- 登入介面邏輯 (淺色模式優化版) ---
 def login_ui():
+    # 使用 st.markdown 定義外層裝飾容器，背景改為淺灰白 (#f8f9fa)，文字改為深色
     st.markdown("""
         <div style="max-width: 400px; margin: 40px auto 20px auto; padding: 25px; background-color: #f8f9fa; border-radius: 15px; border: 1px solid #dee2e6; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center;">
             <h2 style="margin: 0; color: #1f1f1f; font-size: 24px;">🚀 台股個股/ETF查詢</h2>
@@ -104,6 +106,7 @@ def login_ui():
         </div>
     """, unsafe_allow_html=True)
 
+    # 使用 Streamlit 欄位將登入表單居中
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         user_db = get_cloud_users()
@@ -143,8 +146,10 @@ def login_ui():
                     save_portfolio_to_cloud(new_u, default_df)
                     st.success("✅ 註冊成功！請切換至登入分頁。")
                 
+    # 關閉 HTML div 標籤
     st.markdown('</div>', unsafe_allow_html=True)
 
+# --- 雲端關注清單同步函數 ---
 def load_watchlist_from_cloud():
     try:
         ws = sh.worksheet("watchlist")
@@ -174,22 +179,36 @@ def save_watchlist_to_cloud(codes_list):
     except Exception as e:
         st.error(f"雲端儲存失敗: {e}")
 
+# 執行登入檢查
 if not st.session_state.logged_in:
     login_ui()
     st.stop()
 
-# --- 自定義 CSS ---
+# --- 自定義 CSS (深淺雙棲自動適應版) ---
 st.markdown("""
     <style>
+    /* 移除寫死的 .main 背景，把控制權還給 Streamlit 原生系統 */
+    
+    /* 按鈕樣式 */
     .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; border: 1px solid rgba(128, 128, 128, 0.3); height: 3.5em; }
+    
+    /* 數值與標題文字：使用 var(--text-color) 讓它自動黑白反轉 */
     .metric-val { font-family: 'Consolas'; font-size: 3.5rem; font-weight: bold; line-height: 1.1; color: var(--text-color) !important; }
     .highlight-val { font-size: 2.5rem; font-family: 'Consolas'; font-weight: bold; color: var(--text-color) !important; }
+    
+    /* 輸入框樣式：讓 Streamlit 自動控制顏色，我們只保留圓角 */
     .stTextInput>div>div>input, .stNumberInput>div>div>input { border-radius: 8px !important; }
+    
+    /* 功能卡片樣式：使用 Streamlit 的次要背景色變數 */
     .feature-card { background-color: var(--secondary-background-color); padding: 30px; border-radius: 20px; border: 1px solid rgba(128, 128, 128, 0.2); box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; transition: all 0.3s ease; margin-bottom: 20px; }
     .feature-card:hover { transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); border-color: var(--primary-color); }
     .feature-title { font-size: 1.5rem; font-weight: bold; color: var(--text-color); margin-bottom: 10px; }
     .feature-desc { color: var(--text-color); opacity: 0.7; font-size: 1rem; }
+
+    /* 計算盒子與分析盒 */
     .calc-box, .plan-box, .pk-card { background-color: var(--secondary-background-color); padding: 20px; border-radius: 15px; border: 1px solid rgba(128, 128, 128, 0.3); margin-top: 10px; color: var(--text-color); }
+
+    /* 表格樣式：自動適應黑白模式 */
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
     .styled-table th { background-color: var(--secondary-background-color); color: var(--text-color); text-align: left; padding: 12px; border-bottom: 2px solid var(--text-color); }
     .styled-table td { padding: 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.3); color: var(--text-color) !important; }
@@ -200,10 +219,39 @@ st.markdown("""
 FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
 client = RestClient(api_key=FUGLE_TOKEN)
 
+# --- 核心數據抓取函數 (Yahoo 確保總量精準 + Fugle 備援) ---
 def get_stock_info(symbol):
+    clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
+    
+    # 1. 優先使用 Yahoo API 確保成交量與即時報價精準 (解決只有 68 張的問題)
     try:
-        symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
-        data = client.stock.intraday.quote(symbol=symbol)
+        url = f"https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.quotes;symbols={clean_symbol}.TW,{clean_symbol}.TWO"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            if data and isinstance(data, list):
+                quote = data[0]
+                price = float(quote.get('price', quote.get('previousClose', 0.0)))
+                if price > 0:
+                    return {
+                        "name": quote.get('symbolName', clean_symbol),
+                        "price": price,
+                        "change": float(quote.get('change', 0.0)),
+                        "pct": float(quote.get('changePercent', 0.0)),
+                        "high": float(quote.get('regularMarketDayHigh', price)),
+                        "low": float(quote.get('regularMarketDayLow', price)),
+                        "open": float(quote.get('regularMarketDayOpen', price)),
+                        "vol": int(quote.get('volume', 0)), # Yahoo 給的是總股數，除以1000剛好是張數
+                        "full_ticker": clean_symbol,
+                        "hist": None,
+                        "dividends": None
+                    }
+    except:
+        pass
+
+    # 2. 如果 Yahoo 失敗，備援回 Fugle API
+    try:
+        data = client.stock.intraday.quote(symbol=clean_symbol)
         if not data: return None
         price = data.get('lastPrice') or data.get('closePrice') or data.get('previousClose') or 0.0
         change = data.get('change', 0.0)
@@ -212,7 +260,7 @@ def get_stock_info(symbol):
         if 'total' in data:
             vol = data['total'].get('tradeVolume', 0)
         return {
-            "name": data.get('name', symbol),
+            "name": data.get('name', clean_symbol),
             "price": float(price),
             "change": float(change),
             "pct": float(pct),
@@ -220,106 +268,87 @@ def get_stock_info(symbol):
             "low": float(data.get('lowPrice') or price),
             "open": float(data.get('openPrice') or price),
             "vol": int(vol),
-            "full_ticker": symbol
+            "full_ticker": clean_symbol,
+            "hist": None,      
+            "dividends": None  
         }
     except Exception as e:
-        st.error(f"⚠️ 抓取 {symbol} 失敗: {e}")
+        st.error(f"⚠️ 抓取 {symbol} 失敗，錯誤訊息: {e}")
         return None
 
 # ==========================================
-# 🚀 完美移植您 C# 的 HiStock 抓取引擎
+# 🚀 完美移植 C# 的 HiStock 抓取引擎
 # ==========================================
-def fetch_dividend_history(symbol, current_price=0.0):
+def fetch_dividend_history(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     url = f"https://histock.tw/stock/financial.aspx?no={clean_symbol}&t=2"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    }
-    
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     data_list = []
     try:
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
-            html = res.text
-            # 解析 <tr> 標籤
-            rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.IGNORECASE | re.DOTALL)
-            
+            rows = re.findall(r'<tr[^>]*>(.*?)</tr>', res.text, re.IGNORECASE | re.DOTALL)
             for row in rows:
-                # 解析 <td> 標籤
                 cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
-                if len(cells) >= 3:
-                    row_date = ""
-                    row_val = None
-                    
-                    for cell in cells:
-                        clean_text = re.sub(r'<[^>]+>', '', cell).strip()
-                        
-                        # 找尋日期 (yyyy/MM/dd)
-                        if not row_date and re.search(r'\d{4}/\d{2}/\d{2}', clean_text):
-                            row_date = re.search(r'\d{4}/\d{2}/\d{2}', clean_text).group(0).replace('/', '-')
-                        
-                        # 完美重現 C# 的數值過濾邏輯
-                        if row_val is None:
-                            try:
-                                val = float(clean_text)
-                                if 0.01 < val < 10.0 and abs(val - current_price) > 1.0:
-                                    row_val = val
-                            except ValueError:
-                                pass
-                                
-                    if row_val is not None:
-                        if not row_date: 
-                            row_date = "2024-01-01" # 找不到日期給預設
-                        data_list.append({"amount": row_val, "date": row_date})
-                        
-                if len(data_list) >= 12: # 對齊 C# 最多抓 12 筆
-                    break
-    except Exception as e:
-        print(f"HiStock Fetch Error: {e}")
-        
+                if len(cells) >= 4:
+                    date_str = re.sub(r'<[^>]+>', '', cells[1]).strip()
+                    amount_str = re.sub(r'<[^>]+>', '', cells[3]).strip()
+                    match_date = re.search(r'(\d{4})/(\d{1,2})/(\d{1,2})', date_str)
+                    if match_date:
+                        d_val = f"{match_date.group(1)}-{int(match_date.group(2)):02d}-{int(match_date.group(3)):02d}"
+                        try:
+                            amt_val = float(amount_str)
+                            if amt_val > 0:
+                                data_list.append({'date': d_val, 'amount': amt_val})
+                        except: pass
+                if len(data_list) >= 12: break
+    except: pass
     return data_list
 
-# --- ETF 資料處理函數 ---
+# --- ETF 資料處理函數 (精準配息版) ---
 @st.cache_data(ttl=3600) 
 def get_safe_data_etf(symbol):
+    # 1. 取得即時價格與基本資訊
     info = get_stock_info(symbol)
-    if not info or info["price"] <= 0:
+    
+    if not info or info["price"] <= 0: 
         return {"success": False, "msg": f"找不到代號 {symbol} 或目前無報價"}
     
+    # 預設值初始化
     raw_divs = [0.0] * 4
     multiplier = 4
     freq_label = "季"
     
     try:
-        # 呼叫 C# 原味移植版的 HiStock 引擎
-        data_list = fetch_dividend_history(symbol, info["price"])
+        # 使用 HiStock 引擎抓取歷史配息
+        data_list = fetch_dividend_history(symbol)
         
         if data_list:
             # 填入最近四次配息
             for i in range(min(4, len(data_list))):
                 raw_divs[i] = data_list[i]['amount']
                 
-            # 判斷配息頻率：計算過去一年配息次數
-            last_year_date = datetime.now() - pd.DateOffset(years=1)
+            # 判斷配息頻率 (關鍵修復：以「最新一次配息日」為基準，往前推 365 天來計算發放次數)
+            latest_date = datetime.strptime(data_list[0]['date'], "%Y-%m-%d")
+            one_year_ago = latest_date - pd.DateOffset(years=1)
+            
             count_in_year = 0
             for d in data_list:
-                try:
-                    ex_dt = datetime.strptime(d['date'], "%Y-%m-%d")
-                    if ex_dt > last_year_date:
-                        count_in_year += 1
-                except: pass
-                        
+                ex_dt = datetime.strptime(d['date'], "%Y-%m-%d")
+                if ex_dt > one_year_ago:
+                    count_in_year += 1
+                    
             if count_in_year >= 10: multiplier, freq_label = 12, "月"
             elif count_in_year >= 3: multiplier, freq_label = 4, "季"
             elif count_in_year >= 2: multiplier, freq_label = 2, "半年"
             else: multiplier, freq_label = 1, "年"
                 
     except Exception as e:
-        print(f"配息抓取失敗: {e}") 
+        print(f"抓取 {symbol} 配息失敗: {e}") 
 
     return {
         "success": True, 
-        "name": info["name"],
+        "name": info["name"], 
         "price": info["price"],
         "change": info["change"], 
         "pct": info["pct"], 
@@ -328,25 +357,22 @@ def get_safe_data_etf(symbol):
         "open": info["open"], 
         "vol": info["vol"],
         "raw_divs": raw_divs,       
-        "multiplier": multiplier,
+        "multiplier": multiplier,   
         "freq_label": freq_label,
         "last_date": datetime.now(tw_tz).strftime('%Y-%m-%d'), 
+        "price_hist": None, 
         "full_ticker": info["full_ticker"]
     }
 
 def get_dividend_calendar(symbol):
     """抓取單一股票的除息日與發放日預估"""
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
-    info = get_stock_info(symbol)
-    current_price = info['price'] if info else 0.0
-    
-    data_list = fetch_dividend_history(symbol, current_price)
+    data_list = fetch_dividend_history(symbol)
     
     if data_list:
         latest = data_list[0]
         amount = latest['amount']
         ex_date_str = latest['date']
-        
         try:
             ex_dt = datetime.strptime(ex_date_str, "%Y-%m-%d")
             pay_date = (ex_dt + pd.DateOffset(days=30)).strftime('%Y-%m-%d')
@@ -358,30 +384,43 @@ def get_dividend_calendar(symbol):
                 "success": True
             }
         except: pass
-        
     return {"success": False}
 
 def generate_user_calendar():
-    if st.session_state.portfolio is None: return None
+    """讀取 session_state 中的 portfolio 並彙整成月曆表格 (僅顯示未來標的)"""
+    if st.session_state.portfolio is None:
+        return None
+        
     portfolio_df = st.session_state.portfolio
     valid_assets = portfolio_df.dropna(subset=["代碼", "張數"])
     valid_assets = valid_assets[valid_assets["代碼"].astype(str).str.strip() != ""]
+    
     if valid_assets.empty:
-        st.warning("⚠️ 您的投資組合目前是空的。")
+        st.warning("⚠️ 您的投資組合目前是空的，請先在上方輸入持股。")
         return None
 
     calendar_list = []
+    # 取得今天的日期 (使用台灣時區確保準確)
     today_date = datetime.now(tw_tz).date()
+    
+    progress_text = st.empty()
     progress_bar = st.progress(0)
     
     for i, (index, row) in enumerate(valid_assets.iterrows()):
         code = str(row["代碼"]).strip().upper()
         lots = float(row["張數"])
+        progress_text.text(f"正在分析 {code} 的配息時程...")
+        
         div_info = get_dividend_calendar(code)
+      
         if div_info["success"]:
+            # 將字串格式的發放日轉換回日期對象進行比較
             pay_date_obj = datetime.strptime(div_info["pay_date"], '%Y-%m-%d').date()
+            
+            # --- 關鍵改動：只加入發放日還沒到的資料 ---
             if pay_date_obj >= today_date:
                 total_pay = div_info["amount"] * lots * 1000
+     
                 calendar_list.append({
                     "股票名稱": code,
                     "預計除息日": div_info["ex_date"],
@@ -389,48 +428,105 @@ def generate_user_calendar():
                     "每股配息": f"${div_info['amount']:.2f}",
                     "預估入帳金額": int(total_pay)
                 })
+        
         progress_bar.progress((i + 1) / len(valid_assets))
+    
+    progress_text.empty()
     progress_bar.empty()
+    
+    # 建立 DataFrame 並檢查是否為空
     result_df = pd.DataFrame(calendar_list)
-    if result_df.empty: return None
+    if result_df.empty:
+        st.info("📅 近期暫無預計入帳的配息項目。")
+        return None
+        
     return result_df
 
+# --- 導覽邏輯 ---
 def go_to(page_name):
     st.session_state.page = page_name
     st.rerun()
 
+# --- 側邊欄導覽 ---
 with st.sidebar:
     st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
-    if st.button("⭐ 我的關注清單", use_container_width=True): go_to("watchlist")
-    if st.button("🚀 台股查詢", use_container_width=True): go_to("home")
+    
+    if st.button("⭐ 我的關注清單", use_container_width=True):
+        go_to("watchlist")
+        
+    if st.button("🚀 台股查詢", use_container_width=True):
+        go_to("home")
+    
     st.markdown("<hr style='margin: 10px 0; border-color: #444;'>", unsafe_allow_html=True)
+    
     if st.button("🚪 登出系統", use_container_width=True):
         st.session_state.logged_in = False
+        st.session_state.current_user = None
         st.rerun()
 
+# ==========================================
+# 頁面：空白歡迎頁 (一進來的預設畫面)
+# ==========================================
 if st.session_state.page == "welcome":
+    # 這裡什麼都不放，或者只放一句低調的提示，維持極致乾淨
     st.markdown("<br><br><br><h3 style='text-align: center; color: #555;'>👈 請從左側選單選擇功能</h3>", unsafe_allow_html=True)
 
+# ==========================================
+# 頁面 A：首頁 (繁體中文版)
+# ==========================================
 elif st.session_state.page == "home":
     st.markdown("<h3 style='color: #333;'>請選擇功能進入：</h3>", unsafe_allow_html=True)
     st.divider()
+    
     col_a, col_b, col_c, col_d = st.columns(4)
+    
     with col_a:
-        st.markdown('<div class="feature-card"><div class="feature-title">📈 個股分析</div><div class="feature-desc">個股查詢與估價</div></div>', unsafe_allow_html=True)
-        if st.button("進入個股分析", use_container_width=True, type="primary"): go_to("stock_query")
-    with col_b:
-        st.markdown('<div class="feature-card"><div class="feature-title">📊 ETF 分析</div><div class="feature-desc">ETF 試算與規劃</div></div>', unsafe_allow_html=True)
-        if st.button("進入 ETF 分析", use_container_width=True, type="primary"): go_to("etf_query")
-    with col_c:
-        st.markdown('<div class="feature-card"><div class="feature-title">⚔️ ETF 對比</div><div class="feature-desc">ETF 對比工具</div></div>', unsafe_allow_html=True)
-        if st.button("進入對比工具", use_container_width=True, type="primary"): go_to("pk_tool")
-    with col_d:
-        st.markdown('<div class="feature-card"><div class="feature-title">💼 我的資產</div><div class="feature-desc">個人投資組合</div></div>', unsafe_allow_html=True)
-        if st.button("進入我的資產", use_container_width=True, type="primary"): go_to("portfolio")
+        st.markdown('''
+            <div class="feature-card">
+                <div class="feature-title">📈 個股分析</div>
+                <div class="feature-desc">個股查詢與估價</div>
+            </div>
+        ''', unsafe_allow_html=True)
+        if st.button("進入個股分析", use_container_width=True, type="primary"):
+            go_to("stock_query")
 
+    with col_b:
+        st.markdown('''
+            <div class="feature-card">
+                <div class="feature-title">📊 ETF 分析</div>
+                <div class="feature-desc">ETF 試算與規劃</div>
+            </div>
+        ''', unsafe_allow_html=True)
+        if st.button("進入 ETF 分析", use_container_width=True, type="primary"):
+            go_to("etf_query")
+
+    with col_c:
+        st.markdown('''
+            <div class="feature-card">
+                <div class="feature-title">⚔️ ETF 對比</div>
+                <div class="feature-desc">ETF 對比工具</div>
+            </div>
+        ''', unsafe_allow_html=True)
+        if st.button("進入對比工具", use_container_width=True, type="primary"):
+            go_to("pk_tool")
+
+    with col_d:
+        st.markdown('''
+            <div class="feature-card">
+                <div class="feature-title">💼 我的資產</div>
+                <div class="feature-desc">個人投資組合</div>
+            </div>
+        ''', unsafe_allow_html=True)
+        if st.button("進入我的資產", use_container_width=True, type="primary"):
+            go_to("portfolio")
+
+# ==========================================
+# 頁面 B：個股查詢系統
+# ==========================================
 elif st.session_state.page == "stock_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("🔍 台股自動估價系統 (個股)")
+    
     main_col, side_col = st.columns([8, 4])
     with main_col:
         stock_code = st.text_input("請輸入台股代碼 (例如: 2330)", value="")
@@ -473,6 +569,9 @@ elif st.session_state.page == "stock_query":
         st.divider()
         st.info("計算公式：EPS × 自訂本益比 = 參考價")
 
+# ==========================================
+# 頁面 C：ETF 分析系統
+# ==========================================
 elif st.session_state.page == "etf_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("📈 ETF 專用 ")
@@ -534,6 +633,7 @@ elif st.session_state.page == "etf_query":
             rec = "💎 便宜買入" if d['price'] <= p_cheap and p_cheap > 0 else "✅ 合理持有" if d['price'] <= p_fair and p_fair > 0 else "❌ 昂貴不建議"
             st.markdown(f"<div class='calc-box'>系統建議：<b>{rec}</b></div>", unsafe_allow_html=True)
 
+            # --- 安全的中文化表格 ---
             p_cheap_val = f"{p_cheap:.2f}"
             p_fair_val = f"{p_fair:.2f}"
             p_high_val = f"{p_high:.2f}"
@@ -620,6 +720,9 @@ elif st.session_state.page == "etf_query":
         st.divider()
         st.success("系統正常運行中")
 
+# ==========================================
+# 頁面 D：PK 對比工具
+# ==========================================
 elif st.session_state.page == "pk_tool":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("⚔️ ETF 對比工具")
@@ -660,6 +763,9 @@ elif st.session_state.page == "pk_tool":
             else:
                 st.error("查無資料，請確認代碼是否輸入正確。")
 
+# ==========================================
+# 頁面 E：個人投資組合 
+# ==========================================
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
