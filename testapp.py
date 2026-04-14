@@ -8,6 +8,7 @@ import io
 import gspread
 import time
 from google.oauth2.service_account import Credentials
+from fugle_marketdata import RestClient
 
 # --- 1. 網頁全域設定 (必須放在最上方) ---
 st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
@@ -122,7 +123,7 @@ def login_ui():
                     st.success("登入成功！")
                     st.rerun()
                 else:
-                   st.error("❌ 帳號或密碼不正確")
+                    st.error("❌ 帳號或密碼不正確")
 
         with tab2:
             st.info("註冊資料將儲存於雲端，重啟系統不會遺失。")
@@ -191,10 +192,12 @@ st.markdown("""
     
     /* 按鈕樣式 */
     .stButton>button { 
-        width: 100%; border-radius: 12px; 
+        width: 100%; 
+        border-radius: 12px; 
         font-weight: bold; 
         border: 1px solid rgba(128, 128, 128, 0.3); /* 使用半透明邊框適應各種背景 */
-        height: 3.5em; }
+        height: 3.5em; 
+    }
     
     /* 數值與標題文字：使用 var(--text-color) 讓它自動黑白反轉 */
     .metric-val { font-family: 'Consolas'; font-size: 3.5rem; font-weight: bold; line-height: 1.1; color: var(--text-color) !important; }
@@ -202,19 +205,23 @@ st.markdown("""
     
     /* 輸入框樣式：讓 Streamlit 自動控制顏色，我們只保留圓角 */
     .stTextInput>div>div>input, .stNumberInput>div>div>input { 
-        border-radius: 8px !important; }
+        border-radius: 8px !important; 
+    }
     
     /* 功能卡片樣式：使用 Streamlit 的次要背景色變數 */
     .feature-card {
-        background-color: var(--secondary-background-color); padding: 30px;
+        background-color: var(--secondary-background-color);
+        padding: 30px;
         border-radius: 20px;
         border: 1px solid rgba(128, 128, 128, 0.2);
         box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        text-align: center; transition: all 0.3s ease;
+        text-align: center;
+        transition: all 0.3s ease;
         margin-bottom: 20px;
     }
     .feature-card:hover {
-        transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        transform: translateY(-5px);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.15);
         border-color: var(--primary-color);
     }
     .feature-title { font-size: 1.5rem; font-weight: bold; color: var(--text-color); margin-bottom: 10px; }
@@ -222,89 +229,75 @@ st.markdown("""
 
     /* 計算盒子與分析盒 */
     .calc-box, .plan-box, .pk-card { 
-        background-color: var(--secondary-background-color); padding: 20px; 
+        background-color: var(--secondary-background-color); 
+        padding: 20px; 
         border-radius: 15px; 
         border: 1px solid rgba(128, 128, 128, 0.3); 
         margin-top: 10px; 
-        color: var(--text-color); }
+        color: var(--text-color);
+    }
 
     /* 表格樣式：自動適應黑白模式 */
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
     .styled-table th { 
-        background-color: var(--secondary-background-color); color: var(--text-color); 
+        background-color: var(--secondary-background-color); 
+        color: var(--text-color); 
         text-align: left; 
         padding: 12px; 
-        border-bottom: 2px solid var(--text-color); }
+        border-bottom: 2px solid var(--text-color); 
+    }
     .styled-table td { 
-        padding: 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.3); 
-        color: var(--text-color) !important; }
+        padding: 12px; 
+        border-bottom: 1px solid rgba(128, 128, 128, 0.3); 
+        color: var(--text-color) !important; 
+    }
     </style>
     """, unsafe_allow_html=True)
+# --- Fugle API 初始化 ---
+FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
+client = RestClient(api_key=FUGLE_TOKEN)
 
-
-# --- 核心數據抓取函數 (yfinance 原生版本) ---
+# --- 核心數據抓取函數 (Fugle 修正除錯版) ---
 def get_stock_info(symbol):
     try:
         # 清除可能來自舊資料庫的後綴
-        clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
+        symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
         
-        hist = None
-        t = None
+        # 關鍵修正：改用 intraday.quote 來抓取單一股票的即時行情
+        data = client.stock.intraday.quote(symbol=symbol)
         
-        # 嘗試 .TW 或 .TWO 後綴
-        for suffix in [".TW", ".TWO"]:
-            t = yf.Ticker(f"{clean_symbol}{suffix}")
-            try:
-                # 抓取最近兩日資料以計算漲跌幅
-                h = t.history(period="2d")
-                if not h.empty:
-                    hist = h
-                    break
-            except:
-                pass
-                
-        if hist is None or hist.empty:
+        if not data:
             return None
             
-        current_price = float(hist['Close'].iloc[-1])
-        open_price = float(hist['Open'].iloc[-1])
-        high_price = float(hist['High'].iloc[-1])
-        low_price = float(hist['Low'].iloc[-1])
-        vol = int(hist['Volume'].iloc[-1])
+        # 安全取得數值 (支援盤中 lastPrice 或盤後 closePrice)
+        price = data.get('lastPrice') or data.get('closePrice') or data.get('previousClose') or 0.0
+        change = data.get('change', 0.0)
+        pct = data.get('changePercent', 0.0)
         
-        # 判斷漲跌幅
-        if len(hist) >= 2:
-            prev_close = float(hist['Close'].iloc[-2])
-            change = current_price - prev_close
-            pct = (change / prev_close) * 100
-        else:
-            change = 0.0
-            pct = 0.0
+        # 取得成交量
+        vol = 0
+        if 'total' in data:
+            vol = data['total'].get('tradeVolume', 0)
             
-        # 嘗試取得名稱，若失敗則使用代碼
-        try:
-            name = t.info.get('shortName', clean_symbol)
-        except:
-            name = clean_symbol
-
         return {
-            "name": name,
-            "price": current_price,
+            "name": data.get('name', symbol),
+            "price": float(price),
             "change": float(change),
             "pct": float(pct),
-            "high": high_price,
-            "low": low_price,
-            "open": open_price,
-            "vol": vol,
-            "full_ticker": clean_symbol,
+            "high": float(data.get('highPrice') or price),
+            "low": float(data.get('lowPrice') or price),
+            "open": float(data.get('openPrice') or price),
+            "vol": int(vol),
+            "full_ticker": symbol,
             "hist": None,      
             "dividends": None  
         }
     except Exception as e:
+        # 關鍵修改：將錯誤直接顯示在網頁畫面上！
         st.error(f"⚠️ 抓取 {symbol} 失敗，錯誤訊息: {e}")
         return None
 
-# --- ETF 資料處理函數 (yfinance配息) ---
+# --- ETF 資料處理函數 (Fugle報價 + yfinance配息 雙市場強化版) ---
 @st.cache_data(ttl=3600) 
 def get_safe_data_etf(symbol):
     import time
