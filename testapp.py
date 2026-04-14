@@ -1,4 +1,5 @@
 import streamlit as st
+import yfinance as yf
 import pandas as pd
 from datetime import datetime
 import pytz
@@ -52,10 +53,12 @@ except Exception as e:
     st.stop()
 
 def get_cloud_users():
+    """即時從雲端讀取用戶清單"""
     records = user_sheet.get_all_records()
     return {str(row['username']).strip(): str(row['password']).strip() for row in records}
 
 def load_portfolio_from_cloud(username):
+    """載入特定使用者的投資組合"""
     try:
         cell = portfolio_sheet.find(username)
         if cell:
@@ -66,6 +69,7 @@ def load_portfolio_from_cloud(username):
     return pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
 
 def save_portfolio_to_cloud(username, df):
+    """儲存投資組合至雲端"""
     clean_df = df.dropna(subset=['代碼']).copy() if '代碼' in df.columns else df
     json_data = clean_df.to_json(orient='records', date_format='iso')
     try:
@@ -87,11 +91,11 @@ if 'current_user' not in st.session_state:
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = None
 if 'page' not in st.session_state:
-    st.session_state.page = "welcome"  
+    st.session_state.page = "welcome"  # 改成 "welcome" (空白歡迎頁)
 if 'data' not in st.session_state: 
     st.session_state.data = None
 
-# --- 登入介面邏輯 ---
+# --- 登入介面邏輯 (淺色模式優化版) ---
 def login_ui():
     st.markdown("""
         <div style="max-width: 400px; margin: 40px auto 20px auto; padding: 25px; background-color: #f8f9fa; border-radius: 15px; border: 1px solid #dee2e6; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center;">
@@ -141,6 +145,7 @@ def login_ui():
                 
     st.markdown('</div>', unsafe_allow_html=True)
 
+# --- 雲端關注清單同步函數 ---
 def load_watchlist_from_cloud():
     try:
         ws = sh.worksheet("watchlist")
@@ -174,7 +179,7 @@ if not st.session_state.logged_in:
     login_ui()
     st.stop()
 
-# --- 自定義 CSS ---
+# --- 自定義 CSS (深淺雙棲自動適應版) ---
 st.markdown("""
     <style>
     .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; border: 1px solid rgba(128, 128, 128, 0.3); height: 3.5em; }
@@ -196,6 +201,7 @@ st.markdown("""
 FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
 client = RestClient(api_key=FUGLE_TOKEN)
 
+# --- 核心數據抓取函數 (Fugle 修正除錯版) ---
 def get_stock_info(symbol):
     try:
         symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
@@ -222,7 +228,71 @@ def get_stock_info(symbol):
         st.error(f"⚠️ 抓取 {symbol} 失敗: {e}")
         return None
 
-# --- ETF 資料處理函數 (Yahoo JSON API 終極替換版) ---
+# ==========================================
+# 🚀 終極配息爬蟲引擎 (三重備援機制)
+# ==========================================
+def fetch_dividend_history(symbol):
+    clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
+    # 偽裝成正常瀏覽器，降低被鎖 IP 機率
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*'
+    }
+    data_list = []
+
+    # 🛡️ 策略 1: 嘗試 Yahoo 台灣 JSON API (加入各種後綴組合)
+    for suffix in ['.TW', '.TWO', '']:
+        try:
+            url = f"https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.dividends;symbol={clean_symbol}{suffix}"
+            res = requests.get(url, headers=headers, timeout=4)
+            if res.status_code == 200:
+                data = res.json().get('dividends', [])
+                if data:
+                    for d in data:
+                        if d.get('cashDividend') is not None and d.get('exDividendAppointedDay'):
+                            data_list.append({
+                                'amount': float(d['cashDividend']),
+                                'date': d['exDividendAppointedDay'][:10]
+                            })
+                    if data_list: return data_list
+        except: continue
+
+    # 🛡️ 策略 2: 嘗試 Yahoo 國際版 Chart API (避開台灣版封鎖)
+    for suffix in ['.TW', '.TWO']:
+        try:
+            url = f"https://query2.finance.yahoo.com/v8/finance/chart/{clean_symbol}{suffix}?interval=1mo&events=div"
+            res = requests.get(url, headers=headers, timeout=4)
+            if res.status_code == 200:
+                events = res.json().get('chart', {}).get('result', [{}])[0].get('events', {}).get('dividends', {})
+                if events:
+                    # 時間戳記反向排序
+                    for ts in sorted(events.keys(), reverse=True):
+                        div = events[ts]
+                        dt = datetime.fromtimestamp(div['date']).strftime('%Y-%m-%d')
+                        data_list.append({
+                            'amount': float(div['amount']),
+                            'date': dt
+                        })
+                    if data_list: return data_list
+        except: continue
+            
+    # 🛡️ 策略 3: 使用原生 yfinance 作為最後防線
+    try:
+        for suffix in ['.TW', '.TWO']:
+            t = yf.Ticker(f"{clean_symbol}{suffix}")
+            divs = t.dividends
+            if divs is not None and not divs.empty:
+                for date, amount in divs.sort_index(ascending=False).items():
+                    data_list.append({
+                        'amount': float(amount),
+                        'date': date.strftime('%Y-%m-%d')
+                    })
+                if data_list: return data_list
+    except: pass
+
+    return data_list
+
+# --- ETF 資料處理函數 (串接終極引擎) ---
 @st.cache_data(ttl=3600) 
 def get_safe_data_etf(symbol):
     info = get_stock_info(symbol)
@@ -233,48 +303,30 @@ def get_safe_data_etf(symbol):
     multiplier = 4
     freq_label = "季"
     
-    # 核心修改：使用 requests 直接抓取 Yahoo API
     try:
-        clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        # 呼叫三重備援抓取引擎
+        data_list = fetch_dividend_history(symbol)
         
-        found_data = False
-        data_list = []
-        
-        for suffix in ['.TW', '.TWO']:
-            url = f"https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.dividends;symbol={clean_symbol}{suffix}"
-            res = requests.get(url, headers=headers, timeout=5)
-            if res.status_code == 200:
-                data_list = res.json().get('dividends', [])
-                if data_list:
-                    found_data = True
-                    break
-                    
-        if found_data:
-            # 提取現金股利
-            div_values = [float(d.get('cashDividend', 0.0)) for d in data_list if d.get('cashDividend') is not None]
-            
+        if data_list:
             # 填入最近四次配息
-            for i in range(min(4, len(div_values))):
-                raw_divs[i] = div_values[i]
+            for i in range(min(4, len(data_list))):
+                raw_divs[i] = data_list[i]['amount']
                 
-            # 判斷配息頻率：計算過去一年配息次數
+            # 判斷配息頻率 (計算過去一年內的次數)
             last_year_date = datetime.now() - pd.DateOffset(years=1)
             count_in_year = 0
             for d in data_list:
-                ex_str = d.get('exDividendAppointedDay')
-                if ex_str:
-                    ex_dt = datetime.strptime(ex_str[:10], "%Y-%m-%d")
-                    if ex_dt > last_year_date:
-                        count_in_year += 1
-                        
+                ex_dt = datetime.strptime(d['date'], "%Y-%m-%d")
+                if ex_dt > last_year_date:
+                    count_in_year += 1
+                    
             if count_in_year >= 10: multiplier, freq_label = 12, "月"
             elif count_in_year >= 3: multiplier, freq_label = 4, "季"
             elif count_in_year >= 2: multiplier, freq_label = 2, "半年"
             else: multiplier, freq_label = 1, "年"
                 
     except Exception as e:
-        print(f"Yahoo API 抓取 {symbol} 配息失敗: {e}") 
+        print(f"配息抓取失敗: {e}") 
 
     return {
         "success": True, 
@@ -294,31 +346,26 @@ def get_safe_data_etf(symbol):
     }
 
 def get_dividend_calendar(symbol):
-    """抓取單一股票的除息日與發放日 (Yahoo JSON API 版)"""
+    """抓取單一股票的除息日與發放日 (串接終極引擎)"""
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    data_list = fetch_dividend_history(symbol)
     
-    for suffix in ['.TW', '.TWO']:
-        try:
-            url = f"https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.dividends;symbol={clean_symbol}{suffix}"
-            res = requests.get(url, headers=headers, timeout=5)
-            if res.status_code == 200:
-                data = res.json().get('dividends', [])
-                if data:
-                    latest = data[0]
-                    amount = float(latest.get('cashDividend', 0.0))
-                    ex_date_str = latest.get('exDividendAppointedDay', '')[:10]
-                    if ex_date_str:
-                        ex_dt = datetime.strptime(ex_date_str, "%Y-%m-%d")
-                        pay_date = (ex_dt + pd.DateOffset(days=30)).strftime('%Y-%m-%d')
-                        return {
-                            "symbol": clean_symbol,
-                            "ex_date": ex_date_str,
-                            "pay_date": pay_date,
-                            "amount": amount,
-                            "success": True
-                        }
-        except: continue
+    if data_list:
+        latest = data_list[0] # 取出最新一筆紀錄
+        ex_date_str = latest['date']
+        amount = latest['amount']
+        
+        ex_dt = datetime.strptime(ex_date_str, "%Y-%m-%d")
+        pay_date = (ex_dt + pd.DateOffset(days=30)).strftime('%Y-%m-%d') # 預估 30 天後發放
+        
+        return {
+            "symbol": clean_symbol,
+            "ex_date": ex_date_str,
+            "pay_date": pay_date,
+            "amount": amount,
+            "success": True
+        }
+        
     return {"success": False}
 
 def generate_user_calendar():
@@ -754,4 +801,3 @@ elif st.session_state.page == "watchlist":
             st.info("清單空空如也，請在上方新增標的。")
 
     refresh_watchlist_view()
-
