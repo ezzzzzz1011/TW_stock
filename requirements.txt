@@ -5,9 +5,5 @@ plotly
 gspread
 google-auth
 google-auth-oauthlib
-yfinance>=0.2.40
 requests
 fugle-marketdata
-lxml
-FinMind
-tqdm
