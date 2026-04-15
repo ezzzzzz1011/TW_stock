@@ -613,12 +613,16 @@ elif st.session_state.page == "etf_query":
             st.divider()
             st.subheader("🔮 存股未來財富試算")
             with st.container():
-                f_col0, f_col1, f_col2, f_col3, f_col4 = st.columns([1.5, 1.5, 1.5, 1, 1.2])
+                # 第一排：改成 4 個欄位，讓數字輸入框有絕對寬敞的空間
+                f_col0, f_col1, f_col2, f_col3 = st.columns(4)
                 with f_col0: custom_initial = st.number_input("初始投入總金額 (元)", min_value=0, value=3000000, step=100000)
                 with f_col1: custom_monthly = st.number_input("每月預計投入 (元)", min_value=0, value=0, step=1000)
                 with f_col2: custom_withdraw = st.number_input("每月預計領出 (元)", min_value=0, value=10000, step=1000)
                 with f_col3: custom_yield = st.number_input("自訂年化殖利率 (%)", value=float(f"{real_yield:.2f}"), step=0.1)
-                with f_col4: custom_years = st.slider("目標投入年數", 1, 40, 10)
+                
+                # 第二排：將拉桿獨立放一行，長度拉滿更好滑動
+                st.write("") # 加一點點小留白讓視覺不擁擠
+                custom_years = st.slider("目標投入年數", 1, 40, 10)
                 
                 r = (custom_yield / 100) / 12
                 n = custom_years * 12
