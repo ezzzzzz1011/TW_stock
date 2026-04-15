@@ -891,14 +891,14 @@ elif st.session_state.page == "watchlist":
                     c2.markdown(f"<span style='color:{color}; font-size:1.3rem; font-weight:bold;'>{item['price']:.2f}</span>", unsafe_allow_html=True)
                     c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
                     
-                    if c4.button("🗑️", key=f"del_{item['full_ticker']}"):
+                    if c4.button("刪除", key=f"del_{item['full_ticker']}"):
                         try:
                             st.session_state.watchlist_data.remove(item['full_ticker'])
                         except ValueError:
                             pass
                         save_watchlist_to_cloud(st.session_state.watchlist_data)
                         st.rerun()
-                    st.divider()
+                    st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid rgba(128, 128, 128, 0.3);'>", unsafe_allow_html=True)
         else:
             st.info("清單空空如也，請在上方新增標的。")
 
