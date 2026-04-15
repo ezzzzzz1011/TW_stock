@@ -553,8 +553,7 @@ elif st.session_state.page == "etf_query":
             st.divider()
             st.subheader("📑 歷史配息參考")
 
-            st.divider()
-            st.subheader("📑 歷史配息參考")
+            
             
             # --- 新增這段配息頻率選擇器 ---
             freq_map = {"月配": 12, "季配": 4, "半年配": 2, "年配": 1}
