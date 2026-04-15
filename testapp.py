@@ -902,7 +902,7 @@ elif st.session_state.page == "watchlist":
                     # 決定紅綠色與箭頭
                     if item['change'] > 0:
                         color = "#ff4b4b"
-                        arrow = ""
+                        arrow = "▲"
                     elif item['change'] < 0:
                         color = "#00ff00"
                         arrow = "▼"
@@ -917,7 +917,7 @@ elif st.session_state.page == "watchlist":
                     c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1.2, 1.2, 1.2, 1.2, 1.2, 0.8])
                     
                     # 利用 margin-top 讓文字與右側的按鈕垂直對齊置中
-                    c1.markdown(f"<div style='margin-top: 10px;'><span style='color: #e6c200; font-weight: bold;'>↕</span> <span style='font-weight: bold; font-size: 1.05rem;'>{item['name']}</span></div>", unsafe_allow_html=True)
+                    c1.markdown(f"<div style='margin-top: 10px;'><span style='color: #e6c200; font-weight: bold;'></span> <span style='font-weight: bold; font-size: 1.05rem;'>{item['name']}</span></div>", unsafe_allow_html=True)
                     c2.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{p_str}</div>", unsafe_allow_html=True)
                     c3.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{p_str}</div>", unsafe_allow_html=True)
                     c4.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{p_str}</div>", unsafe_allow_html=True)
