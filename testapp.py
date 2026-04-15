@@ -885,14 +885,15 @@ elif st.session_state.page == "watchlist":
             # --- 建立表格的「標題列」 ---
             st.markdown("""
             <style>
-            /* 針對第 7 個欄位 (c7 垃圾桶) 的按鈕強制縮小與對齊 */
+            /* 針對第 7 個欄位 (c7) 的「刪除」純文字按鈕調整 */
             div[data-testid="column"]:nth-child(7) .stButton > button {
-                height: 2.2em !important;
-                width: 2.2em !important;
-                min-height: 2.2em !important;
+                height: 2em !important;           /* 高度縮減，變扁一點 */
+                min-height: 2em !important;
+                width: 100% !important;           /* 寬度填滿欄位，文字才不會被切斷 */
                 padding: 0px !important;
+                font-size: 0.85rem !important;    /* 字體稍微縮小，看起來更精緻 */
                 margin: 0 auto !important;
-                margin-top: -25px !important; /* 🌟 修改這裡：加大負值，把它再往上拉！ */
+                margin-top: -18px !important;     /* 🌟 如果沒有貼齊，一樣調這個數字 */
             }
             </style>
             <div style="display: flex; color: #aaa; font-size: 0.95rem; margin-bottom: 5px; padding-bottom: 8px; border-bottom: 1px solid #444;">
@@ -935,8 +936,8 @@ elif st.session_state.page == "watchlist":
                     c5.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{arrow} {change_val:.2f}</div>", unsafe_allow_html=True)
                     c6.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{item['pct']:+.2f}</div>", unsafe_allow_html=True)
                     
-                    # 垃圾桶按鈕保留
-                    if c7.button("🗑️", key=f"del_{item['full_ticker']}"):
+                    
+                    if c7.button("刪除", key=f"del_{item['full_ticker']}"):
                         try:
                             st.session_state.watchlist_data.remove(item['full_ticker'])
                         except ValueError:
