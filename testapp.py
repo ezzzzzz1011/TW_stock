@@ -191,11 +191,13 @@ st.markdown("""
     .styled-table td { padding: 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.3); color: var(--text-color) !important; }
     
     /* 專門將關注清單第四欄的刪除按鈕縮小 */
-    div[data-testid="column"]:nth-child(4) button[kind="secondary"] {
+    div[data-testid="stColumn"]:nth-child(4) .stButton > button,
+    div[data-testid="column"]:nth-child(4) .stButton > button {
         height: auto !important;
-        min-height: 0px !important;
-        padding: 4px 12px !important;
-        width: fit-content !important;
+        min-height: 32px !important;
+        width: max-content !important;
+        padding: 0px 16px !important;
+        margin: 0 auto !important;
     }
     </style>
     """, unsafe_allow_html=True)
