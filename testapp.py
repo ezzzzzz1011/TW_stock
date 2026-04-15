@@ -575,8 +575,7 @@ elif st.session_state.page == "etf_query":
             d3 = e_cols[2].number_input("前二", value=float(d["raw_divs"][2]), format="%.3f")
             d4 = e_cols[3].number_input("前三", value=float(d["raw_divs"][3]), format="%.3f")
             
-            # 加上 round() 確保總和取到小數點後 4 位，消除浮點數尾數誤差
-            avg_annual = round((sum([d1, d2, d3, d4]) / 4) * d["multiplier"], 4)
+            avg_annual = (sum([d1, d2, d3, d4]) / 4) * d["multiplier"]
             real_yield = (avg_annual / d['price']) * 100 if d['price'] > 0 else 0
             
             stat_c1, stat_c2 = st.columns(2)
