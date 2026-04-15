@@ -272,69 +272,34 @@ def get_stock_info(symbol):
 # ==========================================
 def fetch_dividend_history_super(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
-    div_list = []
     
-    # 強化標頭：加入 Referer 是繞過某些網站封鎖的關鍵
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://histock.tw/"
+    # 你的 FinMind API 金鑰
+    token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2Vyc2lkIjp6ZW5vaWLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSJ9.ApZobjnh5PCRDtXb8rj6a3Y10h1GUGS0EYKHXkTEvKw"
+    
+    url = "https://api.finminddata.com/v4/data"
+    params = {
+        "dataset": "TaiwanStockDividend",
+        "data_id": clean_symbol,
+        "token": token
     }
-
-    # 第 1 重：Yahoo 國際版 API
-    for suffix in ['.TW', '.TWO']:
-        try:
-            url = f"https://query2.finance.yahoo.com/v8/finance/chart/{clean_symbol}{suffix}?interval=1d&events=div&range=5y"
-            res = requests.get(url, headers=headers, timeout=5)
-            if res.status_code == 200:
-                events = res.json().get('chart', {}).get('result', [{}])[0].get('events', {}).get('dividends', {})
-                if events:
-                    for val in events.values():
-                        dt = datetime.fromtimestamp(val['date']).strftime('%Y-%m-%d')
-                        div_list.append({'date': dt, 'amount': float(val['amount'])})
-                    if div_list: break
-        except: pass
-
-    # 第 2 重：HiStock 備援 (支援一般股與債券 ETF 雙路徑)
-    if not div_list:
-        # 同時嘗試一般股票與 ETF 的配息頁面
-        test_urls = [
-            f"https://histock.tw/stock/financial.aspx?no={clean_symbol}&t=2",
-            f"https://histock.tw/stock/etfdividend.aspx?no={clean_symbol}"
-        ]
-        
-        for url in test_urls:
-            try:
-                res = requests.get(url, headers=headers, timeout=5)
-                if res.status_code == 200 and "現金股利" in res.text:
-                    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', res.text, re.IGNORECASE | re.DOTALL)
-                    for row in rows:
-                        cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
-                        if len(cells) >= 3:
-                            r_date, r_val = "", None
-                            for cell in cells:
-                                txt = re.sub(r'<[^>]+>', '', cell).strip()
-                                if not r_date:
-                                    match = re.search(r'(\d{4})/(\d{1,2})/(\d{1,2})', txt)
-                                    if match: r_date = f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
-                                if r_val is None:
-                                    try:
-                                        v = float(txt)
-                                        if 0.001 < v < 30.0: r_val = v
-                                    except: pass
-                            if r_val is not None and r_date:
-                                div_list.append({"amount": r_val, "date": r_date})
-                if div_list: break
-            except: pass
     
-    if div_list:
-        unique_divs = {}
-        for d in div_list:
-            if d['date'] not in unique_divs or d['amount'] > unique_divs[d['date']]:
-                unique_divs[d['date']] = d['amount']
-        final_list = [{'date': k, 'amount': v} for k, v in unique_divs.items()]
-        return sorted(final_list, key=lambda x: x['date'], reverse=True)
+    try:
+        # 直接請求 API，不需要偽裝 User-Agent 也不會被擋
+        res = requests.get(url, params=params, timeout=5)
+        data = res.json()
+        
+        if data.get("msg") == "success" and data.get("data"):
+            div_list = []
+            for item in data["data"]:
+                div_list.append({
+                    'date': item['ex_dividend_date'], # 除息日
+                    'amount': float(item['cash_dividend']) # 現金股利
+                })
+            # 依日期由新到舊排序
+            return sorted(div_list, key=lambda x: x['date'], reverse=True)
+    except Exception:
+        pass
+        
     return []
 # --- ETF 資料處理主函數 (精準天數頻率算法) ---
 @st.cache_data(ttl=3600) 
