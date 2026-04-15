@@ -274,7 +274,7 @@ def fetch_dividend_history_super(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
     
-    # 強化標頭：加入 Referer 是繞過 HiStock 封鎖的關鍵
+    # 強化標頭：加入 Referer 是繞過某些網站封鎖的關鍵
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -298,10 +298,10 @@ def fetch_dividend_history_super(symbol):
 
     # 第 2 重：HiStock 備援 (支援一般股與債券 ETF 雙路徑)
     if not div_list:
-        # 同時嘗試一般股票與 ETF 的配息頁面路徑
+        # 同時嘗試一般股票與 ETF 的配息頁面
         test_urls = [
-            f"https://histock.tw/stock/financial.aspx?no={clean_symbol}&t=2",  # 一般個股
-            f"https://histock.tw/stock/etfdividend.aspx?no={clean_symbol}"    # 債券/部分 ETF
+            f"https://histock.tw/stock/financial.aspx?no={clean_symbol}&t=2",
+            f"https://histock.tw/stock/etfdividend.aspx?no={clean_symbol}"
         ]
         
         for url in test_urls:
@@ -320,16 +320,14 @@ def fetch_dividend_history_super(symbol):
                                     if match: r_date = f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
                                 if r_val is None:
                                     try:
-                                        # 過濾掉年份(如2024)，只抓取小額配息
                                         v = float(txt)
                                         if 0.001 < v < 30.0: r_val = v
                                     except: pass
                             if r_val is not None and r_date:
                                 div_list.append({"amount": r_val, "date": r_date})
-                if len(div_list) > 0: break # 如果第一組網址抓到了就不跑第二組
+                if div_list: break
             except: pass
     
-    # 去重複與排序
     if div_list:
         unique_divs = {}
         for d in div_list:
@@ -337,9 +335,7 @@ def fetch_dividend_history_super(symbol):
                 unique_divs[d['date']] = d['amount']
         final_list = [{'date': k, 'amount': v} for k, v in unique_divs.items()]
         return sorted(final_list, key=lambda x: x['date'], reverse=True)
-        
     return []
-
 # --- ETF 資料處理主函數 (精準天數頻率算法) ---
 @st.cache_data(ttl=3600) 
 def get_safe_data_etf(symbol):
