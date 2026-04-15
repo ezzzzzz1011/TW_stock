@@ -190,14 +190,14 @@ st.markdown("""
     .styled-table th { background-color: var(--secondary-background-color); color: var(--text-color); text-align: left; padding: 12px; border-bottom: 2px solid var(--text-color); }
     .styled-table td { padding: 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.3); color: var(--text-color) !important; }
     
-    /* 專門將關注清單第四欄的刪除按鈕縮小並往上對齊 */
-    div[data-testid="stColumn"]:nth-child(4) .stButton > button,
-    div[data-testid="column"]:nth-child(4) .stButton > button {
+    /* 專門將關注清單第四欄的刪除按鈕縮小並往上對齊 (排除首頁的主要按鈕) */
+    div[data-testid="stColumn"]:nth-child(4) button[kind="secondary"],
+    div[data-testid="column"]:nth-child(4) button[kind="secondary"] {
         height: auto !important;
         min-height: 32px !important;
         width: max-content !important;
         padding: 0px 16px !important;
-        margin-top: -12px !important;  /* 靠這行把按鈕往上拉，數字越負越靠上 */
+        margin-top: -12px !important;
         margin-left: auto !important;
         margin-right: auto !important;
     }
