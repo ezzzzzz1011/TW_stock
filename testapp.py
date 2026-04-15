@@ -214,7 +214,12 @@ def get_stock_info(symbol):
     
     try:
         url = f"https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.quotes;symbols={clean_symbol}.TW,{clean_symbol}.TWO"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        # 升級真實瀏覽器偽裝
+        fake_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"
+        }
+        res = requests.get(url, headers=fake_headers, timeout=5)
         if res.status_code == 200:
             data = res.json()
             if data and isinstance(data, list):
@@ -267,8 +272,9 @@ def fetch_dividend_history_super(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"
     }
 
     # 第 1 重：Yahoo 國際版 API (帶入 range=5y 確保回傳所有配息)
