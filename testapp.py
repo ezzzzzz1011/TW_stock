@@ -273,13 +273,16 @@ def get_stock_info(symbol):
 def fetch_dividend_history_super(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
+    
+    # 強化標頭：加入 Referer 是繞過 HiStock 封鎖的關鍵
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"
+        "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://histock.tw/"
     }
 
-    # 第 1 重：Yahoo 國際版 API (帶入 range=5y 確保回傳所有配息)
+    # 第 1 重：Yahoo 國際版 API
     for suffix in ['.TW', '.TWO']:
         try:
             url = f"https://query2.finance.yahoo.com/v8/finance/chart/{clean_symbol}{suffix}?interval=1d&events=div&range=5y"
@@ -293,33 +296,40 @@ def fetch_dividend_history_super(symbol):
                     if div_list: break
         except: pass
 
-    # 第 2 重：HiStock (C# 網頁過濾備援)
+    # 第 2 重：HiStock 備援 (支援一般股與債券 ETF 雙路徑)
     if not div_list:
-        try:
-            url = f"https://histock.tw/stock/financial.aspx?no={clean_symbol}&t=2"
-            res = requests.get(url, headers=headers, timeout=5)
-            if res.status_code == 200:
-                rows = re.findall(r'<tr[^>]*>(.*?)</tr>', res.text, re.IGNORECASE | re.DOTALL)
-                for row in rows:
-                    cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
-                    if len(cells) >= 3:
-                        r_date, r_val = "", None
-                        for cell in cells:
-                            txt = re.sub(r'<[^>]+>', '', cell).strip()
-                            if not r_date:
-                                match = re.search(r'(\d{4})/(\d{1,2})/(\d{1,2})', txt)
-                                if match: r_date = f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
-                            if r_val is None:
-                                try:
-                                    v = float(txt)
-                                    if 0.001 < v < 25.0: r_val = v
-                                except: pass
-                        if r_val is not None and r_date:
-                            div_list.append({"amount": r_val, "date": r_date})
-                    if len(div_list) >= 12: break
-        except: pass
+        # 同時嘗試一般股票與 ETF 的配息頁面路徑
+        test_urls = [
+            f"https://histock.tw/stock/financial.aspx?no={clean_symbol}&t=2",  # 一般個股
+            f"https://histock.tw/stock/etfdividend.aspx?no={clean_symbol}"    # 債券/部分 ETF
+        ]
+        
+        for url in test_urls:
+            try:
+                res = requests.get(url, headers=headers, timeout=5)
+                if res.status_code == 200 and "現金股利" in res.text:
+                    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', res.text, re.IGNORECASE | re.DOTALL)
+                    for row in rows:
+                        cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
+                        if len(cells) >= 3:
+                            r_date, r_val = "", None
+                            for cell in cells:
+                                txt = re.sub(r'<[^>]+>', '', cell).strip()
+                                if not r_date:
+                                    match = re.search(r'(\d{4})/(\d{1,2})/(\d{1,2})', txt)
+                                    if match: r_date = f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
+                                if r_val is None:
+                                    try:
+                                        # 過濾掉年份(如2024)，只抓取小額配息
+                                        v = float(txt)
+                                        if 0.001 < v < 30.0: r_val = v
+                                    except: pass
+                            if r_val is not None and r_date:
+                                div_list.append({"amount": r_val, "date": r_date})
+                if len(div_list) > 0: break # 如果第一組網址抓到了就不跑第二組
+            except: pass
     
-    # 🟢 去重複與排序：同一天取最大金額
+    # 去重複與排序
     if div_list:
         unique_divs = {}
         for d in div_list:
