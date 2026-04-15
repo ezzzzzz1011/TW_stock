@@ -283,25 +283,29 @@ def fetch_dividend_history_super(symbol):
         "token": token
     }
     
+    # 建議加上標頭以增加穩定性 
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    
     try:
-        # 改用官方 API 獲取結構化數據，不再需要爬蟲
-        res = requests.get(url, params=params, timeout=5)
+        res = requests.get(url, params=params, headers=headers, timeout=5)
         data = res.json()
         
         if data.get("msg") == "success" and data.get("data"):
             div_list = []
             for item in data["data"]:
-                # 判斷是否有現金股利數據
+                # FinMind 傳回的金額有時是字串，轉成 float 確保計算正確 [cite: 201]
                 amount = float(item.get('cash_dividend', 0))
                 if amount > 0:
                     div_list.append({
-                        'date': item['ex_dividend_date'], # 除息日
+                        'date': item['ex_dividend_date'],
                         'amount': amount
                     })
-            # 依日期由新到舊排序
             return sorted(div_list, key=lambda x: x['date'], reverse=True)
-    except Exception:
-        pass
+        elif data.get("msg"):
+            # 如果 API 報錯（例如流量超過），直接顯示在畫面上幫你除錯
+            st.warning(f"⚠️ FinMind 訊息: {data.get('msg')}")
+    except Exception as e:
+        st.error(f"❌ API 連線異常: {e}")
         
     return []
 # --- ETF 資料處理主函數 (精準天數頻率算法) ---
