@@ -878,6 +878,20 @@ elif st.session_state.page == "watchlist":
 
     @st.fragment(run_every=120)
     def refresh_watchlist_view():
+        # --- 🌟 注入專屬 CSS：強制縮小按鈕、壓縮上下間距 ---
+        st.markdown("""
+        <style>
+        div[data-testid="stHorizontalBlock"] .stButton>button {
+            height: 30px !important;
+            min-height: 30px !important;
+            padding: 0px 8px !important;
+            margin-top: 2px !important;
+            border-radius: 6px !important;
+            font-size: 14px !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
         if st.session_state.watchlist_data:
             now_tw = datetime.now(tw_tz).strftime('%H:%M:%S')
             st.caption(f"⏱️ 行情自動刷新中... ({now_tw})")
@@ -885,18 +899,19 @@ elif st.session_state.page == "watchlist":
             # --- 建立表格的「標題列」 ---
             st.markdown("""
             <div style="display: flex; color: #aaa; font-size: 0.95rem; margin-bottom: 5px; padding-bottom: 8px; border-bottom: 1px solid #444;">
-                <div style="flex: 2.5; padding-left: 5px;">名稱</div>
+                <div style="flex: 0.8; text-align: center;">排序</div>
+                <div style="flex: 2.2; padding-left: 5px;">名稱</div>
                 <div style="flex: 1.2; text-align: right;">買價</div>
                 <div style="flex: 1.2; text-align: right;">賣價</div>
                 <div style="flex: 1.2; text-align: right;">成交</div>
                 <div style="flex: 1.2; text-align: right;">漲跌</div>
                 <div style="flex: 1.2; text-align: right; padding-right: 15px;">幅度%</div>
-                <div style="flex: 0.8; text-align: center;">操作</div>
+                <div style="flex: 0.6; text-align: center;">操作</div>
             </div>
             """, unsafe_allow_html=True)
             
             # --- 渲染每一筆股票資料 ---
-            for code in st.session_state.watchlist_data:
+            for i, code in enumerate(st.session_state.watchlist_data):
                 item = get_stock_info(code)
                 if item:
                     # 決定紅綠色與箭頭
@@ -913,29 +928,48 @@ elif st.session_state.page == "watchlist":
                     change_val = abs(item['change'])
                     p_str = f"{item['price']:.2f}"
                     
-                    # 依照標題列的比例切分欄位
-                    c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1.2, 1.2, 1.2, 1.2, 1.2, 0.8])
+                    # 重新切分欄位，加入上下移動按鈕的空間
+                    c_up, c_down, c_name, c_b, c_s, c_v, c_chg, c_pct, c_del = st.columns([0.4, 0.4, 2.2, 1.2, 1.2, 1.2, 1.2, 1.2, 0.6])
                     
-                    # 利用 margin-top 讓文字與右側的按鈕垂直對齊置中
-                    c1.markdown(f"<div style='margin-top: 10px;'><span style='color: #e6c200; font-weight: bold;'>↕</span> <span style='font-weight: bold; font-size: 1.05rem;'>{item['name']}</span></div>", unsafe_allow_html=True)
-                    c2.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{p_str}</div>", unsafe_allow_html=True)
-                    c3.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{p_str}</div>", unsafe_allow_html=True)
-                    c4.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{p_str}</div>", unsafe_allow_html=True)
-                    c5.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{arrow} {change_val:.2f}</div>", unsafe_allow_html=True)
-                    c6.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{item['pct']:+.2f}</div>", unsafe_allow_html=True)
+                    # 🔼 往上移動按鈕
+                    with c_up:
+                        if i > 0:
+                            if st.button("▲", key=f"up_{item['full_ticker']}"):
+                                st.session_state.watchlist_data[i-1], st.session_state.watchlist_data[i] = st.session_state.watchlist_data[i], st.session_state.watchlist_data[i-1]
+                                save_watchlist_to_cloud(st.session_state.watchlist_data)
+                                st.rerun()
+                                
+                    # 🔽 往下移動按鈕
+                    with c_down:
+                        if i < len(st.session_state.watchlist_data) - 1:
+                            if st.button("▼", key=f"dn_{item['full_ticker']}"):
+                                st.session_state.watchlist_data[i], st.session_state.watchlist_data[i+1] = st.session_state.watchlist_data[i+1], st.session_state.watchlist_data[i]
+                                save_watchlist_to_cloud(st.session_state.watchlist_data)
+                                st.rerun()
+
+                    # 數值列 (縮小 margin-top 讓文字與小按鈕對齊)
+                    c_name.markdown(f"<div style='margin-top: 6px;'><span style='font-weight: bold; font-size: 1.05rem;'>{item['name']}</span></div>", unsafe_allow_html=True)
+                    c_b.markdown(f"<div style='margin-top: 6px; text-align: right; color: {color};'>{p_str}</div>", unsafe_allow_html=True)
+                    c_s.markdown(f"<div style='margin-top: 6px; text-align: right; color: {color};'>{p_str}</div>", unsafe_allow_html=True)
+                    c_v.markdown(f"<div style='margin-top: 6px; text-align: right; color: {color};'>{p_str}</div>", unsafe_allow_html=True)
+                    c_chg.markdown(f"<div style='margin-top: 6px; text-align: right; color: {color};'>{arrow} {change_val:.2f}</div>", unsafe_allow_html=True)
+                    c_pct.markdown(f"<div style='margin-top: 6px; text-align: right; color: {color};'>{item['pct']:+.2f}</div>", unsafe_allow_html=True)
                     
-                    # 垃圾桶按鈕保留
-                    if c7.button("🗑️", key=f"del_{item['full_ticker']}"):
-                        try:
-                            st.session_state.watchlist_data.remove(item['full_ticker'])
-                        except ValueError:
-                            pass
-                        save_watchlist_to_cloud(st.session_state.watchlist_data)
-                        st.rerun()
+                    # 🗑️ 縮小版的垃圾桶按鈕
+                    with c_del:
+                        if st.button("🗑️", key=f"del_{item['full_ticker']}"):
+                            try:
+                                st.session_state.watchlist_data.remove(item['full_ticker'])
+                            except ValueError:
+                                pass
+                            save_watchlist_to_cloud(st.session_state.watchlist_data)
+                            st.rerun()
                     
-                    # 每一行的分隔線
-                    st.markdown("<hr style='margin: 0px; border-color: #333;'>", unsafe_allow_html=True)
+                    # 將分隔線的上下間距壓到極致 (margin: 2px)
+                    st.markdown("<hr style='margin: 2px 0px; border-color: #333;'>", unsafe_allow_html=True)
         else:
             st.info("清單空空如也，請在上方新增標的。")
+
+    refresh_watchlist_view()單空空如也，請在上方新增標的。")
 
     refresh_watchlist_view()
