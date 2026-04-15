@@ -613,7 +613,7 @@ elif st.session_state.page == "etf_query":
             st.divider()
             st.subheader("🔮 存股未來財富試算")
             with st.container():
-                f_col0, f_col1, f_col2, f_col3, f_col4 = st.columns(5)
+                f_col0, f_col1, f_col2, f_col3, f_col4 = st.columns([1.5, 1.5, 1.5, 1, 1.2])
                 with f_col0: custom_initial = st.number_input("初始投入總金額 (元)", min_value=0, value=3000000, step=100000)
                 with f_col1: custom_monthly = st.number_input("每月預計投入 (元)", min_value=0, value=0, step=1000)
                 with f_col2: custom_withdraw = st.number_input("每月預計領出 (元)", min_value=0, value=10000, step=1000)
