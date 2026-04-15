@@ -892,7 +892,7 @@ elif st.session_state.page == "watchlist":
                 min-height: 2.2em !important;
                 padding: 0px !important;
                 margin: 0 auto !important;
-                margin-top: -10px !important; /* 修改這裡：改成負數，把按鈕往上拉 */
+                margin-top: -25px !important; /* 🌟 修改這裡：加大負值，把它再往上拉！ */
             }
             </style>
             <div style="display: flex; color: #aaa; font-size: 0.95rem; margin-bottom: 5px; padding-bottom: 8px; border-bottom: 1px solid #444;">
