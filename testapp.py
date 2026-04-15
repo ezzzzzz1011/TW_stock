@@ -892,7 +892,7 @@ elif st.session_state.page == "watchlist":
     def refresh_watchlist_view():
         if st.session_state.watchlist_data:
             now_tw = datetime.now(tw_tz).strftime('%H:%M:%S')
-            st.caption(f"⏱️ 行情自動刷新中... ({now_tw})  每2分鐘更新")
+            st.caption(f"⏱️ 行情自動刷新中... (每2m更新) ({now_tw}) ")
             
             for code in st.session_state.watchlist_data:
                 item = get_stock_info(code)
