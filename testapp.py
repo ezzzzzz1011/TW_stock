@@ -943,9 +943,9 @@ elif st.session_state.page == "watchlist":
                             pass
                         save_watchlist_to_cloud(st.session_state.watchlist_data)
                         st.rerun()
-                    
-                    # 每一行的分隔線
-                    st.markdown("<hr style='margin: 0px; border-color: #333;'>", unsafe_allow_html=True)
+                
+                    # 每一行的分隔線 (使用 margin-top 負值將線條往上拉齊)
+                    st.markdown("<hr style='margin-top: -15px; margin-bottom: 0px; border-color: #333;'>", unsafe_allow_html=True)
         else:
             st.info("清單空空如也，請在上方新增標的。")
 
