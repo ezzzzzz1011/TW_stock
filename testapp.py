@@ -882,23 +882,59 @@ elif st.session_state.page == "watchlist":
             now_tw = datetime.now(tw_tz).strftime('%H:%M:%S')
             st.caption(f"⏱️ 行情自動刷新中... ({now_tw})")
             
+            # --- 建立表格的「標題列」 ---
+            st.markdown("""
+            <div style="display: flex; color: #aaa; font-size: 0.95rem; margin-bottom: 5px; padding-bottom: 8px; border-bottom: 1px solid #444;">
+                <div style="flex: 2.5; padding-left: 5px;">名稱</div>
+                <div style="flex: 1.2; text-align: right;">買價</div>
+                <div style="flex: 1.2; text-align: right;">賣價</div>
+                <div style="flex: 1.2; text-align: right;">成交</div>
+                <div style="flex: 1.2; text-align: right;">漲跌</div>
+                <div style="flex: 1.2; text-align: right; padding-right: 15px;">幅度%</div>
+                <div style="flex: 0.8; text-align: center;">操作</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # --- 渲染每一筆股票資料 ---
             for code in st.session_state.watchlist_data:
                 item = get_stock_info(code)
                 if item:
-                    c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
-                    color = "#ff4b4b" if item['change'] > 0 else "#00ff00"
-                    c1.markdown(f"**{item['name']}**")
-                    c2.markdown(f"<span style='color:{color}; font-size:1.3rem; font-weight:bold;'>{item['price']:.2f}</span>", unsafe_allow_html=True)
-                    c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
+                    # 決定紅綠色與箭頭
+                    if item['change'] > 0:
+                        color = "#ff4b4b"
+                        arrow = "▲"
+                    elif item['change'] < 0:
+                        color = "#00ff00"
+                        arrow = "▼"
+                    else:
+                        color = "#ffffff"
+                        arrow = ""
+                        
+                    change_val = abs(item['change'])
+                    p_str = f"{item['price']:.2f}"
                     
-                    if c4.button("🗑️", key=f"del_{item['full_ticker']}"):
+                    # 依照標題列的比例切分欄位
+                    c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1.2, 1.2, 1.2, 1.2, 1.2, 0.8])
+                    
+                    # 利用 margin-top 讓文字與右側的按鈕垂直對齊置中
+                    c1.markdown(f"<div style='margin-top: 10px;'><span style='color: #e6c200; font-weight: bold;'>↕</span> <span style='font-weight: bold; font-size: 1.05rem;'>{item['name']}</span></div>", unsafe_allow_html=True)
+                    c2.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{p_str}</div>", unsafe_allow_html=True)
+                    c3.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{p_str}</div>", unsafe_allow_html=True)
+                    c4.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{p_str}</div>", unsafe_allow_html=True)
+                    c5.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{arrow} {change_val:.2f}</div>", unsafe_allow_html=True)
+                    c6.markdown(f"<div style='margin-top: 10px; text-align: right; color: {color};'>{item['pct']:+.2f}</div>", unsafe_allow_html=True)
+                    
+                    # 垃圾桶按鈕保留
+                    if c7.button("🗑️", key=f"del_{item['full_ticker']}"):
                         try:
                             st.session_state.watchlist_data.remove(item['full_ticker'])
                         except ValueError:
                             pass
                         save_watchlist_to_cloud(st.session_state.watchlist_data)
                         st.rerun()
-                    st.divider()
+                    
+                    # 每一行的分隔線
+                    st.markdown("<hr style='margin: 0px; border-color: #333;'>", unsafe_allow_html=True)
         else:
             st.info("清單空空如也，請在上方新增標的。")
 
