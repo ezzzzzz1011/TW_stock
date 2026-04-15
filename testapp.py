@@ -902,7 +902,7 @@ elif st.session_state.page == "watchlist":
                     # 決定紅綠色與箭頭
                     if item['change'] > 0:
                         color = "#ff4b4b"
-                        arrow = "▲"
+                        arrow = ""
                     elif item['change'] < 0:
                         color = "#00ff00"
                         arrow = "▼"
