@@ -284,17 +284,20 @@ def fetch_dividend_history_super(symbol):
     }
     
     try:
-        # 直接請求 API，不需要偽裝 User-Agent 也不會被擋
+        # 改用官方 API 獲取結構化數據，不再需要爬蟲
         res = requests.get(url, params=params, timeout=5)
         data = res.json()
         
         if data.get("msg") == "success" and data.get("data"):
             div_list = []
             for item in data["data"]:
-                div_list.append({
-                    'date': item['ex_dividend_date'], # 除息日
-                    'amount': float(item['cash_dividend']) # 現金股利
-                })
+                # 判斷是否有現金股利數據
+                amount = float(item.get('cash_dividend', 0))
+                if amount > 0:
+                    div_list.append({
+                        'date': item['ex_dividend_date'], # 除息日
+                        'amount': amount
+                    })
             # 依日期由新到舊排序
             return sorted(div_list, key=lambda x: x['date'], reverse=True)
     except Exception:
