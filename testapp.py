@@ -12,11 +12,11 @@ import re
 from google.oauth2.service_account import Credentials
 from fugle_marketdata import RestClient
 
-# --- 1. 網頁全域設定 (必須放在最上方) ---
+# --- 1. 網頁全域設定 (必須放在最上方) --- [cite: 156]
 st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
 tw_tz = pytz.timezone('Asia/Taipei')
 
-# --- 0. 雲端資料庫連線與帳號邏輯 ---
+# --- 0. 雲端資料庫連線與帳號邏輯 --- [cite: 156]
 @st.cache_resource
 def init_connection():
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -80,7 +80,7 @@ def save_portfolio_to_cloud(username, df):
         st.error(f"⚠️ 雲端儲存失敗: {e}")
         return False
 
-# --- 初始化應用程式狀態 ---
+# --- 初始化應用程式狀態 --- [cite: 161]
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'current_user' not in st.session_state:
@@ -92,7 +92,7 @@ if 'page' not in st.session_state:
 if 'data' not in st.session_state: 
     st.session_state.data = None
 
-# --- 登入介面邏輯 ---
+# --- 登入介面邏輯 --- [cite: 162]
 def login_ui():
     st.markdown("""
         <div style="max-width: 400px; margin: 40px auto 20px auto; padding: 25px; background-color: #f8f9fa; border-radius: 15px; border: 1px solid #dee2e6; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center;">
@@ -174,7 +174,7 @@ if not st.session_state.logged_in:
     login_ui()
     st.stop()
 
-# --- 自定義 CSS ---
+# --- 自定義 CSS --- [cite: 175-190]
 st.markdown("""
     <style>
     .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; border: 1px solid rgba(128, 128, 128, 0.3); height: 3.5em; }
@@ -204,21 +204,51 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- Fugle API 初始化 ---
+# --- Fugle API 初始化 --- [cite: 190]
 FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
 client = RestClient(api_key=FUGLE_TOKEN)
 
 # ==========================================
-# 🚀 終極數據引擎 1：報價與總量 (Yahoo 優先 + Fugle 備援)
+# 🚀 終極數據引擎 1：報價與總量 (Fugle 官方直連模式)
+# ==========================================
+def get_stock_info(symbol):
+    clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
+    try:
+        # 強制直接使用 Fugle 官方 API，解決 Yahoo 爬蟲 IP 被封鎖導致「沒反應」的問題 
+        data = client.stock.intraday.quote(symbol=clean_symbol)
+        if not data: return None
+        
+        # 抓取現價，如果盤中沒資料則抓取昨收
+        price = float(data.get('lastPrice') or data.get('closePrice') or data.get('previousClose') or 0.0)
+        vol = float(data.get('total', {}).get('tradeVolume', 0))
+        if 0 < vol < 500000: vol = vol * 1000 
+            
+        return {
+            "name": data.get('name', clean_symbol),
+            "price": price,
+            "change": float(data.get('change', 0.0)),
+            "pct": float(data.get('changePercent', 0.0)),
+            "high": float(data.get('highPrice') or price),
+            "low": float(data.get('lowPrice') or price),
+            "open": float(data.get('openPrice') or price),
+            "vol": int(vol),
+            "full_ticker": clean_symbol,
+            "hist": None, "dividends": None
+        }
+    except Exception:
+        return None
+
+# ==========================================
+# 🚀 終極數據引擎 2：配息與日期去重複 (FinMind API + 爬蟲雙重備援)
 # ==========================================
 def fetch_dividend_history_super(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
     
-    # 你的 FinMind API 金鑰 [cite: 198]
+    # 你的 FinMind API 金鑰
     token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2Vyc2lkIjp6ZW5vaWLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSJ9.ApZobjnh5PCRDtXb8rj6a3Y10h1GUGS0EYKHXkTEvKw"
     
-    # --- 第一重：嘗試官方 API ---
+    # --- 第一重：嘗試官方 API --- [cite: 199-202]
     try:
         url = "https://api.finminddata.com/v4/data"
         params = {"dataset": "TaiwanStockDividend", "data_id": clean_symbol, "token": token}
@@ -232,17 +262,15 @@ def fetch_dividend_history_super(symbol):
             if div_list:
                 return sorted(div_list, key=lambda x: x['date'], reverse=True)
     except Exception:
-        # 當出現 image_15e8e4.png 的連線錯誤時，不顯示紅框，直接進入下方的備援邏輯
-        pass
+        pass # DNS 連線異常時靜默切換至備援
 
     # --- 第二重：備援機制 (原本的爬蟲邏輯) ---
-    # 當 API 斷線時，自動切換至 Yahoo 與 HiStock 抓取資料
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Referer": "https://histock.tw/"
     }
 
-    # 備援 1：Yahoo Finance [cite: 42-44]
+    # 備援 1：Yahoo Finance
     for suffix in ['.TW', '.TWO']:
         try:
             y_url = f"https://query2.finance.yahoo.com/v8/finance/chart/{clean_symbol}{suffix}?interval=1d&events=div&range=5y"
@@ -254,7 +282,7 @@ def fetch_dividend_history_super(symbol):
                 if div_list: break
         except: pass
 
-    # 備援 2：HiStock (針對債券 ETF 如 00937B, 00725B) [cite: 45-51]
+    # 備援 2：HiStock (解決債券 ETF 配息路徑)
     if not div_list:
         test_urls = [f"https://histock.tw/stock/financial.aspx?no={clean_symbol}&t=2", f"https://histock.tw/stock/etfdividend.aspx?no={clean_symbol}"]
         for h_url in test_urls:
@@ -280,7 +308,7 @@ def fetch_dividend_history_super(symbol):
                 if div_list: break
             except: pass
 
-    # 去重複並回傳 [cite: 52]
+    # 去重複與排序
     if div_list:
         unique_divs = {}
         for d in div_list:
@@ -290,48 +318,7 @@ def fetch_dividend_history_super(symbol):
     
     return []
 
-# ==========================================
-# 🚀 終極數據引擎 2：配息與日期去重複 (強制 range=5y 破除封鎖)
-# ==========================================
-def fetch_dividend_history_super(symbol):
-    clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
-    
-    # 你的 FinMind API 金鑰
-    token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2Vyc2lkIjp6ZW5vaWLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSJ9.ApZobjnh5PCRDtXb8rj6a3Y10h1GUGS0EYKHXkTEvKw"
-    
-    url = "https://api.finminddata.com/v4/data"
-    params = {
-        "dataset": "TaiwanStockDividend",
-        "data_id": clean_symbol,
-        "token": token
-    }
-    
-    # 建議加上標頭以增加穩定性 
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    
-    try:
-        res = requests.get(url, params=params, headers=headers, timeout=5)
-        data = res.json()
-        
-        if data.get("msg") == "success" and data.get("data"):
-            div_list = []
-            for item in data["data"]:
-                # FinMind 傳回的金額有時是字串，轉成 float 確保計算正確 [cite: 201]
-                amount = float(item.get('cash_dividend', 0))
-                if amount > 0:
-                    div_list.append({
-                        'date': item['ex_dividend_date'],
-                        'amount': amount
-                    })
-            return sorted(div_list, key=lambda x: x['date'], reverse=True)
-        elif data.get("msg"):
-            # 如果 API 報錯（例如流量超過），直接顯示在畫面上幫你除錯
-            st.warning(f"⚠️ FinMind 訊息: {data.get('msg')}")
-    except Exception as e:
-        st.error(f"❌ API 連線異常: {e}")
-        
-    return []
-# --- ETF 資料處理主函數 (精準天數頻率算法) ---
+# --- ETF 資料處理主函數 (精準天數頻率算法) --- [cite: 203-208]
 @st.cache_data(ttl=3600) 
 def get_safe_data_etf(symbol):
     info = get_stock_info(symbol)
@@ -349,21 +336,17 @@ def get_safe_data_etf(symbol):
             for i in range(min(4, len(data_list))):
                 raw_divs[i] = data_list[i]['amount']
                 
-            # 🟢 頻率精準判斷：直接算「配息間隔的平均天數」
+            # 頻率精準判斷
             if len(data_list) >= 2:
                 check_len = min(5, len(data_list))
                 dates = [datetime.strptime(d['date'], "%Y-%m-%d") for d in data_list[:check_len]]
                 days_diffs = [(dates[i] - dates[i+1]).days for i in range(len(dates)-1)]
                 avg_days = sum(days_diffs) / len(days_diffs)
                 
-                if avg_days <= 45: 
-                    multiplier, freq_label = 12, "月"
-                elif avg_days <= 110: 
-                    multiplier, freq_label = 4, "季"
-                elif avg_days <= 200: 
-                    multiplier, freq_label = 2, "半年"
-                else: 
-                    multiplier, freq_label = 1, "年"
+                if avg_days <= 45: multiplier, freq_label = 12, "月"
+                elif avg_days <= 110: multiplier, freq_label = 4, "季"
+                elif avg_days <= 200: multiplier, freq_label = 2, "半年"
+                else: multiplier, freq_label = 1, "年"
             else:
                 multiplier, freq_label = 1, "年"
                 
@@ -372,42 +355,23 @@ def get_safe_data_etf(symbol):
 
     return {
         "success": True, 
-        "name": info["name"],
-        "price": info["price"],
-        "change": info["change"], 
-        "pct": info["pct"], 
-        "high": info["high"],
-        "low": info["low"], 
-        "open": info["open"], 
-        "vol": info["vol"],
-        "raw_divs": raw_divs,       
-        "multiplier": multiplier,
-        "freq_label": freq_label,
+        "name": info["name"], "price": info["price"], "change": info["change"], "pct": info["pct"], 
+        "high": info["high"], "low": info["low"], "open": info["open"], "vol": info["vol"],
+        "raw_divs": raw_divs, "multiplier": multiplier, "freq_label": freq_label,
         "last_date": datetime.now(tw_tz).strftime('%Y-%m-%d'), 
         "full_ticker": info["full_ticker"]
     }
 
 def get_dividend_calendar(symbol):
-    """抓取單一股票的除息日與發放日預估"""
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     data_list = fetch_dividend_history_super(symbol)
-    
     if data_list:
         latest = data_list[0]
-        amount = latest['amount']
-        ex_date_str = latest['date']
         try:
-            ex_dt = datetime.strptime(ex_date_str, "%Y-%m-%d")
+            ex_dt = datetime.strptime(latest['date'], "%Y-%m-%d")
             pay_date = (ex_dt + pd.DateOffset(days=28)).strftime('%Y-%m-%d')
-            return {
-                "symbol": clean_symbol,
-                "ex_date": ex_date_str,
-                "pay_date": pay_date,
-                "amount": amount,
-                "success": True
-            }
+            return {"symbol": clean_symbol, "ex_date": latest['date'], "pay_date": pay_date, "amount": latest['amount'], "success": True}
         except: pass
-        
     return {"success": False}
 
 def generate_user_calendar():
@@ -422,7 +386,6 @@ def generate_user_calendar():
     calendar_list = []
     today_date = datetime.now(tw_tz).date()
     progress_bar = st.progress(0)
-    
     for i, (index, row) in enumerate(valid_assets.iterrows()):
         code = str(row["代碼"]).strip().upper()
         lots = float(row["張數"])
@@ -432,17 +395,13 @@ def generate_user_calendar():
             if pay_date_obj >= today_date:
                 total_pay = div_info["amount"] * lots * 1000
                 calendar_list.append({
-                    "股票名稱": code,
-                    "預計除息日": div_info["ex_date"],
-                    "預計發放日 (預估)": div_info["pay_date"],
-                    "每股配息": f"${div_info['amount']:.2f}",
-                    "預估入帳金額": int(total_pay)
+                    "股票名稱": code, "預計除息日": div_info["ex_date"], "預計發放日 (預估)": div_info["pay_date"],
+                    "每股配息": f"${div_info['amount']:.2f}", "預估入帳金額": int(total_pay)
                 })
         progress_bar.progress((i + 1) / len(valid_assets))
     progress_bar.empty()
     result_df = pd.DataFrame(calendar_list)
-    if result_df.empty: return None
-    return result_df
+    return result_df if not result_df.empty else None
 
 def go_to(page_name):
     st.session_state.page = page_name
@@ -490,7 +449,6 @@ elif st.session_state.page == "stock_query":
                 current_price = info['price']
                 st.markdown(f"## {info['name']}")
                 st.markdown(f"<div class='date-text'>資料日期：{datetime.now(tw_tz).strftime('%Y-%m-%d')}</div>", unsafe_allow_html=True)
-                
                 cp1, cp2 = st.columns([2, 1])
                 with cp1:
                     color = "#ff4b4b" if info['change'] > 0 else "#00ff00" if info['change'] < 0 else "#FFFFFF"
@@ -500,20 +458,16 @@ elif st.session_state.page == "stock_query":
                     st.caption("今日行情細節")
                     st.write(f"最高: {info['high']:.2f} / 最低: {info['low']:.2f}")
                     st.write(f"開盤: {info['open']:.2f} / 總量: {int(info['vol']/1000):,} 張")
-            
             st.divider()
-
         col_eps, col_pe = st.columns(2)
         with col_eps: eps = st.number_input("輸入該股 EPS (4季累積)", min_value=0.01, step=0.1, value=10.0)
         with col_pe: pe_target = st.number_input("自訂參考本益比 (PE)", value=15.0, step=0.1)
-        
         if current_price > 0:
             fair_price = eps * pe_target
             st.subheader("📊 換算結果")
             st.markdown(f"<div class='calc-box'>合理價參考：<span class='highlight-val'>{fair_price:.2f}</span></div>", unsafe_allow_html=True)
             if current_price <= fair_price: st.success(f"✅ 目前股價 {current_price:.2f} 低於目標參考價")
             else: st.warning(f"⚠️ 目前股價 {current_price:.2f} 已超過目標參考價")
-
     with side_col:
         st.write("### 📖 說明")
         st.caption("1. 輸入股票代碼。")
@@ -525,382 +479,175 @@ elif st.session_state.page == "stock_query":
 elif st.session_state.page == "etf_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("📈 ETF 專用 ")
-    
     main_col, side_col = st.columns([8, 4])
     with main_col:
         st.markdown("### 🔍 查詢設定")
         input_c1, input_c2 = st.columns([3, 1])
- 
-        with input_c1:
-            symbol_input = st.text_input("ETF 代號", placeholder="例如: 00919").strip().upper()
+        with input_c1: symbol_input = st.text_input("ETF 代號", placeholder="例如: 00919").strip().upper()
         with input_c2:
-            st.write("")
-            st.write("")
+            st.write(""); st.write("")
             if st.button("開始計算", type="primary"):
                 if symbol_input:
                     with st.spinner('抓取數據中...'):
                         st.session_state.data = get_safe_data_etf(symbol_input)
 
-        if st.session_state.data and st.session_state.data.get("success"):
-            d = st.session_state.data
-            m_color = "#ff4b4b" if d['change'] >= 0 else "#00ff00"
-            st.markdown(f"## {d['name']} <small style='font-size:1rem; color:#aaa;'>(偵測為{d['freq_label']}配息)</small>", unsafe_allow_html=True)
-            st.markdown(f"<div class='date-text'>資料日期：{d.get('last_date')}</div>", unsafe_allow_html=True)
-            
-            info_c1, info_c2 = st.columns([2, 1])
-            with info_c1:
-                st.markdown(f"<div class='metric-val' style='color:{m_color}'>{d['price']:.2f}</div>", unsafe_allow_html=True)
-                st.markdown(f"<span style='color:{m_color}; font-weight:bold; font-size:1.5rem;'>{d['change']:+.2f} ({d['pct']:+.2f}%)</span>", unsafe_allow_html=True)
-    
-            with info_c2:
-                st.caption("今日行情細節")
-                st.write(f"最高: {d['high']:.2f} / 最低: {d['low']:.2f}")
-                st.write(f"開盤: {d['open']:.2f} / 總量: {int(d['vol']/1000):,} 張")
+        # 新增點擊回饋，解決「沒反應」問題
+        if st.session_state.data:
+            if st.session_state.data.get("success"):
+                d = st.session_state.data
+                m_color = "#ff4b4b" if d['change'] >= 0 else "#00ff00"
+                st.markdown(f"## {d['name']} <small style='font-size:1rem; color:#aaa;'>(偵測為{d['freq_label']}配息)</small>", unsafe_allow_html=True)
+                st.markdown(f"<div class='date-text'>資料日期：{d.get('last_date')}</div>", unsafe_allow_html=True)
+                info_c1, info_c2 = st.columns([2, 1])
+                with info_c1:
+                    st.markdown(f"<div class='metric-val' style='color:{m_color}'>{d['price']:.2f}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<span style='color:{m_color}; font-weight:bold; font-size:1.5rem;'>{d['change']:+.2f} ({d['pct']:+.2f}%)</span>", unsafe_allow_html=True)
+                with info_c2:
+                    st.caption("今日行情細節")
+                    st.write(f"最高: {d['high']:.2f} / 最低: {d['low']:.2f}"); st.write(f"開盤: {d['open']:.2f} / 總量: {int(d['vol']/1000):,} 張")
 
-            st.divider()
-            st.subheader("📑 歷史配息參考")
-         
-            e_cols = st.columns(4)
-            d1 = e_cols[0].number_input("最新", value=float(d["raw_divs"][0]), format="%.3f")
-            d2 = e_cols[1].number_input("前一", value=float(d["raw_divs"][1]), format="%.3f")
-            d3 = e_cols[2].number_input("前二", value=float(d["raw_divs"][2]), format="%.3f")
-            d4 = e_cols[3].number_input("前三", value=float(d["raw_divs"][3]), format="%.3f")
-            
-            avg_annual = (sum([d1, d2, d3, d4]) / 4) * d["multiplier"]
-            real_yield = (avg_annual / d['price']) * 100 if d['price'] > 0 else 0
-            
-            stat_c1, stat_c2 = st.columns(2)
-            with stat_c1:
-                st.caption(f"預估年配息 (系統以{d['freq_label']}配計算)")
-                st.markdown(f"<div class='highlight-val'>{avg_annual:.2f}</div>", unsafe_allow_html=True)
-            with stat_c2:
-                st.caption("實質殖利率")
-                st.markdown(f"<div class='highlight-val'>{real_yield:.2f}%</div>", unsafe_allow_html=True)
-
-            st.divider()
-            st.subheader("📊 估值位階參考")
-            p_cheap, p_fair, p_high = avg_annual/0.10 if avg_annual>0 else 0, avg_annual/0.07 if avg_annual>0 else 0, avg_annual/0.05 if avg_annual>0 else 0
-            rec = "💎 便宜買入" if d['price'] <= p_cheap and p_cheap > 0 else "✅ 合理持有" if d['price'] <= p_fair and p_fair > 0 else "❌ 昂貴不建議"
-            st.markdown(f"<div class='calc-box'>系統建議：<b>{rec}</b></div>", unsafe_allow_html=True)
-
-            p_cheap_val = f"{p_cheap:.2f}"
-            p_fair_val = f"{p_fair:.2f}"
-            p_high_val = f"{p_high:.2f}"
-            
-            table_html = f"""
-            <table class="styled-table">
-                <thead><tr><th>估值位階</th><th>建議價格參考</th></tr></thead>
-                <tbody>
-                    <tr><td>便宜價 (10%)</td><td>{p_cheap_val} 以下</td></tr>
-                    <tr><td>合理價 (7%)</td><td>{p_cheap_val} ~ {p_fair_val}</td></tr>
-                    <tr><td>昂貴價 (5%)</td><td>高於 {p_high_val}</td></tr>
-                </tbody>
-            </table>
-            """
-            st.markdown(table_html, unsafe_allow_html=True)
-
-            st.divider()
-            st.subheader("💰 持有張數試算 (含稅費)")
-            ratio_54c = st.slider("54C 股利佔比 (%)", 0, 100, 40)
-            calc_c1, calc_c2 = st.columns([1, 2])
-            with calc_c1: hold_lots = st.number_input("持有張數", min_value=0, value=10, step=1)
-            with calc_c2:
-                total_shares = hold_lots * 1000
-                total_raw = total_shares * d1
+                st.divider(); st.subheader("📑 歷史配息參考")
+                e_cols = st.columns(4)
+                d1 = e_cols[0].number_input("最新", value=float(d["raw_divs"][0]), format="%.3f")
+                d2 = e_cols[1].number_input("前一", value=float(d["raw_divs"][1]), format="%.3f")
+                d3 = e_cols[2].number_input("前二", value=float(d["raw_divs"][2]), format="%.3f")
+                d4 = e_cols[3].number_input("前三", value=float(d["raw_divs"][3]), format="%.3f")
                 
-                div_54c_part = total_raw * (ratio_54c/100)
-                nhi_amt = div_54c_part * 0.0211 if div_54c_part >= 20000 else 0
-                net_per_period = total_raw - nhi_amt
+                avg_annual = (sum([d1, d2, d3, d4]) / 4) * d["multiplier"]
+                real_yield = (avg_annual / d['price']) * 100 if d['price'] > 0 else 0
+                stat_c1, stat_c2 = st.columns(2)
+                with stat_c1:
+                    st.caption(f"預估年配息 (系統以{d['freq_label']}配計算)")
+                    st.markdown(f"<div class='highlight-val'>{avg_annual:.2f}</div>", unsafe_allow_html=True)
+                with stat_c2:
+                    st.caption("實質殖利率")
+                    st.markdown(f"<div class='highlight-val'>{real_yield:.2f}%</div>", unsafe_allow_html=True)
+
+                st.divider(); st.subheader("📊 估值位階參考")
+                p_cheap, p_fair, p_high = avg_annual/0.10 if avg_annual>0 else 0, avg_annual/0.07 if avg_annual>0 else 0, avg_annual/0.05 if avg_annual>0 else 0
+                rec = "💎 便宜買入" if d['price'] <= p_cheap and p_cheap > 0 else "✅ 合理持有" if d['price'] <= p_fair and p_fair > 0 else "❌ 昂貴不建議"
+                st.markdown(f"<div class='calc-box'>系統建議：<b>{rec}</b></div>", unsafe_allow_html=True)
                 
-            val_invest_total = f"{(total_shares * d['price'] * 1.001425):,.0f}"
-            val_raw_div = f"{total_raw:,.0f}"
-            val_nhi_deduct = f"{nhi_amt:,.0f}"
-            val_net_amt = f"{net_per_period:,.0f}"
-            val_annual_net_amt = f"{(net_per_period * d['multiplier']):,.0f}"
+                table_html = f"""<table class="styled-table"><thead><tr><th>估值位階</th><th>建議價格參考</th></tr></thead><tbody><tr><td>便宜價 (10%)</td><td>{p_cheap:.2f} 以下</td></tr><tr><td>合理價 (7%)</td><td>{p_cheap:.2f} ~ {p_fair:.2f}</td></tr><tr><td>昂貴價 (5%)</td><td>高於 {p_high:.2f}</td></tr></tbody></table>"""
+                st.markdown(table_html, unsafe_allow_html=True)
 
-            st.markdown(f"""
-            <div class="calc-box">
-                預估總投入: {val_invest_total} 元<br>
-                每{d['freq_label']}總配息: {val_raw_div} 元<br>
-                <span style="color: #d9534f;">└ 二代健保扣費: -{val_nhi_deduct} 元</span><br>
-                <b>每{d['freq_label']}實領金額: {val_net_amt} 元</b><br>
-                <hr style="border: 0.5px solid #dee2e6;">
-                一年累計實領: {val_annual_net_amt} 元
-            </div>
-            """, unsafe_allow_html=True)
+                st.divider(); st.subheader("💰 持有張數試算 (含稅費)")
+                ratio_54c = st.slider("54C 股利佔比 (%)", 0, 100, 40)
+                calc_c1, calc_c2 = st.columns([1, 2])
+                with calc_c1: hold_lots = st.number_input("持有張數", min_value=0, value=10, step=1)
+                with calc_c2:
+                    total_shares = hold_lots * 1000; total_raw = total_shares * d1
+                    div_54c_part = total_raw * (ratio_54c/100)
+                    nhi_amt = div_54c_part * 0.0211 if div_54c_part >= 20000 else 0
+                    net_per_period = total_raw - nhi_amt
+                st.markdown(f"""<div class="calc-box">預估總投入: {(total_shares * d['price'] * 1.001425):,.0f} 元<br>每{d['freq_label']}總配息: {total_raw:,.0f} 元<br><span style="color: #d9534f;">└ 二代健保扣費: -{nhi_amt:,.0f} 元</span><br><b>每{d['freq_label']}實領金額: {net_per_period:,.0f} 元</b><br><hr style="border: 0.5px solid #dee2e6;">一年累計實領: {(net_per_period * d['multiplier']):,.0f} 元</div>""", unsafe_allow_html=True)
 
-            st.divider()
-            st.subheader("🔮 存股未來財富試算")
-            with st.container():
-                # 第一排：改成 4 個欄位，讓數字輸入框有絕對寬敞的空間
+                st.divider(); st.subheader("🔮 存股未來財富試算")
                 f_col0, f_col1, f_col2, f_col3 = st.columns(4)
                 with f_col0: custom_initial = st.number_input("初始投入總金額 (元)", min_value=0, value=3000000, step=100000)
                 with f_col1: custom_monthly = st.number_input("每月預計投入 (元)", min_value=0, value=0, step=1000)
                 with f_col2: custom_withdraw = st.number_input("每月預計領出 (元)", min_value=0, value=0, step=1000)
                 with f_col3: custom_yield = st.number_input("自訂年化殖利率 (%)", value=float(f"{real_yield:.2f}"), step=0.1)
-                
-                # 第二排：將拉桿獨立放一行，長度拉滿更好滑動
-                st.write("") # 加一點點小留白讓視覺不擁擠
                 custom_years = st.slider("目標投入年數", 1, 40, 10)
-                
-                r = (custom_yield / 100) / 12
-                n = custom_years * 12
-                
-                # 每月實際進入本金的錢 = 投入 - 領出
+                r, n = (custom_yield / 100) / 12, custom_years * 12
                 net_monthly = custom_monthly - custom_withdraw
-                
-                if r > 0:
-                    fv = custom_initial * ((1 + r)**n) + net_monthly * (((1 + r)**n - 1) / r) * (1 + r)
-                else:
-                    fv = custom_initial + (net_monthly * n)
-                
-                # 避免領太多扣到變負債 (最低就是帳戶歸零)
-                fv = max(0, fv)
-                
-                total_invested = custom_initial + (custom_monthly * n)
-                total_withdrawn = custom_withdraw * n
-                
-                val_fv = f"{fv:,.0f}"
-                val_total_invested = f"{total_invested:,.0f}"
-                val_total_withdrawn = f"{total_withdrawn:,.0f}"
-                
-                if total_invested > 0:
-                    growth_ratio = (fv + total_withdrawn) / total_invested
-                else:
-                    growth_ratio = 0
-                val_growth_ratio = f"{growth_ratio:.2f}"
-                val_monthly_passive = f"{(fv * (custom_yield / 100)) / 12:,.0f}"
-
-                st.markdown(f"""
-                <div class="calc-box" style="border: 2px solid #dee2e6; padding: 25px; background-color: #f8f9fa;">
-                    <div style="font-size: 3.2rem; font-weight: bold; color: #1f1f1f;">$ {val_fv} <small style="font-size: 1.2rem;">元</small></div>
-                    <hr style="border: 0.5px solid #dee2e6;">
-                    <p style="font-size: 1rem; color: #333; line-height: 1.8;">
-                        累積投入本金: <b>{val_total_invested}</b> 元 | 
-                        期間累計領出: <b style="color: #d9534f;">{val_total_withdrawn}</b> 元 | 
-                        整體資產成長: <b>{val_growth_ratio}</b> 倍<br>
-                        <span style="color: #28a745; font-weight: bold;">期滿後每月預計被動收入 (不扣本金): {val_monthly_passive} 元</span>
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-
+                fv = max(0, custom_initial * ((1 + r)**n) + net_monthly * (((1 + r)**n - 1) / r) * (1 + r) if r > 0 else custom_initial + (net_monthly * n))
+                growth = (fv + custom_withdraw * n) / (custom_initial + custom_monthly * n) if (custom_initial + custom_monthly * n) > 0 else 0
+                st.markdown(f"""<div class="calc-box" style="border: 2px solid #dee2e6; padding: 25px; background-color: #f8f9fa;"><div style="font-size: 3.2rem; font-weight: bold; color: #1f1f1f;">$ {fv:,.0f} <small style="font-size: 1.2rem;">元</small></div><hr style="border: 0.5px solid #dee2e6;"><p style="font-size: 1rem; color: #333; line-height: 1.8;">累積投入本金: <b>{(custom_initial + custom_monthly * n):,.0f}</b> 元 | 期間累計領出: <b style="color: #d9534f;">{(custom_withdraw * n):,.0f}</b> 元 | 整體資產成長: <b>{growth:.2f}</b> 倍<br><span style="color: #28a745; font-weight: bold;">期滿後每月預計被動收入: {(fv * (custom_yield / 100)) / 12:,.0f} 元</span></p></div>""", unsafe_allow_html=True)
+            else:
+                st.error(f"❌ 查詢失敗：{st.session_state.data.get('msg')}")
     with side_col:
-        st.write("### 📖 說明")
-        st.caption("1. 輸入代號後點擊開始計算。")
-        st.caption("2. 手動輸入配息即可試算。")
-        st.divider()
-        st.success("系統正常運行中")
+        st.write("### 📖 說明"); st.caption("1. 輸入代號後點擊開始計算。"); st.caption("2. 手動輸入配息即可試算。"); st.divider(); st.success("系統正常運行中")
 
 elif st.session_state.page == "pk_tool":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("⚔️ ETF 對比工具")
-    
     col_in1, col_in2 = st.columns(2)
     with col_in1: code1 = st.text_input("輸入代碼 A", value="00919").strip().upper()
     with col_in2: code2 = st.text_input("輸入代碼 B", value="00918").strip().upper()
-    
     if st.button("開始對比"):
         with st.spinner("抓取對比數據中..."):
-            r1 = get_safe_data_etf(code1)
-            r2 = get_safe_data_etf(code2)
-            
+            r1, r2 = get_safe_data_etf(code1), get_safe_data_etf(code2)
             if r1["success"] and r2["success"]:
-                st.divider()
-                c1, c2 = st.columns(2)
-                analysis = []
-                for r in [r1, r2]:
-                    avg_annual = (sum(r["raw_divs"]) / 4) * r["multiplier"]
-                    real_yield = (avg_annual / r['price']) * 100 if r['price'] > 0 else 0
-                    analysis.append({"annual_div": avg_annual, "yield": real_yield})
-
+                st.divider(); c1, c2 = st.columns(2)
                 for i, r in enumerate([r1, r2]):
                     with [c1, c2][i]:
                         color = "#ff4b4b" if r['change'] > 0 else "#00ff00"
-                        st.markdown(f"""
-                        <div class="pk-card">
-                            <h3>{r['name']}</h3>
-                            <h2 style="color:{color}">{r['price']:.2f}</h2>
-                            <p>{r['change']:+.2f} ({r['pct']:+.2f}%)</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                
-                df = pd.DataFrame({
-                    "指標項目": ["目前價格", "當前漲幅", "配息頻率", "預估年配息", "實質殖利率"],
-                    f"{code1}": [f"{r1['price']:.2f}", f"{r1['pct']:.2f}%", r1['freq_label'], f"{analysis[0]['annual_div']:.2f}", f"{analysis[0]['yield']:.2f}%"],
-                    f"{code2}": [f"{r2['price']:.2f}", f"{r2['pct']:.2f}%", r2['freq_label'], f"{analysis[1]['annual_div']:.2f}", f"{analysis[1]['yield']:.2f}%"]
-                })
-                st.table(df)
-            else:
-                st.error("查無資料，請確認代碼是否輸入正確。")
+                        st.markdown(f"""<div class="pk-card"><h3>{r['name']}</h3><h2 style="color:{color}">{r['price']:.2f}</h2><p>{r['change']:+.2f} ({r['pct']:+.2f}%)</p></div>""", unsafe_allow_html=True)
+                analysis = [{"annual": (sum(r["raw_divs"])/4)*r["multiplier"], "yield": ((sum(r["raw_divs"])/4)*r["multiplier"]/r['price'])*100} for r in [r1, r2]]
+                st.table(pd.DataFrame({"指標項目": ["目前價格", "當前漲幅", "配息頻率", "預估年配息", "實質殖利率"], f"{code1}": [f"{r1['price']:.2f}", f"{r1['pct']:.2f}%", r1['freq_label'], f"{analysis[0]['annual']:.2f}", f"{analysis[0]['yield']:.2f}%"], f"{code2}": [f"{r2['price']:.2f}", f"{r2['pct']:.2f}%", r2['freq_label'], f"{analysis[1]['annual']:.2f}", f"{analysis[1]['yield']:.2f}%"]}))
+            else: st.error("查無資料，請確認代碼。")
 
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
-    
     with st.expander("📥 匯入投資清單 (CSV)"):
         uploaded_file = st.file_uploader("選擇 CSV 檔案", type="csv")
         if uploaded_file:
             import_df = pd.read_csv(uploaded_file)
             if "代碼" in import_df.columns and "張數" in import_df.columns:
                 new_data = import_df[["代碼", "張數"]].copy()
-                if len(new_data) < 20:
-                    padding = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20 - len(new_data))])
-                    new_data = pd.concat([new_data, padding], ignore_index=True)
-                st.session_state.portfolio = new_data
-                st.success("CSV 已載入編輯器，請檢查後點擊下方儲存。")
-            else:
-                st.error("CSV 格式錯誤！需包含『代碼』與『張數』兩個欄位。")
-
+                if len(new_data) < 20: new_data = pd.concat([new_data, pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20 - len(new_data))])], ignore_index=True)
+                st.session_state.portfolio = new_data; st.success("CSV 已載入編輯器。")
+            else: st.error("CSV 格式錯誤！")
     st.markdown("### 📝 編輯投資清單")
-    if st.session_state.portfolio is None or len(st.session_state.portfolio) == 0:
-        st.session_state.portfolio = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
-    
+    if st.session_state.portfolio is None or len(st.session_state.portfolio) == 0: st.session_state.portfolio = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
     edited_df = st.data_editor(st.session_state.portfolio, num_rows="dynamic", use_container_width=True)
-
     if st.button("💾 儲存變更至資料庫", type="primary"):
         st.session_state.portfolio = edited_df
-        if save_portfolio_to_cloud(st.session_state.current_user, edited_df):
-            st.success("✅ 投資組合已成功同步至資料庫")
-
-    st.divider()
-    st.markdown("### 📊 資產市值與配置分析")
-    
-    col_cost1, col_cost2 = st.columns([1, 2])
-    with col_cost1:
-        total_cost_input = st.number_input("💵 請輸入總成本 (自行填寫)", min_value=0.0, value=0.0, step=10000.0)
-
-    valid_df = edited_df.dropna(subset=["代碼", "張數"])
-    valid_df = valid_df[valid_df["代碼"].astype(str).str.strip() != ""]
-    
+        if save_portfolio_to_cloud(st.session_state.current_user, edited_df): st.success("✅ 已成功同步")
+    st.divider(); st.markdown("### 📊 資產分析")
+    total_cost_input = st.number_input("💵 請輸入總成本 (自行填寫)", min_value=0.0, value=0.0, step=10000.0)
+    valid_df = edited_df.dropna(subset=["代碼", "張數"]); valid_df = valid_df[valid_df["代碼"].astype(str).str.strip() != ""]
     if not valid_df.empty:
         if st.button("開始計算當前市值", type="primary"):
-            results = []
-            total_market_val = 0
-            total_annual_div = 0
-            with st.spinner("同步市場最新價格中..."):
-                for index, row in valid_df.iterrows():
+            results, m_val_sum, div_sum = [], 0, 0
+            with st.spinner("報價同步中..."):
+                for _, row in valid_df.iterrows():
                     try:
-                        code = str(row["代碼"]).strip().upper()
-                        shares = float(row["張數"]) * 1000
-                        if code:
-                            data = get_safe_data_etf(code)
-                            if data["success"]:
-                                m_val = data["price"] * shares
-                                ann_div = (sum(data["raw_divs"]) / 4) * data["multiplier"] * shares
-                                results.append({
-                                    "名稱": data["name"], "代碼": code, "現價": data["price"],
-                                    "持有價值": m_val, "預估年領股息": ann_div
-                                })
-                                total_market_val += m_val
-                                total_annual_div += ann_div
+                        code, shares = str(row["代碼"]).strip().upper(), float(row["張數"]) * 1000
+                        data = get_safe_data_etf(code)
+                        if data["success"]:
+                            m_val = data["price"] * shares; ann_div = (sum(data["raw_divs"]) / 4) * data["multiplier"] * shares
+                            results.append({"名稱": data["name"], "代碼": code, "現價": data["price"], "持有價值": m_val, "預估年領股息": ann_div})
+                            m_val_sum += m_val; div_sum += ann_div
                     except: continue
-
             if results:
-                res_df = pd.DataFrame(results)
-                
-                return_amt = total_market_val - total_cost_input
-                return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
-                
-                ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
-                circle_pct = min(abs(return_pct), 100)
-                
-                dashboard_html = f"""
-                <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: #1e1e28; padding: 25px; border-radius: 15px; border: 1px solid #444; margin-bottom: 20px;">
-                    <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_pct}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
-                        <div style="position: absolute; width: 125px; height: 125px; background-color: #1e1e28; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                            <span style="color: #aaa; font-size: 16px;">股票報酬</span>
-                            <span style="color: {ret_color}; font-size: 22px; font-weight: bold;">{return_pct:+.2f}%</span>
-                        </div>
-                    </div>
-                    <div style="min-width: 280px; margin-top: 10px;">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 8px;">
-                            <span style="color: #ccc; font-size: 18px;">總成本：</span>
-                            <span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_cost_input:,.0f}</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 15px;">
-                            <span style="color: #ccc; font-size: 18px;">股票市值：</span>
-                            <span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_market_val:,.0f}</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #ccc; font-size: 18px;">總報酬：</span>
-                            <span style="color: {ret_color}; font-size: 26px; font-weight: bold; font-family: 'Consolas';">{return_amt:+,.0f}</span>
-                        </div>
-                        <div style="text-align: right; margin-top: 5px;">
-                            <span style="color: #888; font-size: 13px;">(無加上手續費用)</span>
-                        </div>
-                    </div>
-                </div>
-                """
-                st.markdown(dashboard_html, unsafe_allow_html=True)
-                
-                m1, m2 = st.columns(2)
-                m1.metric("預估年領股息", f"${total_annual_div:,.0f}")
-                avg_yield = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
-                m2.metric("組合平均殖利率", f"{avg_yield:.2f}%")
-                
+                ret_amt = m_val_sum - total_cost_input; ret_pct = (ret_amt / total_cost_input * 100) if total_cost_input > 0 else 0; ret_color = "#ff4b4b" if ret_amt > 0 else "#00ff00"
+                st.markdown(f"""<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: #1e1e28; padding: 25px; border-radius: 15px; border: 1px solid #444; margin-bottom: 20px;"><div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {min(abs(ret_pct), 100)}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);"><div style="position: absolute; width: 125px; height: 125px; background-color: #1e1e28; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;"><span style="color: #aaa; font-size: 16px;">股票報酬</span><span style="color: {ret_color}; font-size: 22px; font-weight: bold;">{ret_pct:+.2f}%</span></div></div><div style="min-width: 280px; margin-top: 10px;"><div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 8px;"><span style="color: #ccc; font-size: 18px;">總成本：</span><span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_cost_input:,.0f}</span></div><div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 15px;"><span style="color: #ccc; font-size: 18px;">股票市值：</span><span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{m_val_sum:,.0f}</span></div><div style="display: flex; justify-content: space-between;"><span style="color: #ccc; font-size: 18px;">總報酬：</span><span style="color: {ret_color}; font-size: 26px; font-weight: bold; font-family: 'Consolas';">{ret_amt:+,.0f}</span></div></div></div>""", unsafe_allow_html=True)
+                m1, m2 = st.columns(2); m1.metric("預估年領股息", f"${div_sum:,.0f}"); m2.metric("組合平均殖利率", f"{(div_sum / m_val_sum * 100) if m_val_sum > 0 else 0:.2f}%")
                 col_chart, col_table = st.columns([1, 1])
-                with col_chart:
-                    fig = px.pie(res_df, values='持有價值', names='名稱', 
-                                 title="資產配置分佈圖", color_discrete_sequence=px.colors.qualitative.Pastel)
-                    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
-                    st.plotly_chart(fig, use_container_width=True)
-                with col_table:
-                    st.write("#### 詳細數據")
-                    st.dataframe(res_df, use_container_width=True)
-
-        st.divider()
-        st.subheader("📅 自動化領息排程月曆")
-        st.info("系統將根據您上方的持股清單，自動追蹤最新的除息紀錄並預估入帳時間。")
-        
+                with col_chart: st.plotly_chart(px.pie(pd.DataFrame(results), values='持有價值', names='名稱', title="資產配置分佈圖", color_discrete_sequence=px.colors.qualitative.Pastel).update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white"), use_container_width=True)
+                with col_table: st.write("#### 詳細數據"); st.dataframe(pd.DataFrame(results), use_container_width=True)
+        st.divider(); st.subheader("📅 自動化領息排程月曆")
         if st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary"):
             cal_df = generate_user_calendar()
-            
-            if cal_df is not None and not cal_df.empty:
-                cal_df = cal_df.sort_values(by="預計發放日 (預估)")
-                st.markdown("#### 📥 預計入帳時間表")
-                st.dataframe(cal_df, use_container_width=True, hide_index=True)
-                
-                total_incoming = cal_df["預估入帳金額"].sum()
-                st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
-                st.caption("※ 註：發放日為系統根據台股慣例（除息後約28天）自動推算，實際請以各公司公告為準。")
-                st.caption("※ 註：最新的配息日可能會晚些時間抓取網站沒更新那麼快")
-    else:
-        st.info("請先在上方表格輸入股票代碼與持有張數。")
+            if cal_df is not None:
+                st.dataframe(cal_df.sort_values(by="預計發放日 (預估)"), use_container_width=True, hide_index=True)
+                st.success(f"💰 這一波領息預計總入帳： **${cal_df['預估入帳金額'].sum():,.0f}** 元")
+    else: st.info("請先輸入代碼與張數。")
 
 elif st.session_state.page == "watchlist":
     st.title("⭐ 我的關注清單")
-
     if 'watchlist_data' not in st.session_state:
-        try:
-            st.session_state.watchlist_data = load_watchlist_from_cloud()
-        except:
-            st.session_state.watchlist_data = []
+        try: st.session_state.watchlist_data = load_watchlist_from_cloud()
+        except: st.session_state.watchlist_data = []
 
     with st.form("add_stock_form", clear_on_submit=True):
         st.write("### ➕ 新增追蹤標的")
         new_code = st.text_input("輸入台股代碼", placeholder="例如: 2330").strip().upper()
-        submit_button = st.form_submit_button("確認加入", use_container_width=True)
-        
-        if submit_button and new_code:
+        if st.form_submit_button("確認加入", use_container_width=True) and new_code:
             clean_code = new_code.replace('.TW', '').replace('.TWO', '')
             if clean_code not in st.session_state.watchlist_data:
-                info = get_stock_info(clean_code)
-                if info:
-                    st.session_state.watchlist_data.append(clean_code)
-                    save_watchlist_to_cloud(st.session_state.watchlist_data)
-                    st.success(f"✅ {clean_code} 加入成功！")
-                    st.rerun()
-                else:
-                    st.error("❌ 找不到代碼")
+                if get_stock_info(clean_code):
+                    st.session_state.watchlist_data.append(clean_code); save_watchlist_to_cloud(st.session_state.watchlist_data); st.success(f"✅ {clean_code} 加入成功！"); st.rerun()
+                else: st.error("❌ 找不到代碼")
 
     st.divider()
-
     @st.fragment(run_every=120)
     def refresh_watchlist_view():
         if st.session_state.watchlist_data:
-            now_tw = datetime.now(tw_tz).strftime('%H:%M:%S')
-            st.caption(f"⏱️ 行情自動刷新中... ({now_tw})")
-            
+            st.caption(f"⏱️ 行情自動刷新中... ({datetime.now(tw_tz).strftime('%H:%M:%S')})")
             for code in st.session_state.watchlist_data:
                 item = get_stock_info(code)
                 if item:
@@ -909,16 +656,10 @@ elif st.session_state.page == "watchlist":
                     c1.markdown(f"**{item['name']}** <span style='color:#aaa; font-size:0.9em;'>({item['full_ticker']})</span>", unsafe_allow_html=True)
                     c2.markdown(f"<span style='color:{color}; font-size:1.3rem; font-weight:bold;'>{item['price']:.2f}</span>", unsafe_allow_html=True)
                     c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
-                    
                     if c4.button("刪除", key=f"del_{item['full_ticker']}"):
-                        try:
-                            st.session_state.watchlist_data.remove(item['full_ticker'])
-                        except ValueError:
-                            pass
-                        save_watchlist_to_cloud(st.session_state.watchlist_data)
-                        st.rerun()
+                        try: st.session_state.watchlist_data.remove(item['full_ticker'])
+                        except ValueError: pass
+                        save_watchlist_to_cloud(st.session_state.watchlist_data); st.rerun()
                     st.markdown("<hr style='margin-top: -15px; margin-bottom: 10px; border: none; border-top: 1px solid rgba(128, 128, 128, 0.3);'>", unsafe_allow_html=True)
-        else:
-            st.info("清單空空如也，請在上方新增標的。")
-
+        else: st.info("清單空空如也。")
     refresh_watchlist_view()
