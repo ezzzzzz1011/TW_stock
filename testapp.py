@@ -189,6 +189,14 @@ st.markdown("""
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
     .styled-table th { background-color: var(--secondary-background-color); color: var(--text-color); text-align: left; padding: 12px; border-bottom: 2px solid var(--text-color); }
     .styled-table td { padding: 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.3); color: var(--text-color) !important; }
+    
+    /* 專門將關注清單第四欄的刪除按鈕縮小 */
+    div[data-testid="column"]:nth-child(4) button[kind="secondary"] {
+        height: auto !important;
+        min-height: 0px !important;
+        padding: 4px 12px !important;
+        width: fit-content !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
