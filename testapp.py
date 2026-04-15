@@ -189,6 +189,16 @@ st.markdown("""
     .styled-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 1.1rem; }
     .styled-table th { background-color: var(--secondary-background-color); color: var(--text-color); text-align: left; padding: 12px; border-bottom: 2px solid var(--text-color); }
     .styled-table td { padding: 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.3); color: var(--text-color) !important; }
+    
+    /* 專門將關注清單第四欄的刪除按鈕縮小 */
+    div[data-testid="stColumn"]:nth-child(4) .stButton > button,
+    div[data-testid="column"]:nth-child(4) .stButton > button {
+        height: auto !important;
+        min-height: 32px !important;
+        width: max-content !important;
+        padding: 0px 16px !important;
+        margin: 0 auto !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -887,18 +897,18 @@ elif st.session_state.page == "watchlist":
                 if item:
                     c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
                     color = "#ff4b4b" if item['change'] > 0 else "#00ff00"
-                    c1.markdown(f"**{item['name']}**")
+                    c1.markdown(f"**{item['name']}** <span style='color:#aaa; font-size:0.9em;'>({item['full_ticker']})</span>", unsafe_allow_html=True)
                     c2.markdown(f"<span style='color:{color}; font-size:1.3rem; font-weight:bold;'>{item['price']:.2f}</span>", unsafe_allow_html=True)
                     c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
                     
-                    if c4.button("🗑️", key=f"del_{item['full_ticker']}"):
+                    if c4.button("刪除", key=f"del_{item['full_ticker']}"):
                         try:
                             st.session_state.watchlist_data.remove(item['full_ticker'])
                         except ValueError:
                             pass
                         save_watchlist_to_cloud(st.session_state.watchlist_data)
                         st.rerun()
-                    st.divider()
+                    st.markdown("<hr style='margin-top: -15px; margin-bottom: 10px; border: none; border-top: 1px solid rgba(128, 128, 128, 0.3);'>", unsafe_allow_html=True)
         else:
             st.info("清單空空如也，請在上方新增標的。")
 
