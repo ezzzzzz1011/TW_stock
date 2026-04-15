@@ -678,7 +678,7 @@ elif st.session_state.page == "pk_tool":
     
     col_in1, col_in2 = st.columns(2)
     with col_in1: code1 = st.text_input("輸入代碼 A", value="00919").strip().upper()
-    with col_in2: code2 = st.text_input("輸入代碼 B", value="00878").strip().upper()
+    with col_in2: code2 = st.text_input("輸入代碼 B", value="00918").strip().upper()
     
     if st.button("開始對比"):
         with st.spinner("抓取對比數據中..."):
