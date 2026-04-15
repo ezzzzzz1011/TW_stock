@@ -552,6 +552,23 @@ elif st.session_state.page == "etf_query":
 
             st.divider()
             st.subheader("📑 歷史配息參考")
+
+            st.divider()
+            st.subheader("📑 歷史配息參考")
+            
+            # --- 新增這段配息頻率選擇器 ---
+            freq_map = {"月配": 12, "季配": 4, "半年配": 2, "年配": 1}
+            sys_freq_name = f"{d['freq_label']}配" if f"{d['freq_label']}配" in freq_map else "年配"
+            sys_index = list(freq_map.keys()).index(sys_freq_name)
+            
+            user_freq = st.selectbox("🔄 自訂/修正配息頻率：", list(freq_map.keys()), index=sys_index)
+            
+            # 覆寫變數，讓下方所有的公式與文字自動套用你的選擇
+            d['multiplier'] = freq_map[user_freq]
+            d['freq_label'] = user_freq.replace("配", "")
+            # ------------------------------
+            
+            e_cols = st.columns(4)
          
             e_cols = st.columns(4)
             d1 = e_cols[0].number_input("最新", value=float(d["raw_divs"][0]), format="%.3f")
