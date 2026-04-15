@@ -884,6 +884,17 @@ elif st.session_state.page == "watchlist":
             
             # --- 建立表格的「標題列」 ---
             st.markdown("""
+            <style>
+            /* 針對第 7 個欄位 (c7 垃圾桶) 的按鈕強制縮小與對齊 */
+            div[data-testid="column"]:nth-child(7) .stButton > button {
+                height: 2.2em !important;
+                width: 2.2em !important;
+                min-height: 2.2em !important;
+                padding: 0px !important;
+                margin: 0 auto !important;
+                margin-top: 5px !important;
+            }
+            </style>
             <div style="display: flex; color: #aaa; font-size: 0.95rem; margin-bottom: 5px; padding-bottom: 8px; border-bottom: 1px solid #444;">
                 <div style="flex: 2.5; padding-left: 5px;">名稱</div>
                 <div style="flex: 1.2; text-align: right;">買價</div>
