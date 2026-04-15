@@ -844,6 +844,7 @@ elif st.session_state.page == "portfolio":
                 total_incoming = cal_df["預估入帳金額"].sum()
                 st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
                 st.caption("※ 註：發放日為系統根據台股慣例（除息後約28天）自動推算，實際請以各公司公告為準。")
+                st.caption("※ 註：最新的配息日可能會晚一個月抓取網站沒更新那麼快")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
 
