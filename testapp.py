@@ -613,24 +613,39 @@ elif st.session_state.page == "etf_query":
             st.divider()
             st.subheader("🔮 存股未來財富試算")
             with st.container():
-                f_col0, f_col1, f_col2, f_col3 = st.columns(4)
-                with f_col0: custom_initial = st.number_input("初始投入總金額 (元)", min_value=0, value=100000, step=10000)
-                with f_col1: custom_monthly = st.number_input("每月預計投入 (元)", min_value=0, value=10000, step=1000)
-                with f_col2: custom_yield = st.number_input("自訂年化殖利率 (%)", value=float(f"{real_yield:.2f}"), step=0.1)
-                with f_col3: custom_years = st.slider("目標投入年數", 1, 40, 10)
+                f_col0, f_col1, f_col2, f_col3, f_col4 = st.columns(5)
+                with f_col0: custom_initial = st.number_input("初始投入總金額 (元)", min_value=0, value=3000000, step=100000)
+                with f_col1: custom_monthly = st.number_input("每月預計投入 (元)", min_value=0, value=0, step=1000)
+                with f_col2: custom_withdraw = st.number_input("每月預計領出 (元)", min_value=0, value=10000, step=1000)
+                with f_col3: custom_yield = st.number_input("自訂年化殖利率 (%)", value=float(f"{real_yield:.2f}"), step=0.1)
+                with f_col4: custom_years = st.slider("目標投入年數", 1, 40, 10)
                 
                 r = (custom_yield / 100) / 12
                 n = custom_years * 12
-    
+                
+                # 每月實際進入本金的錢 = 投入 - 領出
+                net_monthly = custom_monthly - custom_withdraw
+                
                 if r > 0:
-                    fv = custom_initial * ((1 + r)**n) + custom_monthly * (((1 + r)**n - 1) / r) * (1 + r)
+                    fv = custom_initial * ((1 + r)**n) + net_monthly * (((1 + r)**n - 1) / r) * (1 + r)
                 else:
-                    fv = custom_initial + (custom_monthly * n)
+                    fv = custom_initial + (net_monthly * n)
+                
+                # 避免領太多扣到變負債 (最低就是帳戶歸零)
+                fv = max(0, fv)
                 
                 total_invested = custom_initial + (custom_monthly * n)
+                total_withdrawn = custom_withdraw * n
+                
                 val_fv = f"{fv:,.0f}"
                 val_total_invested = f"{total_invested:,.0f}"
-                val_growth_ratio = f"{fv/total_invested if total_invested > 0 else 0:.2f}"
+                val_total_withdrawn = f"{total_withdrawn:,.0f}"
+                
+                if total_invested > 0:
+                    growth_ratio = (fv + total_withdrawn) / total_invested
+                else:
+                    growth_ratio = 0
+                val_growth_ratio = f"{growth_ratio:.2f}"
                 val_monthly_passive = f"{(fv * (custom_yield / 100)) / 12:,.0f}"
 
                 st.markdown(f"""
@@ -639,8 +654,9 @@ elif st.session_state.page == "etf_query":
                     <hr style="border: 0.5px solid #dee2e6;">
                     <p style="font-size: 1rem; color: #333; line-height: 1.8;">
                         累積投入本金: <b>{val_total_invested}</b> 元 | 
-                        資產成長倍數: <b>{val_growth_ratio}</b> 倍<br>
-                        <span style="color: #28a745; font-weight: bold;">每月預計領取被動收入: {val_monthly_passive} 元</span>
+                        期間累計領出: <b style="color: #d9534f;">{val_total_withdrawn}</b> 元 | 
+                        整體資產成長: <b>{val_growth_ratio}</b> 倍<br>
+                        <span style="color: #28a745; font-weight: bold;">期滿後每月預計被動收入 (不扣本金): {val_monthly_passive} 元</span>
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
@@ -648,7 +664,7 @@ elif st.session_state.page == "etf_query":
     with side_col:
         st.write("### 📖 說明")
         st.caption("1. 輸入代號後點擊開始計算。")
-        st.caption("2. 手手動輸入配息即可試算。")
+        st.caption("2. 手動輸入配息即可試算。")
         st.divider()
         st.success("系統正常運行中")
 
