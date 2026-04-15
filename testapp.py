@@ -211,61 +211,84 @@ client = RestClient(api_key=FUGLE_TOKEN)
 # ==========================================
 # 🚀 終極數據引擎 1：報價與總量 (Yahoo 優先 + Fugle 備援)
 # ==========================================
-def get_stock_info(symbol):
+def fetch_dividend_history_super(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
+    div_list = []
     
+    # 你的 FinMind API 金鑰 [cite: 198]
+    token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2Vyc2lkIjp6ZW5vaWLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSJ9.ApZobjnh5PCRDtXb8rj6a3Y10h1GUGS0EYKHXkTEvKw"
+    
+    # --- 第一重：嘗試官方 API ---
     try:
-        url = f"https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.quotes;symbols={clean_symbol}.TW,{clean_symbol}.TWO"
-        # 升級真實瀏覽器偽裝
-        fake_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"
-        }
-        res = requests.get(url, headers=fake_headers, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            if data and isinstance(data, list):
-                q = data[0]
-                price = float(q.get('price', q.get('previousClose', 0.0)))
-                if price > 0:
-                    vol_shares = int(q.get('volume', 0))
-                    vol_lots = (vol_shares // 1000) if vol_shares > 1000 else vol_shares
-                    return {
-                        "name": q.get('symbolName', clean_symbol),
-                        "price": price,
-                        "change": float(q.get('change', 0.0)),
-                        "pct": float(q.get('changePercent', 0.0)),
-                        "high": float(q.get('regularMarketDayHigh', price)),
-                        "low": float(q.get('regularMarketDayLow', price)),
-                        "open": float(q.get('regularMarketDayOpen', price)),
-                        "vol": vol_lots * 1000, 
-                        "full_ticker": clean_symbol,
-                        "hist": None, "dividends": None
-                    }
-    except: pass
+        url = "https://api.finminddata.com/v4/data"
+        params = {"dataset": "TaiwanStockDividend", "data_id": clean_symbol, "token": token}
+        res = requests.get(url, params=params, timeout=5)
+        data = res.json()
+        if data.get("msg") == "success" and data.get("data"):
+            for item in data["data"]:
+                amount = float(item.get('cash_dividend', 0))
+                if amount > 0:
+                    div_list.append({'date': item['ex_dividend_date'], 'amount': amount})
+            if div_list:
+                return sorted(div_list, key=lambda x: x['date'], reverse=True)
+    except Exception:
+        # 當出現 image_15e8e4.png 的連線錯誤時，不顯示紅框，直接進入下方的備援邏輯
+        pass
 
-    try:
-        data = client.stock.intraday.quote(symbol=clean_symbol)
-        if not data: return None
-        price = float(data.get('lastPrice') or data.get('closePrice') or data.get('previousClose') or 0.0)
-        vol = float(data.get('total', {}).get('tradeVolume', 0))
-        if 0 < vol < 500000: vol = vol * 1000 
-            
-        return {
-            "name": data.get('name', clean_symbol),
-            "price": price,
-            "change": float(data.get('change', 0.0)),
-            "pct": float(data.get('changePercent', 0.0)),
-            "high": float(data.get('highPrice') or price),
-            "low": float(data.get('lowPrice') or price),
-            "open": float(data.get('openPrice') or price),
-            "vol": int(vol),
-            "full_ticker": clean_symbol,
-            "hist": None, "dividends": None
-        }
-    except Exception as e:
-        st.error(f"⚠️ 抓取 {symbol} 失敗: {e}")
-        return None
+    # --- 第二重：備援機制 (原本的爬蟲邏輯) ---
+    # 當 API 斷線時，自動切換至 Yahoo 與 HiStock 抓取資料
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Referer": "https://histock.tw/"
+    }
+
+    # 備援 1：Yahoo Finance [cite: 42-44]
+    for suffix in ['.TW', '.TWO']:
+        try:
+            y_url = f"https://query2.finance.yahoo.com/v8/finance/chart/{clean_symbol}{suffix}?interval=1d&events=div&range=5y"
+            res = requests.get(y_url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                events = res.json().get('chart', {}).get('result', [{}])[0].get('events', {}).get('dividends', {})
+                for val in events.values():
+                    div_list.append({'date': datetime.fromtimestamp(val['date']).strftime('%Y-%m-%d'), 'amount': float(val['amount'])})
+                if div_list: break
+        except: pass
+
+    # 備援 2：HiStock (針對債券 ETF 如 00937B, 00725B) [cite: 45-51]
+    if not div_list:
+        test_urls = [f"https://histock.tw/stock/financial.aspx?no={clean_symbol}&t=2", f"https://histock.tw/stock/etfdividend.aspx?no={clean_symbol}"]
+        for h_url in test_urls:
+            try:
+                res = requests.get(h_url, headers=headers, timeout=5)
+                if res.status_code == 200:
+                    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', res.text, re.IGNORECASE | re.DOTALL)
+                    for row in rows:
+                        cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
+                        if len(cells) >= 3:
+                            r_date, r_val = "", None
+                            for cell in cells:
+                                txt = re.sub(r'<[^>]+>', '', cell).strip()
+                                if not r_date:
+                                    m = re.search(r'(\d{4})/(\d{1,2})/(\d{1,2})', txt)
+                                    if m: r_date = f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+                                if r_val is None:
+                                    try:
+                                        v = float(txt)
+                                        if 0.001 < v < 30.0: r_val = v
+                                    except: pass
+                            if r_val and r_date: div_list.append({"amount": r_val, "date": r_date})
+                if div_list: break
+            except: pass
+
+    # 去重複並回傳 [cite: 52]
+    if div_list:
+        unique_divs = {}
+        for d in div_list:
+            if d['date'] not in unique_divs or d['amount'] > unique_divs[d['date']]:
+                unique_divs[d['date']] = d['amount']
+        return sorted([{'date': k, 'amount': v} for k, v in unique_divs.items()], key=lambda x: x['date'], reverse=True)
+    
+    return []
 
 # ==========================================
 # 🚀 終極數據引擎 2：配息與日期去重複 (強制 range=5y 破除封鎖)
