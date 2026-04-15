@@ -897,7 +897,7 @@ elif st.session_state.page == "watchlist":
                 if item:
                     c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
                     color = "#ff4b4b" if item['change'] > 0 else "#00ff00"
-                    c1.markdown(f"**{item['name']}**")
+                    c1.markdown(f"**{item['name']}** <span style='color:#aaa; font-size:0.9em;'>({item['full_ticker']})</span>", unsafe_allow_html=True)
                     c2.markdown(f"<span style='color:{color}; font-size:1.3rem; font-weight:bold;'>{item['price']:.2f}</span>", unsafe_allow_html=True)
                     c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
                     
