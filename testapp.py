@@ -225,14 +225,31 @@ def get_stock_info(symbol):
     except: return None
 
 # ==========================================
-# 🚀 引擎 2：配息抓取 (加入 24 小時長效快取)
+# 🚀 引擎 2：配息抓取 (加入 yfinance 神級套件防禦)
 # ==========================================
 @st.cache_data(ttl=86400)
 def fetch_dividend_history_super(symbol):
     clean_s = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
     
-    # --- HiStock 爬蟲優先 (較快更新已公告配息) ---
+    # --- 引擎 1：yfinance (最強防禦，內建防阻擋，速度極快) ---
+    try:
+        for suffix in ['.TW', '.TWO']:
+            ticker = yf.Ticker(f"{clean_s}{suffix}")
+            divs = ticker.dividends
+            if not divs.empty:
+                for date, amount in divs.items():
+                    if float(amount) > 0:
+                        # 將 yfinance 的時間戳轉換為 YYYY-MM-DD 格式
+                        dt_str = date.strftime('%Y-%m-%d')
+                        div_list.append({'date': dt_str, 'amount': float(amount)})
+                if div_list:
+                    # 抓到資料就直接排序回傳，不跑後面的備援
+                    return sorted(div_list, key=lambda x: x['date'], reverse=True)
+    except:
+        pass
+
+    # --- 引擎 2：HiStock 爬蟲 (專治 00937B 等債券 ETF) ---
     headers_h = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://histock.tw/"}
     h_urls = [f"https://histock.tw/stock/etfdividend.aspx?no={clean_s}", f"https://histock.tw/stock/financial.aspx?no={clean_s}&t=2"]
     for url in h_urls:
@@ -241,11 +258,14 @@ def fetch_dividend_history_super(symbol):
             if r.status_code == 200 and "現金股利" in r.text:
                 matches = re.findall(r'(\d{4}/\d{1,2}/\d{1,2}).*?(\d+\.\d+)', r.text, re.DOTALL)
                 for m_date, m_val in matches: 
-                    div_list.append({'date': m_date.replace('/', '-'), 'amount': float(m_val)})
+                    d_str = m_date.replace('/', '-')
+                    parts = d_str.split('-')
+                    formatted_date = f"{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}"
+                    div_list.append({'date': formatted_date, 'amount': float(m_val)})
                 if div_list: break
         except: pass
 
-    # --- FinMind API 補底 ---
+    # --- 引擎 3：FinMind API 補底 ---
     if not div_list:
         fm_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2Vyc2lkIjp6ZW5vaWLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSJ9.ApZobjnh5PCRDtXb8rj6a3Y10h1GUGS0EYKHXkTEvKw"
         try:
@@ -257,6 +277,7 @@ def fetch_dividend_history_super(symbol):
                         div_list.append({'date': item['ex_dividend_date'], 'amount': float(item.get('cash_dividend'))})
         except: pass
         
+    # --- 最終處理：去重複與排序 ---
     if div_list:
         unique_divs = {}
         for d in div_list:
