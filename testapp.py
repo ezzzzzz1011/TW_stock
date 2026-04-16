@@ -238,48 +238,52 @@ def get_stock_info(symbol):
 # ==========================================
 # 🚀 引擎 2：配息抓取 (HiStock 搶先版 + yfinance 補底)
 # ==========================================
-# ⚠️ 記得刪除這行上面的 @st.cache_data 裝飾器！
+# ⚠️ 請確保這行上方沒有 @st.cache_data！
 
 def fetch_dividend_history_super(symbol):
     clean_s = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
 
-    # --- 必殺引擎 1：暴力挖取 Yahoo 台灣網頁底層 (專抓最新公告，無視除息日限制) ---
-    try:
-        url = f"https://tw.stock.yahoo.com/quote/{clean_s}/dividend"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36"}
-        res = requests.get(url, headers=headers, timeout=5)
-        
-        # 直接從網頁原始碼中，精準攔截除息日與配息金額
-        blocks = re.findall(r'"exDividendDate":"(20\d{2}-\d{2}-\d{2})".*?"cashDividend":"?(\d+\.\d+)"?', res.text)
-        if not blocks: 
-            # 預防屬性順序顛倒的備用寫法
-            blocks = re.findall(r'"cashDividend":"?(\d+\.\d+)"?.*?"exDividendDate":"(20\d{2}-\d{2}-\d{2})"', res.text)
-            blocks = [(d, v) for v, d in blocks]
-            
-        for m_date, m_val in blocks:
-            if float(m_val) > 0:
-                div_list.append({'date': m_date, 'amount': float(m_val)})
-                
-        if div_list:
-            unique_divs = {d['date']: d['amount'] for d in div_list}
-            return sorted([{'date': k, 'amount': v} for k, v in unique_divs.items()], key=lambda x: x['date'], reverse=True)
-    except: pass
+    # --- 必殺引擎 1：Pandas 精準解析 HiStock 表格 (完美解決「整數 1」與「未來公告」被漏抓的問題) ---
+    headers_h = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://histock.tw/"}
+    h_urls = [f"https://histock.tw/stock/etfdividend.aspx?no={clean_s}", f"https://histock.tw/stock/financial.aspx?no={clean_s}&t=2"]
+    
+    for url in h_urls:
+        try:
+            res = requests.get(url, headers=headers_h, timeout=5)
+            if res.status_code == 200 and ("現金股利" in res.text or "除息" in res.text):
+                # 使用 pandas 強大表格解析能力，直接把網頁轉成 Dataframe
+                dfs = pd.read_html(io.StringIO(res.text))
+                for df in dfs:
+                    # 處理多層表頭
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = ['_'.join(map(str, c)) for c in df.columns]
+                    
+                    # 自動尋找「日期」與「金額」的欄位
+                    date_col = next((c for c in df.columns if '除息日' in str(c) or '除權息日' in str(c)), None)
+                    val_col = next((c for c in df.columns if '現金股利' in str(c) or '除息金額' in str(c) or '配息' in str(c)), None)
+                    
+                    if date_col and val_col:
+                        for _, row in df.dropna(subset=[date_col, val_col]).iterrows():
+                            d_str = str(row[date_col]).strip()
+                            v_str = str(row[val_col]).strip()
+                            
+                            # 抓取日期
+                            m_date = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', d_str)
+                            if m_date:
+                                formatted_date = f"{m_date.group(1)}-{int(m_date.group(2)):02d}-{int(m_date.group(3)):02d}"
+                                
+                                # 抓取金額 (⭐ 修正核心：支援沒有小數點的整數 '1')
+                                m_val = re.search(r'(\d+(?:\.\d+)?)', v_str)
+                                if m_val:
+                                    val = float(m_val.group(1))
+                                    if val > 0:
+                                        div_list.append({'date': formatted_date, 'amount': val})
+                    if div_list: break
+            if div_list: break
+        except: pass
 
-    # --- 備援引擎 2：HiStock 爬蟲 (專治債券 ETF，如 00937B) ---
-    try:
-        h_headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://histock.tw/"}
-        for url in [f"https://histock.tw/stock/etfdividend.aspx?no={clean_s}", f"https://histock.tw/stock/financial.aspx?no={clean_s}&t=2"]:
-            r = requests.get(url, headers=h_headers, timeout=5)
-            if r.status_code == 200 and "現金股利" in r.text:
-                for m_date, m_val in re.findall(r'(\d{4}/\d{1,2}/\d{1,2}).*?(\d+\.\d+)', r.text, re.DOTALL):
-                    d_str = m_date.replace('/', '-')
-                    parts = d_str.split('-')
-                    div_list.append({'date': f"{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}", 'amount': float(m_val)})
-                if div_list: break
-    except: pass
-
-    # --- 備援引擎 3：yfinance API 補底 ---
+    # --- 備援引擎 2：yfinance 官方套件 ---
     if not div_list:
         try:
             for suffix in ['.TW', '.TWO']:
@@ -290,10 +294,26 @@ def fetch_dividend_history_super(symbol):
                             div_list.append({'date': date.strftime('%Y-%m-%d'), 'amount': float(amount)})
                     if div_list: break
         except: pass
+
+    # --- 備援引擎 3：FinMind API ---
+    if not div_list:
+        fm_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2Vyc2lkIjp6ZW5vaWLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSJ9.ApZobjnh5PCRDtXb8rj6a3Y10h1GUGS0EYKHXkTEvKw"
+        try:
+            res = requests.get("https://api.finminddata.com/v4/data", params={"dataset": "TaiwanStockDividend", "data_id": clean_s, "token": fm_token}, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                if data.get("msg") == "success" and data.get("data"):
+                    for item in data["data"]:
+                        if float(item.get('cash_dividend', 0)) > 0:
+                            div_list.append({'date': item['ex_dividend_date'], 'amount': float(item.get('cash_dividend'))})
+        except: pass
         
-    # --- 去重複與最終排序 ---
+    # --- 去重複與排序 ---
     if div_list:
-        unique_divs = {d['date']: d['amount'] for d in div_list}
+        unique_divs = {}
+        for d in div_list:
+            if d['date'] not in unique_divs or d['amount'] > unique_divs[d['date']]:
+                unique_divs[d['date']] = d['amount']
         return sorted([{'date': k, 'amount': v} for k, v in unique_divs.items()], key=lambda x: x['date'], reverse=True)
         
     return []
