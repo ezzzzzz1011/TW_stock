@@ -808,7 +808,21 @@ elif st.session_state.page == "portfolio":
                             data = get_safe_data_etf(code)
                             if data["success"]:
                                 m_val = data["price"] * shares
-                                ann_div = (sum(data["raw_divs"]) / 4) * data["multiplier"] * shares
+                                
+                                # --- 這裡更新為精準的配息計算邏輯 ---
+                                d1, d2, d3, d4 = data["raw_divs"][0], data["raw_divs"][1], data["raw_divs"][2], data["raw_divs"][3]
+                                if data['multiplier'] == 1:
+                                    avg_annual = d1
+                                elif data['multiplier'] == 2:
+                                    avg_annual = d1 + d2
+                                elif data['multiplier'] == 4:
+                                    avg_annual = d1 + d2 + d3 + d4
+                                else:
+                                    avg_annual = (sum(data["raw_divs"]) / 4) * data["multiplier"]
+                                
+                                ann_div = avg_annual * shares
+                                # ---------------------------------
+                                
                                 results.append({
                                     "名稱": data["name"], "代碼": code, "現價": data["price"],
                                     "持有價值": m_val, "預估年領股息": ann_div
