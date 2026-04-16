@@ -236,66 +236,54 @@ def get_stock_info(symbol):
         return None
 
 # ==========================================
-# 🚀 終極數據引擎 2：配息與日期去重複 (FinMind + HiStock 備援)
+# 🚀 終極數據引擎 2：配息與日期去重複 (三引擎備援架構)
 # ==========================================
 def fetch_dividend_history_super(symbol):
-    clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
+    clean_s = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
     
-    # --- 1. 嘗試 FinMind API (最快最穩) ---
+    # --- 引擎 1：FinMind API (速度最快，但 ETF 資料庫有時不齊全) ---
     fm_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2Vyc2lkIjp6ZW5vaWLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSJ9.ApZobjnh5PCRDtXb8rj6a3Y10h1GUGS0EYKHXkTEvKw"
     try:
-        url = "https://api.finminddata.com/v4/data"
-        params = {"dataset": "TaiwanStockDividend", "data_id": clean_symbol, "token": fm_token}
-        res = requests.get(url, params=params, timeout=5)
+        res = requests.get("https://api.finminddata.com/v4/data", params={"dataset": "TaiwanStockDividend", "data_id": clean_s, "token": fm_token}, timeout=5)
         data = res.json()
         if data.get("msg") == "success" and data.get("data"):
             for item in data["data"]:
-                amount = float(item.get('cash_dividend', 0))
-                if amount > 0:
-                    div_list.append({'date': item['ex_dividend_date'], 'amount': amount})
-            if div_list:
-                return sorted(div_list, key=lambda x: x['date'], reverse=True)
-    except:
-        pass
+                if float(item.get('cash_dividend', 0)) > 0:
+                    div_list.append({'date': item['ex_dividend_date'], 'amount': float(item['cash_dividend'])})
+            if div_list: return sorted(div_list, key=lambda x: x['date'], reverse=True)
+    except: pass
 
-    # --- 2. 備援：HiStock (加入 Referer 偽裝與債券 ETF 專屬網址) ---
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Referer": "https://histock.tw/"  # 繞過阻擋的關鍵
-    }
-    
-    # 同時測試「債券ETF網址」與「一般個股網址」
-    test_urls = [
-        f"https://histock.tw/stock/etfdividend.aspx?no={clean_symbol}",
-        f"https://histock.tw/stock/financial.aspx?no={clean_symbol}&t=2"
-    ]
-    
-    for url in test_urls:
+    # --- 引擎 2：Yahoo 國際版 API (超強備援，專治一般股與主流 ETF，破除封鎖) ---
+    headers_y = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+    for suffix in ['.TW', '.TWO']:
         try:
-            res = requests.get(url, headers=headers, timeout=5)
-            if res.status_code == 200 and "現金股利" in res.text:
-                rows = re.findall(r'<tr[^>]*>(.*?)</tr>', res.text, re.IGNORECASE | re.DOTALL)
-                for row in rows:
-                    cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
-                    if len(cells) >= 3:
-                        r_date, r_val = "", None
-                        for cell in cells:
-                            txt = re.sub(r'<[^>]+>', '', cell).strip()
-                            if not r_date:
-                                match = re.search(r'(\d{4})/(\d{1,2})/(\d{1,2})', txt)
-                                if match: r_date = f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
-                            if r_val is None:
-                                try:
-                                    v = float(txt)
-                                    if 0.001 < v < 30.0: r_val = v
-                                except: pass
-                        if r_val is not None and r_date:
-                            div_list.append({"amount": r_val, "date": r_date})
-                if div_list: break  # 只要其中一個網址抓到資料，就停止測試
+            y_url = f"https://query2.finance.yahoo.com/v8/finance/chart/{clean_s}{suffix}?interval=1d&events=div&range=5y"
+            res = requests.get(y_url, headers=headers_y, timeout=5)
+            if res.status_code == 200:
+                events = res.json().get('chart', {}).get('result', [{}])[0].get('events', {}).get('dividends', {})
+                if events:
+                    for val in events.values():
+                        dt = datetime.fromtimestamp(val['date']).strftime('%Y-%m-%d')
+                        div_list.append({'date': dt, 'amount': float(val['amount'])})
+                    if div_list: break # 只要 .TW 或 .TWO 其中一個抓到就跳出
         except: pass
-    
-    # --- 3. 去重複並回傳 ---
+        
+    if div_list: return sorted(div_list, key=lambda x: x['date'], reverse=True)
+
+    # --- 引擎 3：HiStock 爬蟲 (專治債券 ETF，如 00937B) ---
+    headers_h = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://histock.tw/"}
+    h_urls = [f"https://histock.tw/stock/etfdividend.aspx?no={clean_s}", f"https://histock.tw/stock/financial.aspx?no={clean_s}&t=2"]
+    for url in h_urls:
+        try:
+            r = requests.get(url, headers=headers_h, timeout=5)
+            if r.status_code == 200:
+                matches = re.findall(r'(\d{4}/\d{1,2}/\d{1,2}).*?(\d+\.\d+)', r.text, re.DOTALL)
+                for m_date, m_val in matches: div_list.append({'date': m_date.replace('/', '-'), 'amount': float(m_val)})
+                if div_list: break
+        except: pass
+        
+    # --- 最終處理：去重複與排序 ---
     if div_list:
         unique_divs = {}
         for d in div_list:
@@ -305,7 +293,6 @@ def fetch_dividend_history_super(symbol):
         return sorted(final_list, key=lambda x: x['date'], reverse=True)
         
     return []
-
 # --- ETF 資料處理主函數 (精準天數頻率算法) ---
 @st.cache_data(ttl=3600) 
 def get_safe_data_etf(symbol):
