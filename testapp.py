@@ -242,12 +242,11 @@ def fetch_dividend_history_super(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
     
-    # 你的 FinMind API 金鑰
-    token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2Vyc2lkIjp6ZW5vaWLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSJ9.ApZobjnh5PCRDtXb8rj6a3Y10h1GUGS0EYKHXkTEvKw"
-    
+    # --- 1. 嘗試 FinMind API (最快最穩) ---
+    fm_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2Vyc2lkIjp6ZW5vaWLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSJ9.ApZobjnh5PCRDtXb8rj6a3Y10h1GUGS0EYKHXkTEvKw"
     try:
         url = "https://api.finminddata.com/v4/data"
-        params = {"dataset": "TaiwanStockDividend", "data_id": clean_symbol, "token": token}
+        params = {"dataset": "TaiwanStockDividend", "data_id": clean_symbol, "token": fm_token}
         res = requests.get(url, params=params, timeout=5)
         data = res.json()
         if data.get("msg") == "success" and data.get("data"):
@@ -257,18 +256,21 @@ def fetch_dividend_history_super(symbol):
                     div_list.append({'date': item['ex_dividend_date'], 'amount': amount})
             if div_list:
                 return sorted(div_list, key=lambda x: x['date'], reverse=True)
-    except Exception:
+    except:
         pass
 
-    # HiStock 備援 (含一般股與債券 ETF 網址)
+    # --- 2. 備援：HiStock (加入 Referer 偽裝與債券 ETF 專屬網址) ---
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Referer": "https://histock.tw/"
+        "Referer": "https://histock.tw/"  # 繞過阻擋的關鍵
     }
+    
+    # 同時測試「債券ETF網址」與「一般個股網址」
     test_urls = [
         f"https://histock.tw/stock/etfdividend.aspx?no={clean_symbol}",
         f"https://histock.tw/stock/financial.aspx?no={clean_symbol}&t=2"
     ]
+    
     for url in test_urls:
         try:
             res = requests.get(url, headers=headers, timeout=5)
@@ -290,9 +292,10 @@ def fetch_dividend_history_super(symbol):
                                 except: pass
                         if r_val is not None and r_date:
                             div_list.append({"amount": r_val, "date": r_date})
-                if div_list: break
+                if div_list: break  # 只要其中一個網址抓到資料，就停止測試
         except: pass
     
+    # --- 3. 去重複並回傳 ---
     if div_list:
         unique_divs = {}
         for d in div_list:
