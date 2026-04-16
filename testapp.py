@@ -1,7 +1,7 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-from datetime import datetime
+from datetime import fdatetime
 import pytz
 import plotly.express as px
 import io
@@ -540,8 +540,20 @@ elif st.session_state.page == "etf_query":
                 d3 = e_cols[2].number_input("前二", value=float(d["raw_divs"][2]), format="%.3f")
                 d4 = e_cols[3].number_input("前三", value=float(d["raw_divs"][3]), format="%.3f")
                 
-                # 加上 round 消除浮點數誤差
-                avg_annual = round((sum([d1, d2, d3, d4]) / 4) * d["multiplier"], 4)
+                # 根據不同配息頻率，取用正確的期數來計算年配息
+                if d['multiplier'] == 1:
+                    # 年配：只取最新 1 期
+                    avg_annual = round(d1, 4)
+                elif d['multiplier'] == 2:
+                    # 半年配：取最新 2 期加總
+                    avg_annual = round(d1 + d2, 4)
+                elif d['multiplier'] == 4:
+                    # 季配：取 4 期加總
+                    avg_annual = round(d1 + d2 + d3 + d4, 4)
+                else:
+                    # 月配或其他：用4格平均推算全年
+                    avg_annual = round((sum([d1, d2, d3, d4]) / 4) * d['multiplier'], 4)
+                
                 real_yield = (avg_annual / d['price']) * 100 if d['price'] > 0 else 0
                 
                 stat_c1, stat_c2 = st.columns(2)
