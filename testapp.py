@@ -686,7 +686,23 @@ elif st.session_state.page == "pk_tool":
                 c1, c2 = st.columns(2)
                 analysis = []
                 for r in [r1, r2]:
-                    avg_annual = (sum(r["raw_divs"]) / 4) * r["multiplier"]
+                    # 取得四期的配息資料
+                    d1, d2, d3, d4 = r["raw_divs"][0], r["raw_divs"][1], r["raw_divs"][2], r["raw_divs"][3]
+                    
+                    # 根據不同配息頻率，取用正確的期數來計算年配息
+                    if r['multiplier'] == 1:
+                        # 年配：只取最新 1 期
+                        avg_annual = round(d1, 4)
+                    elif r['multiplier'] == 2:
+                        # 半年配：取最新 2 期加總
+                        avg_annual = round(d1 + d2, 4)
+                    elif r['multiplier'] == 4:
+                        # 季配：取 4 期加總
+                        avg_annual = round(d1 + d2 + d3 + d4, 4)
+                    else:
+                        # 月配或其他：用 4 格平均推算全年
+                        avg_annual = round((sum(r["raw_divs"]) / 4) * r["multiplier"], 4)
+                    
                     real_yield = (avg_annual / r['price']) * 100 if r['price'] > 0 else 0
                     analysis.append({"annual_div": avg_annual, "yield": real_yield})
 
