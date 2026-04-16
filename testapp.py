@@ -236,54 +236,43 @@ def get_stock_info(symbol):
         return None
 
 # ==========================================
-# 🚀 終極數據引擎 2：配息與日期去重複 (三引擎備援架構)
+# 🚀 引擎 2：配息抓取 (HiStock 搶先版 + yfinance 補底)
 # ==========================================
+@st.cache_data(ttl=86400)
 def fetch_dividend_history_super(symbol):
     clean_s = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
     
-    # --- 引擎 1：FinMind API (速度最快，但 ETF 資料庫有時不齊全) ---
-    fm_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2Vyc2lkIjp6ZW5vaWLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSJ9.ApZobjnh5PCRDtXb8rj6a3Y10h1GUGS0EYKHXkTEvKw"
-    try:
-        res = requests.get("https://api.finminddata.com/v4/data", params={"dataset": "TaiwanStockDividend", "data_id": clean_s, "token": fm_token}, timeout=5)
-        data = res.json()
-        if data.get("msg") == "success" and data.get("data"):
-            for item in data["data"]:
-                if float(item.get('cash_dividend', 0)) > 0:
-                    div_list.append({'date': item['ex_dividend_date'], 'amount': float(item['cash_dividend'])})
-            if div_list: return sorted(div_list, key=lambda x: x['date'], reverse=True)
-    except: pass
-
-    # --- 引擎 2：Yahoo 國際版 API (超強備援，專治一般股與主流 ETF，破除封鎖) ---
-    headers_y = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
-    for suffix in ['.TW', '.TWO']:
-        try:
-            y_url = f"https://query2.finance.yahoo.com/v8/finance/chart/{clean_s}{suffix}?interval=1d&events=div&range=5y"
-            res = requests.get(y_url, headers=headers_y, timeout=5)
-            if res.status_code == 200:
-                events = res.json().get('chart', {}).get('result', [{}])[0].get('events', {}).get('dividends', {})
-                if events:
-                    for val in events.values():
-                        dt = datetime.fromtimestamp(val['date']).strftime('%Y-%m-%d')
-                        div_list.append({'date': dt, 'amount': float(val['amount'])})
-                    if div_list: break # 只要 .TW 或 .TWO 其中一個抓到就跳出
-        except: pass
-        
-    if div_list: return sorted(div_list, key=lambda x: x['date'], reverse=True)
-
-    # --- 引擎 3：HiStock 爬蟲 (專治債券 ETF，如 00937B) ---
+    # --- 第 1 步：強制先爬 HiStock (為了抓取已公告、但還沒除息的最新數據，例如 0056 的 1.0) ---
     headers_h = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://histock.tw/"}
     h_urls = [f"https://histock.tw/stock/etfdividend.aspx?no={clean_s}", f"https://histock.tw/stock/financial.aspx?no={clean_s}&t=2"]
     for url in h_urls:
         try:
             r = requests.get(url, headers=headers_h, timeout=5)
-            if r.status_code == 200:
+            if r.status_code == 200 and "現金股利" in r.text:
                 matches = re.findall(r'(\d{4}/\d{1,2}/\d{1,2}).*?(\d+\.\d+)', r.text, re.DOTALL)
-                for m_date, m_val in matches: div_list.append({'date': m_date.replace('/', '-'), 'amount': float(m_val)})
+                for m_date, m_val in matches: 
+                    d_str = m_date.replace('/', '-')
+                    parts = d_str.split('-')
+                    formatted_date = f"{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}"
+                    div_list.append({'date': formatted_date, 'amount': float(m_val)})
                 if div_list: break
         except: pass
+
+    # --- 第 2 步：如果 HiStock 沒抓到，才呼叫 yfinance 補底 ---
+    if not div_list:
+        try:
+            for suffix in ['.TW', '.TWO']:
+                ticker = yf.Ticker(f"{clean_s}{suffix}")
+                divs = ticker.dividends
+                if not divs.empty:
+                    for date, amount in divs.items():
+                        if float(amount) > 0:
+                            div_list.append({'date': date.strftime('%Y-%m-%d'), 'amount': float(amount)})
+                    if div_list: break
+        except: pass
         
-    # --- 最終處理：去重複與排序 ---
+    # --- 第 3 步：去重複與排序 ---
     if div_list:
         unique_divs = {}
         for d in div_list:
