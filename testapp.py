@@ -308,10 +308,7 @@ def get_safe_data_etf(symbol):
         data_list = fetch_dividend_history_super(symbol)
         
         if data_list:
-            for i in range(min(4, len(data_list))):
-                raw_divs[i] = data_list[i]['amount']
-                
-            # 🟢 頻率精準判斷：直接算「配息間隔的平均天數」
+            # 🟢 步驟 1：先進行頻率精準判斷 (算配息間隔天數)
             if len(data_list) >= 2:
                 check_len = min(5, len(data_list))
                 dates = [datetime.strptime(d['date'], "%Y-%m-%d") for d in data_list[:check_len]]
@@ -328,6 +325,26 @@ def get_safe_data_etf(symbol):
                     multiplier, freq_label = 1, "年"
             else:
                 multiplier, freq_label = 1, "年"
+
+            # 🚀 步驟 2：關鍵修正 -> 依照時間軸來填入配息數字
+            if freq_label == "年":
+                # 【年配息專用防呆】：把歷史清單按照「年份」分類與加總
+                yearly_divs = {}
+                for item in data_list:
+                    y = int(item['date'].split('-')[0])
+                    yearly_divs[y] = yearly_divs.get(y, 0.0) + item['amount']
+                
+                # 決定基準年：如果今年(2026)已經有配息紀錄，就從今年算；如果沒有，就從去年(2025)開始往前推
+                current_year = datetime.now(tw_tz).year
+                start_year = current_year if yearly_divs.get(current_year, 0) > 0 else current_year - 1
+                
+                # 強制產生連續 4 年的數字，若該年沒配息，字典取不到值就會預設為 0.0
+                for i in range(4):
+                    raw_divs[i] = yearly_divs.get(start_year - i, 0.0)
+            else:
+                # 【季配/月配 ETF 專用】：因為 ETF 幾乎不會停發，保留您原本依序抓最近 4 次的邏輯
+                for i in range(min(4, len(data_list))):
+                    raw_divs[i] = data_list[i]['amount']
                 
     except Exception as e:
         print(f"配息分析失敗: {e}") 
