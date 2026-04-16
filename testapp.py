@@ -236,61 +236,43 @@ def get_stock_info(symbol):
         return None
 
 # ==========================================
-# 🚀 引擎 2：配息抓取 (HiStock 搶先版 + yfinance 補底)
+# 🚀 終極配息引擎 v6 (強制破除快取 + 三方數據合併)
 # ==========================================
-def fetch_dividend_history_super(symbol):
+@st.cache_data(ttl=86400)
+def fetch_dividend_v6(symbol):
     clean_s = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
 
-    # --- 必殺 1：Yahoo 台灣網頁暴力解析 (最即時，無視除息日，且不用安裝套件) ---
+    # 1. 引擎 A：無金鑰版 FinMind (最穩定的官方歷史庫)
     try:
-        url = f"https://tw.stock.yahoo.com/quote/{clean_s}/dividend"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36"}
-        res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code == 200:
-            # 支援「整數 1」與「小數點 0.866」的超強正規表達式
-            blocks = re.findall(r'"cashDividend":"?(\d+(?:\.\d+)?)"?.*?"exDividendDate":"(20\d{2}-\d{2}-\d{2})"', res.text)
-            if not blocks:
-                blocks = re.findall(r'"exDividendDate":"(20\d{2}-\d{2}-\d{2})".*?"cashDividend":"?(\d+(?:\.\d+)?)"?', res.text)
-                blocks = [(v, d) for d, v in blocks] # 交換順序為 (金額, 日期)
-                
-            for m_val, m_date in blocks:
-                if float(m_val) > 0:
-                    div_list.append({'date': m_date, 'amount': float(m_val)})
+        res = requests.get("https://api.finminddata.com/v4/data", params={"dataset": "TaiwanStockDividend", "data_id": clean_s}, timeout=5)
+        data = res.json()
+        if data.get("msg") == "success" and data.get("data"):
+            for item in data["data"]:
+                val = float(item.get('cash_dividend', 0))
+                if val > 0: div_list.append({'date': item['ex_dividend_date'], 'amount': val})
     except: pass
 
-    # --- 必殺 2：HiStock 爬蟲 (放棄 pandas 避免崩潰，改回純文字搜尋) ---
-    if not div_list:
-        try:
-            h_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://histock.tw/"}
-            for url in [f"https://histock.tw/stock/etfdividend.aspx?no={clean_s}", f"https://histock.tw/stock/financial.aspx?no={clean_s}&t=2"]:
-                r = requests.get(url, headers=h_headers, timeout=5)
-                if r.status_code == 200 and "現金股利" in r.text:
-                    # 同樣支援整數與小數的寫法
-                    matches = re.findall(r'(\d{4}/\d{1,2}/\d{1,2}).*?(\d+(?:\.\d+)?)', r.text, re.DOTALL)
-                    for m_date, m_val in matches:
-                        d_str = m_date.replace('/', '-')
-                        parts = d_str.split('-')
-                        div_list.append({'date': f"{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}", 'amount': float(m_val)})
-                    if div_list: break
-        except: pass
+    # 2. 引擎 B：yfinance 官方套件 (涵蓋率最廣，不怕擋)
+    try:
+        for suf in ['.TW', '.TWO']:
+            divs = yf.Ticker(f"{clean_s}{suf}").dividends
+            if divs is not None and not divs.empty:
+                for dt, val in divs.items():
+                    if float(val) > 0: div_list.append({'date': dt.strftime('%Y-%m-%d'), 'amount': float(val)})
+                break
+    except: pass
 
-    # --- 必殺 3：FinMind 官方 API (🚨 拔除 Token，使用免費免登入額度) ---
-    if not div_list:
-        try:
-            url = "https://api.finminddata.com/v4/data"
-            # 故意不放 token，避免因過期或額度爆掉而報錯
-            params = {"dataset": "TaiwanStockDividend", "data_id": clean_s}
-            res = requests.get(url, params=params, timeout=5)
-            if res.status_code == 200:
-                data = res.json()
-                if data.get("msg") == "success" and data.get("data"):
-                    for item in data["data"]:
-                        if float(item.get('cash_dividend', 0)) > 0:
-                            div_list.append({'date': item['ex_dividend_date'], 'amount': float(item.get('cash_dividend'))})
-        except: pass
-        
-    # --- 最終處理：去重複與排序 ---
+    # 3. 引擎 C：Yahoo 台灣暴力解析 (專抓 0056 的 1.0 等剛公告、還沒除息的數據)
+    try:
+        res = requests.get(f"https://tw.stock.yahoo.com/quote/{clean_s}/dividend", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        dates = re.findall(r'"exDividendDate":"(20\d{2}-\d{2}-\d{2})"', res.text)
+        amts = re.findall(r'"cashDividend":([\d\.]+)', res.text) # 支援整數 1 與小數
+        for i in range(min(len(dates), len(amts))):
+            if float(amts[i]) > 0: div_list.append({'date': dates[i], 'amount': float(amts[i])})
+    except: pass
+
+    # 🟢 終極絕招：把三個引擎抓到的數據「全部合併去重複」，保證絕不漏接
     if div_list:
         unique_divs = {}
         for d in div_list:
@@ -299,60 +281,39 @@ def fetch_dividend_history_super(symbol):
         return sorted([{'date': k, 'amount': v} for k, v in unique_divs.items()], key=lambda x: x['date'], reverse=True)
         
     return []
-# --- ETF 資料處理主函數 (精準天數頻率算法) ---
-@st.cache_data(ttl=3600) 
+
+# --- ETF 資料處理主函數 ---
+# ⚠️ 這裡已經將呼叫的函數改為新的 fetch_dividend_v6
 def get_safe_data_etf(symbol):
     info = get_stock_info(symbol)
     if not info or info["price"] <= 0:
         return {"success": False, "msg": f"找不到代號 {symbol} 或目前無報價"}
     
     raw_divs = [0.0] * 4
-    multiplier = 1
-    freq_label = "年"
+    multiplier, freq_label = 1, "年"
     
     try:
-        data_list = fetch_dividend_history_super(symbol)
-        
+        data_list = fetch_dividend_v6(symbol)  # 👈 強制呼叫新函數
         if data_list:
             for i in range(min(4, len(data_list))):
                 raw_divs[i] = data_list[i]['amount']
                 
-            # 🟢 頻率精準判斷：直接算「配息間隔的平均天數」
             if len(data_list) >= 2:
                 check_len = min(5, len(data_list))
                 dates = [datetime.strptime(d['date'], "%Y-%m-%d") for d in data_list[:check_len]]
                 days_diffs = [(dates[i] - dates[i+1]).days for i in range(len(dates)-1)]
                 avg_days = sum(days_diffs) / len(days_diffs)
                 
-                if avg_days <= 45: 
-                    multiplier, freq_label = 12, "月"
-                elif avg_days <= 110: 
-                    multiplier, freq_label = 4, "季"
-                elif avg_days <= 200: 
-                    multiplier, freq_label = 2, "半年"
-                else: 
-                    multiplier, freq_label = 1, "年"
-            else:
-                multiplier, freq_label = 1, "年"
-                
-    except Exception as e:
-        print(f"配息分析失敗: {e}") 
+                if avg_days <= 45: multiplier, freq_label = 12, "月"
+                elif avg_days <= 110: multiplier, freq_label = 4, "季"
+                elif avg_days <= 200: multiplier, freq_label = 2, "半年"
+    except Exception: pass
 
     return {
-        "success": True, 
-        "name": info["name"],
-        "price": info["price"],
-        "change": info["change"], 
-        "pct": info["pct"], 
-        "high": info["high"],
-        "low": info["low"], 
-        "open": info["open"], 
-        "vol": info["vol"],
-        "raw_divs": raw_divs,       
-        "multiplier": multiplier,
-        "freq_label": freq_label,
-        "last_date": datetime.now(tw_tz).strftime('%Y-%m-%d'), 
-        "full_ticker": info["full_ticker"]
+        "success": True, "name": info["name"], "price": info["price"], "change": info["change"], 
+        "pct": info["pct"], "high": info["high"], "low": info["low"], "open": info["open"], 
+        "vol": info["vol"], "raw_divs": raw_divs, "multiplier": multiplier, "freq_label": freq_label,
+        "last_date": datetime.now(tw_tz).strftime('%Y-%m-%d'), "full_ticker": info["full_ticker"]
     }
 
 def get_dividend_calendar(symbol):
