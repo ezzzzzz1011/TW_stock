@@ -35,15 +35,13 @@ try:
     conn = init_connection()
     sh = conn.open("streamlit_db")
     
-    try:
-        user_sheet = sh.worksheet("users")
+    try: user_sheet = sh.worksheet("users")
     except:
         user_sheet = sh.add_worksheet(title="users", rows="100", cols="2")
         user_sheet.append_row(["username", "password"])
         user_sheet.append_row(["admin", "8888"])
     
-    try:
-        portfolio_sheet = sh.worksheet("portfolios")
+    try: portfolio_sheet = sh.worksheet("portfolios")
     except:
         portfolio_sheet = sh.add_worksheet(title="portfolios", rows="1000", cols="2")
         portfolio_sheet.append_row(["username", "data_json"])
@@ -62,8 +60,7 @@ def load_portfolio_from_cloud(username):
         if cell:
             json_data = portfolio_sheet.cell(cell.row, 2).value
             return pd.read_json(io.StringIO(json_data))
-    except Exception:
-        pass
+    except Exception: pass
     return pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
 
 def save_portfolio_to_cloud(username, df):
@@ -71,26 +68,42 @@ def save_portfolio_to_cloud(username, df):
     json_data = clean_df.to_json(orient='records', date_format='iso')
     try:
         cell = portfolio_sheet.find(username)
-        if cell:
-            portfolio_sheet.update_cell(cell.row, 2, json_data)
-        else:
-            portfolio_sheet.append_row([username, json_data])
+        if cell: portfolio_sheet.update_cell(cell.row, 2, json_data)
+        else: portfolio_sheet.append_row([username, json_data])
         return True
     except Exception as e:
         st.error(f"⚠️ 雲端儲存失敗: {e}")
         return False
 
+def load_watchlist_from_cloud():
+    try:
+        ws = sh.worksheet("watchlist")
+        all_records = ws.get_all_records()
+        for row in all_records:
+            if row.get('username') == st.session_state.current_user:
+                raw_codes = str(row.get('codes', "")).replace("'", "").strip()
+                if raw_codes:
+                    valid_codes = [c.strip() for c in raw_codes.split(',') if 0 < len(c.strip()) < 10]
+                    return valid_codes
+        return []
+    except Exception: return []
+
+def save_watchlist_to_cloud(codes_list):
+    try:
+        ws = sh.worksheet("watchlist")
+        cell = ws.find(st.session_state.current_user)
+        codes_str = "'" + ",".join([str(c).strip() for c in codes_list])
+        if cell: ws.update(range_name=f"B{cell.row}", values=[[codes_str]])
+        else: ws.append_row([st.session_state.current_user, codes_str])
+    except Exception as e:
+        st.error(f"雲端儲存失敗: {e}")
+
 # --- 初始化應用程式狀態 ---
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-if 'current_user' not in st.session_state:
-    st.session_state.current_user = None
-if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = None
-if 'page' not in st.session_state:
-    st.session_state.page = "welcome"  
-if 'data' not in st.session_state: 
-    st.session_state.data = None
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if 'current_user' not in st.session_state: st.session_state.current_user = None
+if 'portfolio' not in st.session_state: st.session_state.portfolio = None
+if 'page' not in st.session_state: st.session_state.page = "welcome"  
+if 'data' not in st.session_state: st.session_state.data = None
 
 # --- 登入介面邏輯 ---
 def login_ui():
@@ -109,7 +122,6 @@ def login_ui():
         with tab1:
             u_id = st.text_input("帳號名稱", key="l_user", placeholder="請輸入帳號")
             u_pw = st.text_input("存取密碼", type="password", key="l_pw", placeholder="請輸入密碼")
-            
             if st.button("確認登入", use_container_width=True, type="primary"):
                 if user_db.get(u_id) == u_pw:
                     st.session_state.logged_in = True
@@ -118,22 +130,17 @@ def login_ui():
                     st.session_state.page = "welcome"  
                     st.success("登入成功！")
                     st.rerun()
-                else:
-                    st.error("❌ 帳號或密碼不正確")
+                else: st.error("❌ 帳號或密碼不正確")
 
         with tab2:
             st.info("註冊資料將儲存於雲端，重啟系統不會遺失。")
             new_u = st.text_input("設定帳號", key="r_user")
             new_p = st.text_input("設定密碼", type="password", key="r_pw")
             confirm_p = st.text_input("確認密碼", type="password", key="r_confirm")
-            
             if st.button("提交註冊", use_container_width=True):
-                if new_u in user_db:
-                    st.warning("⚠️ 帳號已存在")
-                elif new_p != confirm_p:
-                    st.error("❌ 密碼不一致")
-                elif len(new_u) < 2 or len(new_p) < 4:
-                    st.error("❌ 長度不足 (帳號需2字元, 密碼需4字元)")
+                if new_u in user_db: st.warning("⚠️ 帳號已存在")
+                elif new_p != confirm_p: st.error("❌ 密碼不一致")
+                elif len(new_u) < 2 or len(new_p) < 4: st.error("❌ 長度不足 (帳號需2字元, 密碼需4字元)")
                 else:
                     user_sheet.append_row([new_u, new_p])
                     default_df = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
@@ -141,34 +148,6 @@ def login_ui():
                     st.success("✅ 註冊成功！請切換至登入分頁。")
                 
     st.markdown('</div>', unsafe_allow_html=True)
-
-def load_watchlist_from_cloud():
-    try:
-        ws = sh.worksheet("watchlist")
-        all_records = ws.get_all_records()
-        for row in all_records:
-            if row.get('username') == st.session_state.current_user:
-                raw_codes = str(row.get('codes', "")).replace("'", "").strip()
-                if raw_codes:
-                    valid_codes = [c.strip() for c in raw_codes.split(',') if 0 < len(c.strip()) < 10]
-                    return valid_codes
-        return []
-    except Exception as e:
-        st.error(f"讀取失敗: {e}")
-    return []
-
-def save_watchlist_to_cloud(codes_list):
-    try:
-        ws = sh.worksheet("watchlist")
-        cell = ws.find(st.session_state.current_user)
-        codes_str = "'" + ",".join([str(c).strip() for c in codes_list])
-        
-        if cell:
-            ws.update(range_name=f"B{cell.row}", values=[[codes_str]])
-        else:
-            ws.append_row([st.session_state.current_user, codes_str])
-    except Exception as e:
-        st.error(f"雲端儲存失敗: {e}")
 
 if not st.session_state.logged_in:
     login_ui()
@@ -190,27 +169,17 @@ st.markdown("""
     .styled-table th { background-color: var(--secondary-background-color); color: var(--text-color); text-align: left; padding: 12px; border-bottom: 2px solid var(--text-color); }
     .styled-table td { padding: 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.3); color: var(--text-color) !important; }
     
-    /* 專門將關注清單第四欄的刪除按鈕縮小並往上對齊 (排除首頁的主要按鈕) */
-    div[data-testid="stColumn"]:nth-child(4) button[kind="secondary"],
-    div[data-testid="column"]:nth-child(4) button[kind="secondary"] {
-        height: auto !important;
-        min-height: 32px !important;
-        width: max-content !important;
-        padding: 0px 16px !important;
-        margin-top: -12px !important;
-        margin-left: auto !important;
-        margin-right: auto !important;
+    div[data-testid="stColumn"]:nth-child(4) button[kind="secondary"], div[data-testid="column"]:nth-child(4) button[kind="secondary"] {
+        height: auto !important; min-height: 32px !important; width: max-content !important; padding: 0px 16px !important; margin-top: -12px !important; margin-left: auto !important; margin-right: auto !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- Fugle API 初始化 ---
+# --- 數據引擎 ---
 FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
 client = RestClient(api_key=FUGLE_TOKEN)
 
-# ==========================================
-# 🚀 終極數據引擎 1：報價與總量 (強制 Fugle 備援，解決卡死)
-# ==========================================
+# 1. 現價報價引擎 (無快取，隨時最新)
 def get_stock_info(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     try:
@@ -219,31 +188,21 @@ def get_stock_info(symbol):
         price = float(data.get('lastPrice') or data.get('closePrice') or data.get('previousClose') or 0.0)
         vol = float(data.get('total', {}).get('tradeVolume', 0))
         if 0 < vol < 500000: vol = vol * 1000 
-            
         return {
-            "name": data.get('name', clean_symbol),
-            "price": price,
-            "change": float(data.get('change', 0.0)),
-            "pct": float(data.get('changePercent', 0.0)),
-            "high": float(data.get('highPrice') or price),
-            "low": float(data.get('lowPrice') or price),
-            "open": float(data.get('openPrice') or price),
-            "vol": int(vol),
-            "full_ticker": clean_symbol,
-            "hist": None, "dividends": None
+            "name": data.get('name', clean_symbol), "price": price,
+            "change": float(data.get('change', 0.0)), "pct": float(data.get('changePercent', 0.0)),
+            "high": float(data.get('highPrice') or price), "low": float(data.get('lowPrice') or price),
+            "open": float(data.get('openPrice') or price), "vol": int(vol), "full_ticker": clean_symbol
         }
-    except Exception:
-        return None
+    except Exception: return None
 
-# ==========================================
-# 🚀 終極配息引擎 v6 (強制破除快取 + 三方數據合併)
-# ==========================================
+# 2. 終極配息抓取引擎 v7 (強制無視舊快取、四大管道同時搜刮)
 @st.cache_data(ttl=86400)
-def fetch_dividend_v6(symbol):
+def fetch_dividend_v7(symbol):
     clean_s = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
 
-    # 1. 引擎 A：無金鑰版 FinMind (最穩定的官方歷史庫)
+    # 管道A: FinMind (不放token，用免費額度，避免刷爆報錯)
     try:
         res = requests.get("https://api.finminddata.com/v4/data", params={"dataset": "TaiwanStockDividend", "data_id": clean_s}, timeout=5)
         data = res.json()
@@ -253,7 +212,7 @@ def fetch_dividend_v6(symbol):
                 if val > 0: div_list.append({'date': item['ex_dividend_date'], 'amount': val})
     except: pass
 
-    # 2. 引擎 B：yfinance 官方套件 (涵蓋率最廣，不怕擋)
+    # 管道B: yfinance (官方庫最穩，但可能慢幾天)
     try:
         for suf in ['.TW', '.TWO']:
             divs = yf.Ticker(f"{clean_s}{suf}").dividends
@@ -263,27 +222,34 @@ def fetch_dividend_v6(symbol):
                 break
     except: pass
 
-    # 3. 引擎 C：Yahoo 台灣暴力解析 (專抓 0056 的 1.0 等剛公告、還沒除息的數據)
+    # 管道C: Yahoo台灣網頁底層 (專治 0056 的「1.0」提早抓取)
     try:
         res = requests.get(f"https://tw.stock.yahoo.com/quote/{clean_s}/dividend", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         dates = re.findall(r'"exDividendDate":"(20\d{2}-\d{2}-\d{2})"', res.text)
-        amts = re.findall(r'"cashDividend":([\d\.]+)', res.text) # 支援整數 1 與小數
+        amts = re.findall(r'"cashDividend":([\d\.]+)', res.text) # 支援整數
         for i in range(min(len(dates), len(amts))):
             if float(amts[i]) > 0: div_list.append({'date': dates[i], 'amount': float(amts[i])})
     except: pass
 
-    # 🟢 終極絕招：把三個引擎抓到的數據「全部合併去重複」，保證絕不漏接
+    # 管道D: HiStock (專治 00937B 債券ETF)
+    try:
+        r = requests.get(f"https://histock.tw/stock/financial.aspx?no={clean_s}&t=2", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        for m_date, m_val in re.findall(r'(\d{4}/\d{1,2}/\d{1,2}).*?(\d+(?:\.\d+)?)', r.text, re.DOTALL):
+            d_str = m_date.replace('/', '-')
+            parts = d_str.split('-')
+            div_list.append({'date': f"{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}", 'amount': float(m_val)})
+    except: pass
+
+    # 整合去重複
     if div_list:
         unique_divs = {}
         for d in div_list:
             if d['date'] not in unique_divs or d['amount'] > unique_divs[d['date']]:
                 unique_divs[d['date']] = d['amount']
         return sorted([{'date': k, 'amount': v} for k, v in unique_divs.items()], key=lambda x: x['date'], reverse=True)
-        
     return []
 
-# --- ETF 資料處理主函數 ---
-# ⚠️ 這裡已經將呼叫的函數改為新的 fetch_dividend_v6
+# 3. ETF 整合處理 (無快取，隨時跳動)
 def get_safe_data_etf(symbol):
     info = get_stock_info(symbol)
     if not info or info["price"] <= 0:
@@ -293,7 +259,7 @@ def get_safe_data_etf(symbol):
     multiplier, freq_label = 1, "年"
     
     try:
-        data_list = fetch_dividend_v6(symbol)  # 👈 強制呼叫新函數
+        data_list = fetch_dividend_v7(symbol) # 呼叫全新的引擎名稱 v7
         if data_list:
             for i in range(min(4, len(data_list))):
                 raw_divs[i] = data_list[i]['amount']
@@ -317,32 +283,20 @@ def get_safe_data_etf(symbol):
     }
 
 def get_dividend_calendar(symbol):
-    """抓取單一股票的除息日與發放日預估"""
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
-    data_list = fetch_dividend_history_super(symbol)
-    
+    data_list = fetch_dividend_v7(symbol)
     if data_list:
         latest = data_list[0]
-        amount = latest['amount']
-        ex_date_str = latest['date']
         try:
-            ex_dt = datetime.strptime(ex_date_str, "%Y-%m-%d")
+            ex_dt = datetime.strptime(latest['date'], "%Y-%m-%d")
             pay_date = (ex_dt + pd.DateOffset(days=28)).strftime('%Y-%m-%d')
-            return {
-                "symbol": clean_symbol,
-                "ex_date": ex_date_str,
-                "pay_date": pay_date,
-                "amount": amount,
-                "success": True
-            }
+            return {"symbol": clean_symbol, "ex_date": latest['date'], "pay_date": pay_date, "amount": latest['amount'], "success": True}
         except: pass
-        
     return {"success": False}
 
 def generate_user_calendar():
     if st.session_state.portfolio is None: return None
-    portfolio_df = st.session_state.portfolio
-    valid_assets = portfolio_df.dropna(subset=["代碼", "張數"])
+    valid_assets = st.session_state.portfolio.dropna(subset=["代碼", "張數"])
     valid_assets = valid_assets[valid_assets["代碼"].astype(str).str.strip() != ""]
     if valid_assets.empty:
         st.warning("⚠️ 您的投資組合目前是空的。")
@@ -351,7 +305,6 @@ def generate_user_calendar():
     calendar_list = []
     today_date = datetime.now(tw_tz).date()
     progress_bar = st.progress(0)
-    
     for i, (index, row) in enumerate(valid_assets.iterrows()):
         code = str(row["代碼"]).strip().upper()
         lots = float(row["張數"])
@@ -359,19 +312,13 @@ def generate_user_calendar():
         if div_info["success"]:
             pay_date_obj = datetime.strptime(div_info["pay_date"], '%Y-%m-%d').date()
             if pay_date_obj >= today_date:
-                total_pay = div_info["amount"] * lots * 1000
                 calendar_list.append({
-                    "股票名稱": code,
-                    "預計除息日": div_info["ex_date"],
-                    "預計發放日 (預估)": div_info["pay_date"],
-                    "每股配息": f"${div_info['amount']:.2f}",
-                    "預估入帳金額": int(total_pay)
+                    "股票名稱": code, "預計除息日": div_info["ex_date"], "預計發放日 (預估)": div_info["pay_date"],
+                    "每股配息": f"${div_info['amount']:.2f}", "預估入帳金額": int(div_info["amount"] * lots * 1000)
                 })
         progress_bar.progress((i + 1) / len(valid_assets))
     progress_bar.empty()
-    result_df = pd.DataFrame(calendar_list)
-    if result_df.empty: return None
-    return result_df
+    return pd.DataFrame(calendar_list) if calendar_list else None
 
 def go_to(page_name):
     st.session_state.page = page_name
@@ -382,9 +329,7 @@ with st.sidebar:
     if st.button("⭐ 我的關注清單", use_container_width=True): go_to("watchlist")
     if st.button("🚀 台股查詢", use_container_width=True): go_to("home")
     st.markdown("""<hr style="margin: 10px 0; border-color: #444;">""", unsafe_allow_html=True)
-    if st.button("🚪 登出系統", use_container_width=True):
-        st.session_state.logged_in = False
-        st.rerun()
+    if st.button("🚪 登出系統", use_container_width=True): st.session_state.logged_in = False; st.rerun()
 
 if st.session_state.page == "welcome":
     st.markdown("<br><br><br><h3 style='text-align: center; color: #555;'>👈 請從左側選單選擇功能</h3>", unsafe_allow_html=True)
@@ -419,7 +364,6 @@ elif st.session_state.page == "stock_query":
                 current_price = info['price']
                 st.markdown(f"## {info['name']}")
                 st.markdown(f"<div class='date-text'>資料日期：{datetime.now(tw_tz).strftime('%Y-%m-%d')}</div>", unsafe_allow_html=True)
-                
                 cp1, cp2 = st.columns([2, 1])
                 with cp1:
                     color = "#ff4b4b" if info['change'] > 0 else "#00ff00" if info['change'] < 0 else "#FFFFFF"
@@ -429,7 +373,6 @@ elif st.session_state.page == "stock_query":
                     st.caption("今日行情細節")
                     st.write(f"最高: {info['high']:.2f} / 最低: {info['low']:.2f}")
                     st.write(f"開盤: {info['open']:.2f} / 總量: {int(info['vol']/1000):,} 張")
-            
             st.divider()
 
         col_eps, col_pe = st.columns(2)
@@ -454,12 +397,10 @@ elif st.session_state.page == "stock_query":
 elif st.session_state.page == "etf_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("📈 ETF 專用 ")
-    
     main_col, side_col = st.columns([8, 4])
     with main_col:
         st.markdown("### 🔍 查詢設定")
         input_c1, input_c2 = st.columns([3, 1])
- 
         with input_c1:
             symbol_input = st.text_input("ETF 代號", placeholder="例如: 00919").strip().upper()
         with input_c2:
@@ -490,16 +431,13 @@ elif st.session_state.page == "etf_query":
                 st.divider()
                 st.subheader("📑 歷史配息參考")
                 
-                # --- 新增這段配息頻率選擇器 ---
                 freq_map = {"月配": 12, "季配": 4, "半年配": 2, "年配": 1}
                 sys_freq_name = f"{d['freq_label']}配" if f"{d['freq_label']}配" in freq_map else "年配"
                 sys_index = list(freq_map.keys()).index(sys_freq_name)
                 
                 user_freq = st.selectbox("🔄 自訂/修正配息頻率：", list(freq_map.keys()), index=sys_index)
-                
                 d['multiplier'] = freq_map[user_freq]
                 d['freq_label'] = user_freq.replace("配", "")
-                # ------------------------------
             
                 e_cols = st.columns(4)
                 d1 = e_cols[0].number_input("最新", value=float(d["raw_divs"][0]), format="%.3f")
@@ -507,7 +445,6 @@ elif st.session_state.page == "etf_query":
                 d3 = e_cols[2].number_input("前二", value=float(d["raw_divs"][2]), format="%.3f")
                 d4 = e_cols[3].number_input("前三", value=float(d["raw_divs"][3]), format="%.3f")
                 
-                # 加上 round 消除浮點數誤差
                 avg_annual = round((sum([d1, d2, d3, d4]) / 4) * d["multiplier"], 4)
                 real_yield = (avg_annual / d['price']) * 100 if d['price'] > 0 else 0
                 
@@ -549,7 +486,6 @@ elif st.session_state.page == "etf_query":
                 with calc_c2:
                     total_shares = hold_lots * 1000
                     total_raw = total_shares * d1
-                    
                     div_54c_part = total_raw * (ratio_54c/100)
                     nhi_amt = div_54c_part * 0.0211 if div_54c_part >= 20000 else 0
                     net_per_period = total_raw - nhi_amt
@@ -574,42 +510,30 @@ elif st.session_state.page == "etf_query":
                 st.divider()
                 st.subheader("🔮 存股未來財富試算")
                 with st.container():
-                    # 第一排：改成 4 個欄位，讓數字輸入框有絕對寬敞的空間
                     f_col0, f_col1, f_col2, f_col3 = st.columns(4)
                     with f_col0: custom_initial = st.number_input("初始投入總金額 (元)", min_value=0, value=3000000, step=100000)
                     with f_col1: custom_monthly = st.number_input("每月預計投入 (元)", min_value=0, value=0, step=1000)
                     with f_col2: custom_withdraw = st.number_input("每月預計領出 (元)", min_value=0, value=0, step=1000)
                     with f_col3: custom_yield = st.number_input("自訂年化殖利率 (%)", value=float(f"{real_yield:.2f}"), step=0.1)
                     
-                    # 第二排：將拉桿獨立放一行，長度拉滿更好滑動
-                    st.write("") # 加一點點小留白讓視覺不擁擠
+                    st.write("") 
                     custom_years = st.slider("目標投入年數", 1, 40, 10)
                     
                     r = (custom_yield / 100) / 12
                     n = custom_years * 12
-                    
-                    # 每月實際進入本金的錢 = 投入 - 領出
                     net_monthly = custom_monthly - custom_withdraw
                     
-                    if r > 0:
-                        fv = custom_initial * ((1 + r)**n) + net_monthly * (((1 + r)**n - 1) / r) * (1 + r)
-                    else:
-                        fv = custom_initial + (net_monthly * n)
+                    if r > 0: fv = custom_initial * ((1 + r)**n) + net_monthly * (((1 + r)**n - 1) / r) * (1 + r)
+                    else: fv = custom_initial + (net_monthly * n)
                     
-                    # 避免領太多扣到變負債 (最低就是帳戶歸零)
                     fv = max(0, fv)
-                    
                     total_invested = custom_initial + (custom_monthly * n)
                     total_withdrawn = custom_withdraw * n
                     
                     val_fv = f"{fv:,.0f}"
                     val_total_invested = f"{total_invested:,.0f}"
                     val_total_withdrawn = f"{total_withdrawn:,.0f}"
-                    
-                    if total_invested > 0:
-                        growth_ratio = (fv + total_withdrawn) / total_invested
-                    else:
-                        growth_ratio = 0
+                    growth_ratio = (fv + total_withdrawn) / total_invested if total_invested > 0 else 0
                     val_growth_ratio = f"{growth_ratio:.2f}"
                     val_monthly_passive = f"{(fv * (custom_yield / 100)) / 12:,.0f}"
 
@@ -741,7 +665,6 @@ elif st.session_state.page == "portfolio":
 
             if results:
                 res_df = pd.DataFrame(results)
-                
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
                 
@@ -784,8 +707,7 @@ elif st.session_state.page == "portfolio":
                 
                 col_chart, col_table = st.columns([1, 1])
                 with col_chart:
-                    fig = px.pie(res_df, values='持有價值', names='名稱', 
-                                 title="資產配置分佈圖", color_discrete_sequence=px.colors.qualitative.Pastel)
+                    fig = px.pie(res_df, values='持有價值', names='名稱', title="資產配置分佈圖", color_discrete_sequence=px.colors.qualitative.Pastel)
                     fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
                     st.plotly_chart(fig, use_container_width=True)
                 with col_table:
@@ -815,10 +737,8 @@ elif st.session_state.page == "watchlist":
     st.title("⭐ 我的關注清單")
 
     if 'watchlist_data' not in st.session_state:
-        try:
-            st.session_state.watchlist_data = load_watchlist_from_cloud()
-        except:
-            st.session_state.watchlist_data = []
+        try: st.session_state.watchlist_data = load_watchlist_from_cloud()
+        except: st.session_state.watchlist_data = []
 
     with st.form("add_stock_form", clear_on_submit=True):
         st.write("### ➕ 新增追蹤標的")
@@ -834,8 +754,7 @@ elif st.session_state.page == "watchlist":
                     save_watchlist_to_cloud(st.session_state.watchlist_data)
                     st.success(f"✅ {clean_code} 加入成功！")
                     st.rerun()
-                else:
-                    st.error("❌ 找不到代碼")
+                else: st.error("❌ 找不到代碼")
 
     st.divider()
 
@@ -855,14 +774,11 @@ elif st.session_state.page == "watchlist":
                     c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
                     
                     if c4.button("刪除", key=f"del_{item['full_ticker']}"):
-                        try:
-                            st.session_state.watchlist_data.remove(item['full_ticker'])
-                        except ValueError:
-                            pass
+                        try: st.session_state.watchlist_data.remove(item['full_ticker'])
+                        except ValueError: pass
                         save_watchlist_to_cloud(st.session_state.watchlist_data)
                         st.rerun()
                     st.markdown("<hr style='margin-top: -15px; margin-bottom: 10px; border: none; border-top: 1px solid rgba(128, 128, 128, 0.3);'>", unsafe_allow_html=True)
-        else:
-            st.info("清單空空如也，請在上方新增標的。")
+        else: st.info("清單空空如也，請在上方新增標的。")
 
     refresh_watchlist_view()
