@@ -308,7 +308,7 @@ def get_safe_data_etf(symbol):
         data_list = fetch_dividend_history_super(symbol)
         
         if data_list:
-            # 🟢 1. 先判斷配息頻率 (這部分邏輯不變)
+            # 🟢 1. 先判斷配息頻率 (維持您原本的間隔算法)
             if len(data_list) >= 2:
                 check_len = min(5, len(data_list))
                 dates = [datetime.strptime(d['date'], "%Y-%m-%d") for d in data_list[:check_len]]
@@ -322,28 +322,28 @@ def get_safe_data_etf(symbol):
             else:
                 multiplier, freq_label = 1, "年"
 
-            # 🚀 2. 針對「年配息」進行嚴格的時間軸對齊
+            # 🚀 2. 關鍵修正：針對「年配息」進行嚴格的時間軸對應
             if freq_label == "年":
-                # 將歷史資料轉為 {年份: 金額} 的字典，同一年的配息會加總
+                # 將歷史資料轉為 {年份: 該年總金額} 的字典
                 yearly_dict = {}
                 for item in data_list:
                     y = int(item['date'].split('-')[0])
                     yearly_dict[y] = yearly_dict.get(y, 0.0) + item['amount']
                 
-                # 取得目前年份 (例如 2026)
+                # 取得目前年份 (現在是 2026)
                 this_year = datetime.now(tw_tz).year
                 
-                # 判斷基準年：如果今年還沒配息，最新一格應該從「去年(2025)」開始顯示
-                # 這樣才能反映出 2025, 2024 沒配息的真實情況
+                # 基準年設定：如果 2026 今年已經宣布配息就從 2026 開始算，否則從 2025 開始
                 base_year = this_year if yearly_dict.get(this_year, 0) > 0 else this_year - 1
                 
-                # 強制填入連續四年的資料，找不到年份就填 0.0
-                raw_divs[0] = yearly_dict.get(base_year, 0.0)      # 最新 (2025)
-                raw_divs[1] = yearly_dict.get(base_year - 1, 0.0)  # 前一 (2024)
-                raw_divs[2] = yearly_dict.get(base_year - 2, 0.0)  # 前二 (2023)
-                raw_divs[3] = yearly_dict.get(base_year - 3, 0.0)  # 前三 (2022)
+                # 【嚴格對位】不再使用迴圈順著填，而是指定年份去字典裡「抽」資料
+                # 找不到年份 (如台郡的 2024) 就會自動回傳 0.0，不會被後面的年份擠上來
+                raw_divs[0] = yearly_dict.get(base_year, 0.0)      # 最新
+                raw_divs[1] = yearly_dict.get(base_year - 1, 0.0)  # 前一
+                raw_divs[2] = yearly_dict.get(base_year - 2, 0.0)  # 前二
+                raw_divs[3] = yearly_dict.get(base_year - 3, 0.0)  # 前三
             else:
-                # 季配/月配通常不會斷發，維持原本的「抓最新四筆」邏輯
+                # 季配/月配通常不會斷發，維持您原本的順序抓取邏輯
                 for i in range(min(4, len(data_list))):
                     raw_divs[i] = data_list[i]['amount']
                 
