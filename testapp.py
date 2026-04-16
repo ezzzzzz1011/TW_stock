@@ -1,7 +1,7 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-from datetime import fdatetime
+from datetime import datetime
 import pytz
 import plotly.express as px
 import io
