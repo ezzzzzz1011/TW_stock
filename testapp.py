@@ -308,28 +308,25 @@ def get_safe_data_etf(symbol):
         data_list = fetch_dividend_history_super(symbol)
         
         if data_list:
-            # --- 頻率判斷保持不變 ---
-            if len(data_list) >= 2:
-                # ... (您原本的頻率判斷程式碼) ...
-                multiplier, freq_label = 1, "年" # 假設判定為年配
+            # 🚀 修正點：先過濾出「金額 > 0」的紀錄來判斷頻率，避免 0 元紀錄拉長了平均天數
+            valid_dates_for_freq = [
+                datetime.strptime(d['date'], "%Y-%m-%d") 
+                for d in data_list if float(d.get('amount', 0)) > 0
+            ]
             
-            # --- 關鍵修正：年配息嚴格對位 ---
-            if freq_label == "年":
-                # 建立年份字典 {2023: 5.0, 2022: 5.0}
-                yearly_dict = {int(d['date'].split('-')[0]): d['amount'] for d in data_list}
-                this_year = datetime.now(tw_tz).year
-                # 基準年：今年有配就從今年開始，否則從去年開始
-                base_year = this_year if yearly_dict.get(this_year, 0) > 0 else this_year - 1
+            # 🟢 頻率精準判斷：使用過濾後的有效日期
+            if len(valid_dates_for_freq) >= 2:
+                check_len = min(5, len(valid_dates_for_freq))
+                # 計算真實有配息的間隔天數
+                days_diffs = [(valid_dates_for_freq[i-1] - valid_dates_for_freq[i]).days for i in range(1, check_len)]
+                avg_days = sum(days_diffs) / len(days_diffs)
                 
-                # 強制指定四格的年份，找不到就給 0，不會發生位移
-                raw_divs[0] = yearly_dict.get(base_year, 0.0)      # 最新
-                raw_divs[1] = yearly_dict.get(base_year - 1, 0.0)  # 前一
-                raw_divs[2] = yearly_dict.get(base_year - 2, 0.0)  # 前二
-                raw_divs[3] = yearly_dict.get(base_year - 3, 0.0)  # 前三
+                if avg_days <= 45: multiplier, freq_label = 12, "月"
+                elif avg_days <= 110: multiplier, freq_label = 4, "季"
+                elif avg_days <= 200: multiplier, freq_label = 2, "半年"
+                else: multiplier, freq_label = 1, "年"
             else:
-                # 季配/月配維持原本邏輯
-                for i in range(min(4, len(data_list))):
-                    raw_divs[i] = data_list[i]['amount']
+                multiplier, freq_label = 1, "年"
                 
     except Exception as e:
         print(f"配息分析失敗: {e}") 
