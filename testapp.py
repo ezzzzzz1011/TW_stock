@@ -249,7 +249,7 @@ def fetch_dividend_history_super(symbol):
         data = res.json()
         if data.get("msg") == "success" and data.get("data"):
             for item in data["data"]:
-                if float(item.get('cash_dividend', 0)) >= 0:
+                if float(item.get('cash_dividend', 0)) > 0:
                     div_list.append({'date': item['ex_dividend_date'], 'amount': float(item['cash_dividend'])})
             if div_list: return sorted(div_list, key=lambda x: x['date'], reverse=True)
     except: pass
@@ -308,23 +308,24 @@ def get_safe_data_etf(symbol):
         data_list = fetch_dividend_history_super(symbol)
         
         if data_list:
-            # 🚀 修正點：先過濾出「金額 > 0」的紀錄來判斷頻率，避免 0 元紀錄拉長了平均天數
-            valid_dates_for_freq = [
-                datetime.strptime(d['date'], "%Y-%m-%d") 
-                for d in data_list if float(d.get('amount', 0)) > 0
-            ]
-            
-            # 🟢 頻率精準判斷：使用過濾後的有效日期
-            if len(valid_dates_for_freq) >= 2:
-                check_len = min(5, len(valid_dates_for_freq))
-                # 計算真實有配息的間隔天數
-                days_diffs = [(valid_dates_for_freq[i-1] - valid_dates_for_freq[i]).days for i in range(1, check_len)]
+            for i in range(min(4, len(data_list))):
+                raw_divs[i] = data_list[i]['amount']
+                
+            # 🟢 頻率精準判斷：直接算「配息間隔的平均天數」
+            if len(data_list) >= 2:
+                check_len = min(5, len(data_list))
+                dates = [datetime.strptime(d['date'], "%Y-%m-%d") for d in data_list[:check_len]]
+                days_diffs = [(dates[i] - dates[i+1]).days for i in range(len(dates)-1)]
                 avg_days = sum(days_diffs) / len(days_diffs)
                 
-                if avg_days <= 45: multiplier, freq_label = 12, "月"
-                elif avg_days <= 110: multiplier, freq_label = 4, "季"
-                elif avg_days <= 200: multiplier, freq_label = 2, "半年"
-                else: multiplier, freq_label = 1, "年"
+                if avg_days <= 45: 
+                    multiplier, freq_label = 12, "月"
+                elif avg_days <= 110: 
+                    multiplier, freq_label = 4, "季"
+                elif avg_days <= 200: 
+                    multiplier, freq_label = 2, "半年"
+                else: 
+                    multiplier, freq_label = 1, "年"
             else:
                 multiplier, freq_label = 1, "年"
                 
@@ -522,7 +523,7 @@ elif st.session_state.page == "etf_query":
                 st.divider()
                 st.subheader("📑 歷史配息參考")
                 
-                # --- 配息頻率選擇器 ---
+                # --- 新增這段配息頻率選擇器 ---
                 freq_map = {"月配": 12, "季配": 4, "半年配": 2, "年配": 1}
                 sys_freq_name = f"{d['freq_label']}配" if f"{d['freq_label']}配" in freq_map else "年配"
                 sys_index = list(freq_map.keys()).index(sys_freq_name)
@@ -531,6 +532,7 @@ elif st.session_state.page == "etf_query":
                 
                 d['multiplier'] = freq_map[user_freq]
                 d['freq_label'] = user_freq.replace("配", "")
+                # ------------------------------
             
                 e_cols = st.columns(4)
                 d1 = e_cols[0].number_input("最新", value=float(d["raw_divs"][0]), format="%.3f")
@@ -538,22 +540,13 @@ elif st.session_state.page == "etf_query":
                 d3 = e_cols[2].number_input("前二", value=float(d["raw_divs"][2]), format="%.3f")
                 d4 = e_cols[3].number_input("前三", value=float(d["raw_divs"][3]), format="%.3f")
                 
-                # --- 🚀 關鍵計算邏輯修正 ---
-                if d['multiplier'] == 12:   # 月配：取 UI 四期平均後乘以 12
-                    avg_annual = round((sum([d1, d2, d3, d4]) / 4) * 12, 4)
-                elif d['multiplier'] == 4: # 季配：加總前四期
-                    avg_annual = round(d1 + d2 + d3 + d4, 4)
-                elif d['multiplier'] == 2: # 半年配：加總前兩期
-                    avg_annual = round(d1 + d2, 4)
-                else:                      # 年配：只取最新一期
-                    avg_annual = round(d1, 4)
-
+                # 加上 round 消除浮點數誤差
+                avg_annual = round((sum([d1, d2, d3, d4]) / 4) * d["multiplier"], 4)
                 real_yield = (avg_annual / d['price']) * 100 if d['price'] > 0 else 0
-                # -------------------------
                 
                 stat_c1, stat_c2 = st.columns(2)
                 with stat_c1:
-                    st.caption(f"預估年配息 (系統以{user_freq}計算總和)")
+                    st.caption(f"預估年配息 (系統以{d['freq_label']}配計算)")
                     st.markdown(f"<div class='highlight-val'>{avg_annual:.2f}</div>", unsafe_allow_html=True)
                 with stat_c2:
                     st.caption("實質殖利率")
@@ -598,9 +591,7 @@ elif st.session_state.page == "etf_query":
                 val_raw_div = f"{total_raw:,.0f}"
                 val_nhi_deduct = f"{nhi_amt:,.0f}"
                 val_net_amt = f"{net_per_period:,.0f}"
-                
-                # 年度實領金額使用新的 avg_annual 計算更精準
-                val_annual_net_amt = f"{(net_per_period * (avg_annual / d1 if d1 > 0 else 0)):,.0f}" if d1 > 0 else "0"
+                val_annual_net_amt = f"{(net_per_period * d['multiplier']):,.0f}"
 
                 st.markdown(f"""
                 <div class="calc-box">
@@ -616,17 +607,21 @@ elif st.session_state.page == "etf_query":
                 st.divider()
                 st.subheader("🔮 存股未來財富試算")
                 with st.container():
+                    # 第一排：改成 4 個欄位，讓數字輸入框有絕對寬敞的空間
                     f_col0, f_col1, f_col2, f_col3 = st.columns(4)
                     with f_col0: custom_initial = st.number_input("初始投入總金額 (元)", min_value=0, value=3000000, step=100000)
                     with f_col1: custom_monthly = st.number_input("每月預計投入 (元)", min_value=0, value=0, step=1000)
                     with f_col2: custom_withdraw = st.number_input("每月預計領出 (元)", min_value=0, value=0, step=1000)
                     with f_col3: custom_yield = st.number_input("自訂年化殖利率 (%)", value=float(f"{real_yield:.2f}"), step=0.1)
                     
-                    st.write("") 
+                    # 第二排：將拉桿獨立放一行，長度拉滿更好滑動
+                    st.write("") # 加一點點小留白讓視覺不擁擠
                     custom_years = st.slider("目標投入年數", 1, 40, 10)
                     
                     r = (custom_yield / 100) / 12
                     n = custom_years * 12
+                    
+                    # 每月實際進入本金的錢 = 投入 - 領出
                     net_monthly = custom_monthly - custom_withdraw
                     
                     if r > 0:
@@ -634,7 +629,9 @@ elif st.session_state.page == "etf_query":
                     else:
                         fv = custom_initial + (net_monthly * n)
                     
+                    # 避免領太多扣到變負債 (最低就是帳戶歸零)
                     fv = max(0, fv)
+                    
                     total_invested = custom_initial + (custom_monthly * n)
                     total_withdrawn = custom_withdraw * n
                     
