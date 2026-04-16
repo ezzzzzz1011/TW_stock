@@ -308,29 +308,46 @@ def get_safe_data_etf(symbol):
         data_list = fetch_dividend_history_super(symbol)
         
         if data_list:
-            for i in range(min(4, len(data_list))):
-                raw_divs[i] = data_list[i]['amount']
-                
-            # 🟢 頻率精準判斷：直接算「配息間隔的平均天數」
+            # 1. 先計算配息頻率與平均間隔天數
             if len(data_list) >= 2:
                 check_len = min(5, len(data_list))
                 dates = [datetime.strptime(d['date'], "%Y-%m-%d") for d in data_list[:check_len]]
                 days_diffs = [(dates[i] - dates[i+1]).days for i in range(len(dates)-1)]
                 avg_days = sum(days_diffs) / len(days_diffs)
-                
-                if avg_days <= 45: 
-                    multiplier, freq_label = 12, "月"
-                elif avg_days <= 110: 
-                    multiplier, freq_label = 4, "季"
-                elif avg_days <= 200: 
-                    multiplier, freq_label = 2, "半年"
-                else: 
-                    multiplier, freq_label = 1, "年"
             else:
+                avg_days = 365 # 預設年配
+                
+            if avg_days <= 45: 
+                multiplier, freq_label = 12, "月"
+            elif avg_days <= 110: 
+                multiplier, freq_label = 4, "季"
+            elif avg_days <= 200: 
+                multiplier, freq_label = 2, "半年"
+            else: 
                 multiplier, freq_label = 1, "年"
+
+            # 2. 判斷是否有停發/漏發 (用現在時間與最後一次配息時間對比)
+            last_date = datetime.strptime(data_list[0]['date'], "%Y-%m-%d")
+            days_since_last = (datetime.now() - last_date).days
+            
+            expected_days = 365 / multiplier
+            # 寬限期：給予一定的延遲宣告空間 (年配多給100天，其他給60天)
+            grace_period = 100 if multiplier == 1 else 60 
+            
+            missed_count = 0
+            # 如果距離上次配息已經超過「預期間隔 + 寬限期」，代表最近有停發
+            if days_since_last > (expected_days + grace_period):
+                missed_count = int(days_since_last / expected_days)
+            
+            # 3. 填入 raw_divs，有停發的期數在前面補 0，舊資料往後推
+            for i in range(min(4, len(data_list) + missed_count)):
+                if i < missed_count:
+                    raw_divs[i] = 0.0 # 停發的期數補 0
+                elif (i - missed_count) < len(data_list):
+                    raw_divs[i] = data_list[i - missed_count]['amount'] 
                 
     except Exception as e:
-        print(f"配息分析失敗: {e}") 
+        print(f"配息分析失敗: {e}")
 
     return {
         "success": True, 
