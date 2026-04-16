@@ -308,41 +308,42 @@ def get_safe_data_etf(symbol):
         data_list = fetch_dividend_history_super(symbol)
         
         if data_list:
-            # 🟢 步驟 1：先進行頻率精準判斷 (算配息間隔天數)
+            # 🟢 1. 先判斷配息頻率 (這部分邏輯不變)
             if len(data_list) >= 2:
                 check_len = min(5, len(data_list))
                 dates = [datetime.strptime(d['date'], "%Y-%m-%d") for d in data_list[:check_len]]
                 days_diffs = [(dates[i] - dates[i+1]).days for i in range(len(dates)-1)]
                 avg_days = sum(days_diffs) / len(days_diffs)
                 
-                if avg_days <= 45: 
-                    multiplier, freq_label = 12, "月"
-                elif avg_days <= 110: 
-                    multiplier, freq_label = 4, "季"
-                elif avg_days <= 200: 
-                    multiplier, freq_label = 2, "半年"
-                else: 
-                    multiplier, freq_label = 1, "年"
+                if avg_days <= 45: multiplier, freq_label = 12, "月"
+                elif avg_days <= 110: multiplier, freq_label = 4, "季"
+                elif avg_days <= 200: multiplier, freq_label = 2, "半年"
+                else: multiplier, freq_label = 1, "年"
             else:
                 multiplier, freq_label = 1, "年"
 
-            # 🚀 步驟 2：關鍵修正 -> 依照時間軸來填入配息數字
+            # 🚀 2. 針對「年配息」進行嚴格的時間軸對齊
             if freq_label == "年":
-                # 【年配息專用防呆】：把歷史清單按照「年份」分類與加總
-                yearly_divs = {}
+                # 將歷史資料轉為 {年份: 金額} 的字典，同一年的配息會加總
+                yearly_dict = {}
                 for item in data_list:
                     y = int(item['date'].split('-')[0])
-                    yearly_divs[y] = yearly_divs.get(y, 0.0) + item['amount']
+                    yearly_dict[y] = yearly_dict.get(y, 0.0) + item['amount']
                 
-                # 決定基準年：如果今年(2026)已經有配息紀錄，就從今年算；如果沒有，就從去年(2025)開始往前推
-                current_year = datetime.now(tw_tz).year
-                start_year = current_year if yearly_divs.get(current_year, 0) > 0 else current_year - 1
+                # 取得目前年份 (例如 2026)
+                this_year = datetime.now(tw_tz).year
                 
-                # 強制產生連續 4 年的數字，若該年沒配息，字典取不到值就會預設為 0.0
-                for i in range(4):
-                    raw_divs[i] = yearly_divs.get(start_year - i, 0.0)
+                # 判斷基準年：如果今年還沒配息，最新一格應該從「去年(2025)」開始顯示
+                # 這樣才能反映出 2025, 2024 沒配息的真實情況
+                base_year = this_year if yearly_dict.get(this_year, 0) > 0 else this_year - 1
+                
+                # 強制填入連續四年的資料，找不到年份就填 0.0
+                raw_divs[0] = yearly_dict.get(base_year, 0.0)      # 最新 (2025)
+                raw_divs[1] = yearly_dict.get(base_year - 1, 0.0)  # 前一 (2024)
+                raw_divs[2] = yearly_dict.get(base_year - 2, 0.0)  # 前二 (2023)
+                raw_divs[3] = yearly_dict.get(base_year - 3, 0.0)  # 前三 (2022)
             else:
-                # 【季配/月配 ETF 專用】：因為 ETF 幾乎不會停發，保留您原本依序抓最近 4 次的邏輯
+                # 季配/月配通常不會斷發，維持原本的「抓最新四筆」邏輯
                 for i in range(min(4, len(data_list))):
                     raw_divs[i] = data_list[i]['amount']
                 
