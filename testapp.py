@@ -238,33 +238,52 @@ def get_stock_info(symbol):
 # ==========================================
 # 🚀 引擎 2：配息抓取 (HiStock 搶先版 + yfinance 補底)
 # ==========================================
-@st.cache_data(ttl=86400)
+# ⚠️ 記得刪除這行上面的 @st.cache_data 裝飾器！
+
 def fetch_dividend_history_super(symbol):
     clean_s = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
-    
-    # --- 第 1 步：強制先爬 HiStock (為了抓取已公告、但還沒除息的最新數據，例如 0056 的 1.0) ---
-    headers_h = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://histock.tw/"}
-    h_urls = [f"https://histock.tw/stock/etfdividend.aspx?no={clean_s}", f"https://histock.tw/stock/financial.aspx?no={clean_s}&t=2"]
-    for url in h_urls:
-        try:
-            r = requests.get(url, headers=headers_h, timeout=5)
+
+    # --- 必殺引擎 1：暴力挖取 Yahoo 台灣網頁底層 (專抓最新公告，無視除息日限制) ---
+    try:
+        url = f"https://tw.stock.yahoo.com/quote/{clean_s}/dividend"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36"}
+        res = requests.get(url, headers=headers, timeout=5)
+        
+        # 直接從網頁原始碼中，精準攔截除息日與配息金額
+        blocks = re.findall(r'"exDividendDate":"(20\d{2}-\d{2}-\d{2})".*?"cashDividend":"?(\d+\.\d+)"?', res.text)
+        if not blocks: 
+            # 預防屬性順序顛倒的備用寫法
+            blocks = re.findall(r'"cashDividend":"?(\d+\.\d+)"?.*?"exDividendDate":"(20\d{2}-\d{2}-\d{2})"', res.text)
+            blocks = [(d, v) for v, d in blocks]
+            
+        for m_date, m_val in blocks:
+            if float(m_val) > 0:
+                div_list.append({'date': m_date, 'amount': float(m_val)})
+                
+        if div_list:
+            unique_divs = {d['date']: d['amount'] for d in div_list}
+            return sorted([{'date': k, 'amount': v} for k, v in unique_divs.items()], key=lambda x: x['date'], reverse=True)
+    except: pass
+
+    # --- 備援引擎 2：HiStock 爬蟲 (專治債券 ETF，如 00937B) ---
+    try:
+        h_headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://histock.tw/"}
+        for url in [f"https://histock.tw/stock/etfdividend.aspx?no={clean_s}", f"https://histock.tw/stock/financial.aspx?no={clean_s}&t=2"]:
+            r = requests.get(url, headers=h_headers, timeout=5)
             if r.status_code == 200 and "現金股利" in r.text:
-                matches = re.findall(r'(\d{4}/\d{1,2}/\d{1,2}).*?(\d+\.\d+)', r.text, re.DOTALL)
-                for m_date, m_val in matches: 
+                for m_date, m_val in re.findall(r'(\d{4}/\d{1,2}/\d{1,2}).*?(\d+\.\d+)', r.text, re.DOTALL):
                     d_str = m_date.replace('/', '-')
                     parts = d_str.split('-')
-                    formatted_date = f"{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}"
-                    div_list.append({'date': formatted_date, 'amount': float(m_val)})
+                    div_list.append({'date': f"{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}", 'amount': float(m_val)})
                 if div_list: break
-        except: pass
+    except: pass
 
-    # --- 第 2 步：如果 HiStock 沒抓到，才呼叫 yfinance 補底 ---
+    # --- 備援引擎 3：yfinance API 補底 ---
     if not div_list:
         try:
             for suffix in ['.TW', '.TWO']:
-                ticker = yf.Ticker(f"{clean_s}{suffix}")
-                divs = ticker.dividends
+                divs = yf.Ticker(f"{clean_s}{suffix}").dividends
                 if not divs.empty:
                     for date, amount in divs.items():
                         if float(amount) > 0:
@@ -272,14 +291,10 @@ def fetch_dividend_history_super(symbol):
                     if div_list: break
         except: pass
         
-    # --- 第 3 步：去重複與排序 ---
+    # --- 去重複與最終排序 ---
     if div_list:
-        unique_divs = {}
-        for d in div_list:
-            if d['date'] not in unique_divs or d['amount'] > unique_divs[d['date']]:
-                unique_divs[d['date']] = d['amount']
-        final_list = [{'date': k, 'amount': v} for k, v in unique_divs.items()]
-        return sorted(final_list, key=lambda x: x['date'], reverse=True)
+        unique_divs = {d['date']: d['amount'] for d in div_list}
+        return sorted([{'date': k, 'amount': v} for k, v in unique_divs.items()], key=lambda x: x['date'], reverse=True)
         
     return []
 # --- ETF 資料處理主函數 (精準天數頻率算法) ---
