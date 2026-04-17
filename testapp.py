@@ -507,7 +507,7 @@ elif st.session_state.page == "etf_query":
     
     main_col, side_col = st.columns([8, 4])
     with main_col:
-        st.markdown("### 🔍 查詢設定(最新配息要等入資料庫才抓取到)")
+            st.markdown("### 🔍 查詢設定 <small style='font-size: 1rem; color: #aaa; font-weight: normal;'>(最新配息日要等到入資料庫才能抓到)</small>", unsafe_allow_html=True)
         input_c1, input_c2 = st.columns([3, 1])
  
         with input_c1:
