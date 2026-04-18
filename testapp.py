@@ -1098,24 +1098,30 @@ elif st.session_state.page == "market_index":
         # --- 九宮格排版 ---
         c1, c2, c3 = st.columns(3)
         with c1: 
-            with st.container(border=True): draw_compact_metric("S&P 500", "^GSPC", (5123.41, +84.78, +1.20))
+            with st.container(border=True): draw_compact_metric("S&P 500", "^GSPC")
         with c2: 
-            with st.container(border=True): draw_compact_metric("道瓊工業", "^DJI", (38239.66, +868.71, +1.79))
+            with st.container(border=True): draw_compact_metric("道瓊工業", "^DJI")
         with c3: 
-            with st.container(border=True): draw_compact_metric("納斯達克", "^IXIC", (16274.95, +365.78, +1.52))
+            with st.container(border=True): draw_compact_metric("納斯達克", "^IXIC")
 
         c4, c5, c6 = st.columns(3)
         with c4: 
-            with st.container(border=True): draw_compact_metric("費城半導體", "^SOX", (4955.88, +226.53, +2.43))
+            # 💡 移除強制數值，讓它抓取真實 API 數據
+            with st.container(border=True): draw_compact_metric("費城半導體", "^SOX")
         with c5: 
-            with st.container(border=True): draw_compact_metric("美10年債", "^TNX", (4.502, -0.01, -1.46))
+            # 💡 移除強制數值，讓它抓取真實 API 數據
+            with st.container(border=True): draw_compact_metric("美10年債", "^TNX")
         with c6: 
+            # 🚨 只有台股加權保留週末強制校正
             with st.container(border=True): draw_compact_metric("台股加權", "^TWII", (36804.34, -327.68, -0.88))
 
         c7, c8, c9 = st.columns(3)
         with c7: 
+            # 🚨 只有台指期保留週末強制校正
             with st.container(border=True): draw_compact_metric("台指期 / 近全", "WTX=F", (37742, 664, 1.79))
         with c8: 
+            # 🚨 只有原油期貨保留週末強制校正
             with st.container(border=True): draw_compact_metric("原油期貨", "CL=F", (83.85, -10.84, -11.45))
         with c9: 
-            with st.container(border=True): draw_compact_metric("美元/台幣", "TWD=X", (31.46, -0.09, -0.29))
+            # 💡 移除強制數值
+            with st.container(border=True): draw_compact_metric("美元/台幣", "TWD=X")
