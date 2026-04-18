@@ -989,7 +989,7 @@ elif st.session_state.page == "watchlist":
 
     # 1. 確保資料已載入 (使用你 1.txt 的 load_watchlist_from_cloud 函式)
     if 'watchlist_data' not in st.session_state:
-        st.session_state.watchlist_data = load_watchlist_from_cloud() [cite: 17]
+        st.session_state.watchlist_data = load_watchlist_from_cloud() 
 
     # 2. 新增追蹤區塊 (使用你喜歡的邊框卡片)
     with st.form("add_stock_form", clear_on_submit=True):
