@@ -959,69 +959,62 @@ elif st.session_state.page == "portfolio":
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
 
+    # ==============================================================
+    # ⭐ 頁面：我的關注清單 (雲端同步版)
+    # ==============================================================
 elif st.session_state.page == "watchlist":
-    st.title("⭐ 我的關注清單")
-
-    if 'watchlist_data' not in st.session_state:
-        try:
-            st.session_state.watchlist_data = load_watchlist_from_cloud()
-        except:
-            st.session_state.watchlist_data = []
-
-    with st.form("add_stock_form", clear_on_submit=True):
-        st.write("### ➕ 新增追蹤標的")
-        new_code = st.text_input("輸入台股代碼", placeholder="例如: 2330").strip().upper()
-        submit_button = st.form_submit_button("確認加入", use_container_width=True)
+        st.markdown("<h3 style='margin-top: 10px;'>⭐ 我的關注清單</h3>", unsafe_allow_html=True)
         
-        if submit_button and new_code:
-            clean_code = new_code.replace('.TW', '').replace('.TWO', '')
-            if clean_code not in st.session_state.watchlist_data:
-                info = get_stock_info(clean_code)
-                if info:
-                    st.session_state.watchlist_data.append(clean_code)
-                    save_watchlist_to_cloud(st.session_state.watchlist_data)
-                    st.success(f"✅ {clean_code} 加入成功！")
+        # --- 1. 從雲端抓取該使用者的清單 ---
+        user_id = st.session_state.get('username', 'qazwsx')
+        
+        # 假設你的 conn 是之前的 Google Sheets 連線
+        df = conn.read(worksheet="users", ttl="5s") 
+        user_row = df[df['username'] == user_id]
+        
+        watchlist_tickers = []
+        if not user_row.empty:
+            # 抓取你圖中那一欄的資料 (假設欄位名叫 watchlist)
+            raw_list = user_row.iloc[0]['watchlist'] 
+            if pd.notna(raw_list) and raw_list != "":
+                # 💡 把 '00881,00919' 拆成 ['00881', '00919']
+                watchlist_tickers = [t.strip() for t in str(raw_list).split(',') if t.strip()]
+
+        # --- 2. 新增追蹤功能 ---
+        with st.container(border=True):
+            st.markdown("#### ➕ 新增追蹤標的")
+            new_t = st.text_input("輸入台股代碼", placeholder="例如: 2330", key="add_t").strip()
+            if st.button("確認加入", use_container_width=True):
+                if new_t and new_t not in watchlist_tickers:
+                    watchlist_tickers.append(new_t)
+                    new_list_str = ",".join(watchlist_tickers)
+                    # 💡 這裡要寫回雲端 (範例邏輯)
+                    # conn.update(..., data=new_list_str) 
+                    st.success(f"已加入 {new_t}")
                     st.rerun()
-                else:
-                    st.error("❌ 找不到代碼")
 
-    st.divider()
+        st.divider()
 
-    @st.fragment(run_every=120)
-    def refresh_watchlist_view():
-        if st.session_state.watchlist_data:
-            now_tw = datetime.now(tw_tz).strftime('%H:%M:%S')
-            st.caption(f"⏱️ 行情自動刷新中... ({now_tw})")
-            
-            for code in st.session_state.watchlist_data:
-                item = get_stock_info(code)
-                if item:
-                    c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
-                    
-                    # 💡 這裡已經改成：紅漲、綠跌、灰平盤
-                    if item['change'] > 0:
-                        color = "#ff4b4b" # 紅
-                    elif item['change'] < 0:
-                        color = "#00ff00" # 綠
-                    else:
-                        color = "#cccccc" # 灰
-                    
-                    c1.markdown(f"**{item['name']}** <span style='color:#aaa; font-size:0.9em;'>({item['full_ticker']})</span>", unsafe_allow_html=True)
-                    c2.markdown(f"<span style='color:{color}; font-size:1.3rem; font-weight:bold;'>{item['price']:.2f}</span>", unsafe_allow_html=True)
-                    c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
-                    
-                    # 👇 這裡的縮排我幫你對齊好了，不能多也不能少
-                    if c4.button("刪除", key=f"del_{item['full_ticker']}"):
-                        try:
-                            st.session_state.watchlist_data.remove(item['full_ticker'])
-                        except ValueError:
-                            pass
-                        save_watchlist_to_cloud(st.session_state.watchlist_data)
-                        st.rerun()
-                    
-                    st.markdown("<hr style='margin-top: -15px; margin-bottom: 10px; border: none; border-top: 1px solid rgba(128, 128, 128, 0.3);'>", unsafe_allow_html=True)
+        # --- 3. 顯示關注標的 (使用精簡卡片排版) ---
+        if watchlist_tickers:
+            # 每 3 支股票排成一列
+            cols = st.columns(3)
+            for i, t in enumerate(watchlist_tickers):
+                with cols[i % 3]:
+                    with st.container(border=True):
+                        # 💡 判斷後綴：債券 ETF 補 .TWO，其餘補 .TW
+                        full_ticker = f"{t}.TWO" if t.upper().endswith("B") else f"{t}.TW"
+                        
+                        # 調用我們剛才寫好的精簡版組件 (需確保 draw_compact_metric 已定義)
+                        draw_compact_metric(t, full_ticker)
+                        
+                        # 加上一個小小的刪除按鈕
+                        if st.button(f"移除 {t}", key=f"del_{t}", size="small"):
+                            watchlist_tickers.remove(t)
+                            # 更新雲端...
+                            st.rerun()
         else:
-            st.info("清單空空如也，請在上方新增標的。")
+            st.info("目前清單空空的，快新增標的吧！")
 
 
     # ==============================================================
