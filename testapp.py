@@ -1067,7 +1067,10 @@ elif st.session_state.page == "market_index":
         # --- 🎨 自動適應顏色的精簡組件 ---
         def draw_compact_metric(label, ticker_code, fallback=None):
             p, c, pct = get_market_data(ticker_code)
-            if p is None and fallback: p, c, pct = fallback
+            
+            # 💡 關鍵修正：只要有給 fallback 校正值，就強制覆蓋 (無視 yfinance 的錯誤資料)
+            if fallback: 
+                p, c, pct = fallback
             
             if p is not None:
                 color = "#ff4b4b" if c >= 0 else "#09ab3b"
@@ -1079,7 +1082,7 @@ elif st.session_state.page == "market_index":
                 else: val_str = f"{p:,.2f}"
                 c_str = f"{c:+.0f}" if ticker_code == "WTX=F" else f"{c:+.2f}"
 
-                # 💡 關鍵修正：將 color 改為 inherit，讓它自動跟隨主題變黑或變白
+                # 💡 介面渲染
                 st.markdown(f"""
                     <div style="text-align: center; padding: 2px 0;">
                         <div style="font-size: 0.85rem; color: #888; margin-bottom: 2px;">{label}</div>
@@ -1089,7 +1092,8 @@ elif st.session_state.page == "market_index":
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
-            else: st.write("...")
+            else: 
+                st.write("資料載入中...")
 
         # --- 九宮格排版 ---
         c1, c2, c3 = st.columns(3)
