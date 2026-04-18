@@ -1000,15 +1000,15 @@ elif st.session_state.page == "watchlist":
                 # 簡單清理代碼，避免重複補上 .TW
                 clean_code = new_code.replace('.TW', '').replace('.TWO', '')
                 if clean_code not in st.session_state.watchlist_data:
-                    # 先測看看抓不抓得到資料
-                    if get_stock_info(clean_code): [cite: 176]
+                    # 呼叫你原本定義的數據引擎檢查代碼
+                    if get_stock_info(clean_code):
                         st.session_state.watchlist_data.append(clean_code)
-                        # 儲存回雲端 (使用你 1.txt 的 save_watchlist_to_cloud 函式)
-                        save_watchlist_to_cloud(st.session_state.watchlist_data) [cite: 18, 176]
+                        # 儲存回雲端 (使用你原本的 save_watchlist_to_cloud 函式)
+                        save_watchlist_to_cloud(st.session_state.watchlist_data)
                         st.success(f"✅ {clean_code} 加入成功！")
                         st.rerun()
                     else:
-                        st.error("❌ 找不到該代碼，請檢查是否輸入正確")
+                        st.error("❌ 找不到代碼，請檢查是否輸入正確")
 
     st.divider()
 
