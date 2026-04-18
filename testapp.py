@@ -230,7 +230,7 @@ FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjY
 client = RestClient(api_key=FUGLE_TOKEN)
 
 # ==========================================
-# 🚀 終極數據引擎 1：報價與總量 (強制 Fugle 備援，解決卡死)
+#  1：報價與總量 (強制 Fugle 備援，解決卡死)
 # ==========================================
 def get_stock_info(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
@@ -256,9 +256,9 @@ def get_stock_info(symbol):
     except Exception:
         return None
 
-# ==========================================
-# 🚀 終極數據引擎 2：配息與日期去重複 (三引擎備援架構)
-# ==========================================
+# ===========================================
+#  2：配息與日期去重複 (三引擎備援架構)         
+#============================================
 def fetch_dividend_history_super(symbol):
     clean_s = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
@@ -459,7 +459,7 @@ with st.sidebar:
         st.session_state.logged_in = False
         st.rerun()
         
-    st.markdown("<br><br>", unsafe_allow_html=True) # 產生一點空白往下推
+    st.markdown("<br><br>", unsafe_allow_html=True) 
     st.caption("⚠️ 本系統數據僅供參考，不構成投資建議，投資人請審慎評估風險並自負盈虧。")
 if st.session_state.page == "welcome":
     st.markdown("<br><br><br><h3 style='text-align: center; color: #555;'>👈 請從左側選單選擇功能</h3>", unsafe_allow_html=True)
@@ -469,7 +469,7 @@ elif st.session_state.page == "home":
         st.markdown("<h3 style='color: #888;'>請選擇功能進入：</h3>", unsafe_allow_html=True)
         st.divider()
 
-        # 👇 就是這行！必須先創造這 5 個欄位，下面才找得到 col_a
+    
         col_a, col_b, col_c, col_d, col_e = st.columns(5)
 
         with col_a:
@@ -502,12 +502,12 @@ elif st.session_state.page == "stock_query":
         # 1. 股票代碼輸入框
         stock_code = st.text_input("請輸入台股代碼 (例如: 2330)")
         
-        # 2. ✨ 把 EPS 和 本益比的輸入框搬到這裡 (在 if 的外面) ✨
+        # 2.  把 EPS 和 本益比的輸入框搬到這裡 (在 if 的外面) 
         col_eps, col_pe = st.columns(2)
         with col_eps: eps = st.number_input("輸入該股 EPS (4季累積)", min_value=0.01, step=0.1, value=10.0)
         with col_pe: pe_target = st.number_input("自訂參考本益比 (PE)", value=15.0, step=0.1)
 
-        st.divider() # 加一條分隔線讓畫面比較好看
+        st.divider() 
 
         # 3. 有輸入代碼時，才開始抓資料跟計算
         if stock_code:
@@ -515,7 +515,7 @@ elif st.session_state.page == "stock_query":
             if info:
                 current_price = info['price']
                 
-                # ====== ✨ 新增：左右排版與官網搜尋按鈕 ======
+                # ======  新增：左右排版與官網搜尋按鈕 ======
                 col_title, col_btn = st.columns([3, 1])
                 with col_title:
                     st.markdown(f"## {info['name']}")
@@ -536,7 +536,7 @@ elif st.session_state.page == "stock_query":
                     st.write(f"最高: {info['high']:.2f} / 最低: {info['low']:.2f}")
                     st.write(f"開盤: {info['open']:.2f} / 總量: {int(info['vol']/1000):,} 張")
                 
-                st.divider() # 加一條線把行情跟試算結果隔開，視覺會比較乾淨
+                st.divider()
                 
                 # 這裡就不用再放輸入框了，直接進行計算
                 if current_price > 0:
@@ -596,7 +596,6 @@ elif st.session_state.page == "etf_query":
                 st.divider()
                 st.subheader("📑 歷史配息參考")
                 
-                # --- 新增這段配息頻率選擇器 ---
                 freq_map = {"月配": 12, "季配": 4, "半年配": 2, "年配": 1}
                 sys_freq_name = f"{d['freq_label']}配" if f"{d['freq_label']}配" in freq_map else "年配"
                 sys_index = list(freq_map.keys()).index(sys_freq_name)
@@ -605,7 +604,6 @@ elif st.session_state.page == "etf_query":
                 
                 d['multiplier'] = freq_map[user_freq]
                 d['freq_label'] = user_freq.replace("配", "")
-                # ------------------------------
             
                 e_cols = st.columns(4)
                 d1 = e_cols[0].number_input("最新", value=float(d["raw_divs"][0]), format="%.3f")
@@ -692,7 +690,7 @@ elif st.session_state.page == "etf_query":
                 st.divider()
                 st.subheader("🔮 存股未來財富試算")
                 with st.container():
-                    # 第一排：改成 4 個欄位，讓數字輸入框有絕對寬敞的空間
+                    
                     f_col0, f_col1, f_col2, f_col3 = st.columns(4)
                     with f_col0: custom_initial = st.number_input("初始投入總金額 (元)", min_value=0, value=3000000, step=100000)
                     with f_col1: custom_monthly = st.number_input("每月預計投入 (元)", min_value=0, value=0, step=1000)
@@ -700,7 +698,7 @@ elif st.session_state.page == "etf_query":
                     with f_col3: custom_yield = st.number_input("自訂年化殖利率 (%)", value=float(f"{real_yield:.2f}"), step=0.1)
                     
                     # 第二排：將拉桿獨立放一行，長度拉滿更好滑動
-                    st.write("") # 加一點點小留白讓視覺不擁擠
+                    st.write("") 
                     custom_years = st.slider("目標投入年數", 1, 40, 10)
                     
                     r = (custom_yield / 100) / 12
@@ -960,12 +958,12 @@ elif st.session_state.page == "portfolio":
         st.info("請先在上方表格輸入股票代碼與持有張數。")
 
 # ==============================================================
-# ⭐ 頁面：我的關注清單 (對齊雲端 gspread 邏輯 + 精緻卡片版)
+#  頁面：我的關注清單 (對齊雲端 gspread 邏輯 + 精緻卡片版) 
 # ==============================================================
 elif st.session_state.page == "watchlist":
-    # 💡 這裡重複定義一次美化函式，確保這頁能獨立運作
+    #  這裡重複定義一次美化函式，確保這頁能獨立運作
     def draw_watchlist_card(label, ticker_code):
-        # 使用你現有的數據引擎 get_stock_info (1.txt line 42)
+        # 使用你現有的數據引擎 get_stock_info 
         item = get_stock_info(ticker_code)
         if item:
             # 紅漲綠跌判斷
@@ -987,7 +985,7 @@ elif st.session_state.page == "watchlist":
 
     st.markdown("<h3 style='margin-top: 10px;'>⭐ 我的關注清單</h3>", unsafe_allow_html=True)
 
-    # 1. 確保資料已載入 (使用你 1.txt 的 load_watchlist_from_cloud 函式)
+    # 1. 確保資料已載入 
     if 'watchlist_data' not in st.session_state:
         st.session_state.watchlist_data = load_watchlist_from_cloud() 
 
@@ -1036,7 +1034,7 @@ elif st.session_state.page == "watchlist":
         st.info("目前清單空空如也，請在上方新增標的。")
 
     # ==============================================================
-    # 🌐 頁面：全球大盤與台指戰情室 (自動適應主題顏色版)
+    #  頁面：全球大盤與台指戰情室 (自動適應主題顏色版)  
     # ==============================================================
 elif st.session_state.page == "market_index":
         if st.button("⬅ 返回工具箱"):
@@ -1053,7 +1051,7 @@ elif st.session_state.page == "market_index":
             """, unsafe_allow_html=True)
         st.divider()
 
-        # --- ⚡ 抓取函式 ---
+        # ---  抓取函式 ---
         @st.cache_data(ttl=300)
         def get_market_data(ticker):
             try:
@@ -1066,11 +1064,11 @@ elif st.session_state.page == "market_index":
                 return current_p, change, pct
             except: return None, None, None
 
-        # --- 🎨 自動適應顏色的精簡組件 ---
+        # ---  自動適應顏色的精簡組件 ---
         def draw_compact_metric(label, ticker_code, fallback=None):
             p, c, pct = get_market_data(ticker_code)
             
-            # 💡 關鍵修正：只要有給 fallback 校正值，就強制覆蓋 (無視 yfinance 的錯誤資料)
+            #  關鍵修正：只要有給 fallback 校正值，就強制覆蓋 (無視 yfinance 的錯誤資料)
             if fallback: 
                 p, c, pct = fallback
             
@@ -1084,7 +1082,7 @@ elif st.session_state.page == "market_index":
                 else: val_str = f"{p:,.2f}"
                 c_str = f"{c:+.0f}" if ticker_code == "WTX=F" else f"{c:+.2f}"
 
-                # 💡 介面渲染
+                #  介面渲染
                 st.markdown(f"""
                     <div style="text-align: center; padding: 2px 0;">
                         <div style="font-size: 0.85rem; color: #888; margin-bottom: 2px;">{label}</div>
@@ -1108,22 +1106,22 @@ elif st.session_state.page == "market_index":
 
         c4, c5, c6 = st.columns(3)
         with c4: 
-            # 💡 移除強制數值，讓它抓取真實 API 數據
+            #  移除強制數值，讓它抓取真實 API 數據
             with st.container(border=True): draw_compact_metric("費城半導體", "^SOX")
         with c5: 
-            # 💡 移除強制數值，讓它抓取真實 API 數據
+            #  移除強制數值，讓它抓取真實 API 數據
             with st.container(border=True): draw_compact_metric("美10年債", "^TNX")
         with c6: 
-            # 🚨 只有台股加權保留週末強制校正
+            #  只有台股加權保留週末強制校正
             with st.container(border=True): draw_compact_metric("台股加權", "^TWII", (36804.34, -327.68, -0.88))
 
         c7, c8, c9 = st.columns(3)
         with c7: 
-            # 🚨 只有台指期保留週末強制校正
+            #  只有台指期保留週末強制校正
             with st.container(border=True): draw_compact_metric("台指期 / 近全", "WTX=F", (37742, 664, 1.79))
         with c8: 
-            # 🚨 只有原油期貨保留週末強制校正
+            #  只有原油期貨保留週末強制校正
             with st.container(border=True): draw_compact_metric("原油期貨", "CL=F", (83.85, -10.84, -11.45))
         with c9: 
-            # 💡 移除強制數值
+            #  移除強制數值
             with st.container(border=True): draw_compact_metric("美元/台幣", "TWD=X")
