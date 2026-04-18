@@ -54,7 +54,7 @@
 ---
 
 > ### 📢 系統資訊與反饋
-> * **💬 問題反饋：** [GitHub Issues 專區](https://github.com/ezzzzzz1011/TW_stock/issues)
+> * **💬 意見與問題反饋：** [GitHub Issues 專區](https://github.com/ezzzzzz1011/TW_stock/issues)
 > * **📅 最後更新日期：** `2026-04-18`
 > * **🛠️ 系統狀態：** ![Stable](https://img.shields.io/badge/Status-Stable-success.svg)
 
