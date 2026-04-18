@@ -959,63 +959,79 @@ elif st.session_state.page == "portfolio":
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
 
-    # ==============================================================
-    # ⭐ 頁面：我的關注清單 (雲端同步版)
-    # ==============================================================
+# ==============================================================
+# ⭐ 頁面：我的關注清單 (對齊雲端 gspread 邏輯 + 精緻卡片版)
+# ==============================================================
 elif st.session_state.page == "watchlist":
-        st.markdown("<h3 style='margin-top: 10px;'>⭐ 我的關注清單</h3>", unsafe_allow_html=True)
-        
-        # --- 1. 從雲端抓取該使用者的清單 ---
-        user_id = st.session_state.get('username', 'qazwsx')
-        
-        # 假設你的 conn 是之前的 Google Sheets 連線
-        df = conn.read(worksheet="users", ttl="5s") 
-        user_row = df[df['username'] == user_id]
-        
-        watchlist_tickers = []
-        if not user_row.empty:
-            # 抓取你圖中那一欄的資料 (假設欄位名叫 watchlist)
-            raw_list = user_row.iloc[0]['watchlist'] 
-            if pd.notna(raw_list) and raw_list != "":
-                # 💡 把 '00881,00919' 拆成 ['00881', '00919']
-                watchlist_tickers = [t.strip() for t in str(raw_list).split(',') if t.strip()]
+    # 💡 這裡重複定義一次美化函式，確保這頁能獨立運作
+    def draw_watchlist_card(label, ticker_code):
+        # 使用你現有的數據引擎 get_stock_info (1.txt line 42)
+        item = get_stock_info(ticker_code)
+        if item:
+            # 紅漲綠跌判斷
+            color = "#ff4b4b" if item['change'] >= 0 else "#09ab3b"
+            arrow = "▲" if item['change'] >= 0 else "▼"
+            
+            # 使用繼承顏色，解決白色背景字體不見的問題
+            st.markdown(f"""
+                <div style="text-align: center; padding: 5px 0;">
+                    <div style="font-size: 0.85rem; color: #888; margin-bottom: 2px;">{item['name']}</div>
+                    <div style="font-size: 1.5rem; font-weight: bold; margin-bottom: 8px; color: inherit;">{item['price']:.2f}</div>
+                    <div style="display: inline-block; background: {color}15; color: {color}; padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 500;">
+                        {arrow} 日漲跌 {item['change']:+.2f} ({item['pct']:+.2f}%)
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            return True
+        return False
 
-        # --- 2. 新增追蹤功能 ---
-        with st.container(border=True):
-            st.markdown("#### ➕ 新增追蹤標的")
-            new_t = st.text_input("輸入台股代碼", placeholder="例如: 2330", key="add_t").strip()
-            if st.button("確認加入", use_container_width=True):
-                if new_t and new_t not in watchlist_tickers:
-                    watchlist_tickers.append(new_t)
-                    new_list_str = ",".join(watchlist_tickers)
-                    # 💡 這裡要寫回雲端 (範例邏輯)
-                    # conn.update(..., data=new_list_str) 
-                    st.success(f"已加入 {new_t}")
-                    st.rerun()
+    st.markdown("<h3 style='margin-top: 10px;'>⭐ 我的關注清單</h3>", unsafe_allow_html=True)
 
-        st.divider()
+    # 1. 確保資料已載入 (使用你 1.txt 的 load_watchlist_from_cloud 函式)
+    if 'watchlist_data' not in st.session_state:
+        st.session_state.watchlist_data = load_watchlist_from_cloud() [cite: 17]
 
-        # --- 3. 顯示關注標的 (使用精簡卡片排版) ---
-        if watchlist_tickers:
-            # 每 3 支股票排成一列
+    # 2. 新增追蹤區塊 (使用你喜歡的邊框卡片)
+    with st.form("add_stock_form", clear_on_submit=True):
+        st.write("### ➕ 新增追蹤標的")
+        new_code = st.text_input("輸入台股代碼", placeholder="例如: 2330").strip().upper()
+        if st.form_submit_button("確認加入", use_container_width=True):
+            if new_code:
+                # 簡單清理代碼，避免重複補上 .TW
+                clean_code = new_code.replace('.TW', '').replace('.TWO', '')
+                if clean_code not in st.session_state.watchlist_data:
+                    # 先測看看抓不抓得到資料
+                    if get_stock_info(clean_code): [cite: 176]
+                        st.session_state.watchlist_data.append(clean_code)
+                        # 儲存回雲端 (使用你 1.txt 的 save_watchlist_to_cloud 函式)
+                        save_watchlist_to_cloud(st.session_state.watchlist_data) [cite: 18, 176]
+                        st.success(f"✅ {clean_code} 加入成功！")
+                        st.rerun()
+                    else:
+                        st.error("❌ 找不到該代碼，請檢查是否輸入正確")
+
+    st.divider()
+
+    # 3. 顯示關注列表 (3xN 網格排列，像大盤一樣漂亮)
+    if st.session_state.watchlist_data:
+        # 每 3 個一排
+        rows = [st.session_state.watchlist_data[i:i+3] for i in range(0, len(st.session_state.watchlist_data), 3)]
+        
+        for row_items in rows:
             cols = st.columns(3)
-            for i, t in enumerate(watchlist_tickers):
-                with cols[i % 3]:
+            for i, code in enumerate(row_items):
+                with cols[i]:
                     with st.container(border=True):
-                        # 💡 判斷後綴：債券 ETF 補 .TWO，其餘補 .TW
-                        full_ticker = f"{t}.TWO" if t.upper().endswith("B") else f"{t}.TW"
+                        # 執行畫圖並判斷
+                        draw_watchlist_card(code, code)
                         
-                        # 調用我們剛才寫好的精簡版組件 (需確保 draw_compact_metric 已定義)
-                        draw_compact_metric(t, full_ticker)
-                        
-                        # 加上一個小小的刪除按鈕
-                        if st.button(f"移除 {t}", key=f"del_{t}", size="small"):
-                            watchlist_tickers.remove(t)
-                            # 更新雲端...
+                        # 在卡片底部放一個小小的移除按鈕
+                        if st.button(f"🗑️ 移除 {code}", key=f"del_{code}", use_container_width=True):
+                            st.session_state.watchlist_data.remove(code)
+                            save_watchlist_to_cloud(st.session_state.watchlist_data) [cite: 184]
                             st.rerun()
-        else:
-            st.info("目前清單空空的，快新增標的吧！")
-
+    else:
+        st.info("目前清單空空如也，請在上方新增標的。")
 
     # ==============================================================
     # 🌐 頁面：全球大盤與台指戰情室 (自動適應主題顏色版)
