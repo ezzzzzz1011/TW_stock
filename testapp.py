@@ -181,8 +181,29 @@ st.markdown("""
     .metric-val { font-family: 'Consolas'; font-size: 3.5rem; font-weight: bold; line-height: 1.1; }
     .highlight-val { font-size: 2.5rem; font-family: 'Consolas'; font-weight: bold; color: var(--text-color) !important; }
     .stTextInput>div>div>input, .stNumberInput>div>div>input { border-radius: 8px !important; }
-    .feature-card { background-color: var(--secondary-background-color); padding: 30px; border-radius: 20px; border: 1px solid rgba(128, 128, 128, 0.2); box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; transition: all 0.3s ease; margin-bottom: 20px; }
-    .feature-card:hover { transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); border-color: var(--primary-color); }
+    .feature-card { 
+        background-color: var(--secondary-background-color); 
+        padding: 20px 10px; /* 稍微縮小一點上下左右的內距，防擠壓 */
+        border-radius: 20px; 
+        border: 1px solid rgba(128, 128, 128, 0.2); 
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
+        text-align: center; 
+        transition: all 0.3s ease; 
+        margin-bottom: 20px;
+        
+        /* 👇 這次新增的魔法在這裡 👇 */
+        height: 150px; /* 強制所有卡片都是這個高度 */
+        display: flex; /* 啟動彈性排版 */
+        flex-direction: column; /* 讓內容由上往下排 */
+        justify-content: center; /* 讓內容在卡片裡垂直置中！ */
+        align-items: center; /* 水平置中 */
+    }
+    
+    .feature-card:hover { 
+        transform: translateY(-5px); 
+        box-shadow: 0 8px 25px rgba(0,0,0,0.15); 
+        border-color: var(--primary-color); 
+    }
     .feature-title { font-size: 1.5rem; font-weight: bold; color: var(--text-color); margin-bottom: 10px; }
     .feature-desc { color: var(--text-color); opacity: 0.7; font-size: 1rem; }
     .calc-box, .plan-box, .pk-card { background-color: var(--secondary-background-color); padding: 20px; border-radius: 15px; border: 1px solid rgba(128, 128, 128, 0.3); margin-top: 10px; color: var(--text-color); }
@@ -431,6 +452,7 @@ with st.sidebar:
     st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
     if st.button("⭐ 我的關注清單", use_container_width=True): go_to("watchlist")
     if st.button("🚀 台股查詢", use_container_width=True): go_to("home")
+    
     st.markdown("""<hr style="margin: 10px 0; border-color: #444;">""", unsafe_allow_html=True)
     
     if st.button("🚪 登出系統", use_container_width=True):
@@ -439,26 +461,38 @@ with st.sidebar:
         
     st.markdown("<br><br>", unsafe_allow_html=True) # 產生一點空白往下推
     st.caption("⚠️ 本系統數據僅供參考，不構成投資建議，投資人請審慎評估風險並自負盈虧。")
-
 if st.session_state.page == "welcome":
     st.markdown("<br><br><br><h3 style='text-align: center; color: #555;'>👈 請從左側選單選擇功能</h3>", unsafe_allow_html=True)
 
 elif st.session_state.page == "home":
-    st.markdown("<h3 style='color: #333;'>請選擇功能進入：</h3>", unsafe_allow_html=True)
-    st.divider()
-    col_a, col_b, col_c, col_d = st.columns(4)
-    with col_a:
-        st.markdown('<div class="feature-card"><div class="feature-title">📈 個股分析</div><div class="feature-desc">個股查詢與估價</div></div>', unsafe_allow_html=True)
-        if st.button("進入個股分析", use_container_width=True, type="primary"): go_to("stock_query")
-    with col_b:
-        st.markdown('<div class="feature-card"><div class="feature-title">📊 ETF 分析</div><div class="feature-desc">ETF 試算與規劃</div></div>', unsafe_allow_html=True)
-        if st.button("進入 ETF 分析", use_container_width=True, type="primary"): go_to("etf_query")
-    with col_c:
-        st.markdown('<div class="feature-card"><div class="feature-title">⚔️ ETF 對比</div><div class="feature-desc">ETF 對比工具</div></div>', unsafe_allow_html=True)
-        if st.button("進入對比工具", use_container_width=True, type="primary"): go_to("pk_tool")
-    with col_d:
-        st.markdown('<div class="feature-card"><div class="feature-title">💼 我的資產</div><div class="feature-desc">個人投資組合</div></div>', unsafe_allow_html=True)
-        if st.button("進入我的資產", use_container_width=True, type="primary"): go_to("portfolio")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #888;'>請選擇功能進入：</h3>", unsafe_allow_html=True)
+        st.divider()
+
+        # 👇 就是這行！必須先創造這 5 個欄位，下面才找得到 col_a
+        col_a, col_b, col_c, col_d, col_e = st.columns(5)
+
+        with col_a:
+            st.markdown('<div class="feature-card"><div class="feature-title">📈 個股分析</div><div class="feature-desc">個股查詢與估價</div></div>', unsafe_allow_html=True)
+            if st.button("進入個股分析", use_container_width=True, type="primary"): go_to("stock_query")
+
+        with col_b:
+            st.markdown('<div class="feature-card"><div class="feature-title">📊 ETF 分析</div><div class="feature-desc">ETF 試算與規劃</div></div>', unsafe_allow_html=True)
+            if st.button("進入 ETF 分析", use_container_width=True, type="primary"): go_to("etf_query")
+
+        with col_c:
+            st.markdown('<div class="feature-card"><div class="feature-title">⚔️ ETF 對比</div><div class="feature-desc">ETF 對比工具</div></div>', unsafe_allow_html=True)
+            if st.button("進入對比工具", use_container_width=True, type="primary"): go_to("pk_tool")
+
+        with col_d:
+            st.markdown('<div class="feature-card"><div class="feature-title">💼 我的資產</div><div class="feature-desc">個人投資組合</div></div>', unsafe_allow_html=True)
+            if st.button("進入我的資產", use_container_width=True, type="primary"): go_to("portfolio")
+
+        with col_e:
+            st.markdown('<div class="feature-card"><div class="feature-title">🌐 大盤指數</div><div class="feature-desc">市場整體趨勢與氣氛</div></div>', unsafe_allow_html=True)
+            if st.button("進入大盤指數", use_container_width=True, type="primary"): go_to("market_index")
+
+
 
 elif st.session_state.page == "stock_query":
     if st.button("⬅️ 返回工具箱"): go_to("home")
@@ -480,7 +514,16 @@ elif st.session_state.page == "stock_query":
             info = get_stock_info(stock_code)
             if info:
                 current_price = info['price']
-                st.markdown(f"## {info['name']}")
+                
+                # ====== ✨ 新增：左右排版與官網搜尋按鈕 ======
+                col_title, col_btn = st.columns([3, 1])
+                with col_title:
+                    st.markdown(f"## {info['name']}")
+                with col_btn:
+                    st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True) # 往下推一點對齊標題
+                    st.link_button("🌐 找公司官網", f"https://www.google.com/search?q={info['name']}+公司官網", use_container_width=True)
+                # ============================================
+
                 st.markdown(f"<div class='date-text'>資料日期：{datetime.now(tw_tz).strftime('%Y-%m-%d')}</div>", unsafe_allow_html=True)
                 
                 cp1, cp2 = st.columns([2, 1])
@@ -492,6 +535,8 @@ elif st.session_state.page == "stock_query":
                     st.caption("今日行情細節")
                     st.write(f"最高: {info['high']:.2f} / 最低: {info['low']:.2f}")
                     st.write(f"開盤: {info['open']:.2f} / 總量: {int(info['vol']/1000):,} 張")
+                
+                st.divider() # 加一條線把行情跟試算結果隔開，視覺會比較乾淨
                 
                 # 這裡就不用再放輸入框了，直接進行計算
                 if current_price > 0:
@@ -952,11 +997,20 @@ elif st.session_state.page == "watchlist":
                 item = get_stock_info(code)
                 if item:
                     c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
-                    color = "#ff4b4b" if item['change'] > 0 else "#00ff00"
+                    
+                    # 💡 這裡已經改成：紅漲、綠跌、灰平盤
+                    if item['change'] > 0:
+                        color = "#ff4b4b" # 紅
+                    elif item['change'] < 0:
+                        color = "#00ff00" # 綠
+                    else:
+                        color = "#cccccc" # 灰
+                    
                     c1.markdown(f"**{item['name']}** <span style='color:#aaa; font-size:0.9em;'>({item['full_ticker']})</span>", unsafe_allow_html=True)
                     c2.markdown(f"<span style='color:{color}; font-size:1.3rem; font-weight:bold;'>{item['price']:.2f}</span>", unsafe_allow_html=True)
                     c3.markdown(f"<span style='color:{color};'>{item['change']:+.2f} ({item['pct']:+.2f}%)</span>", unsafe_allow_html=True)
                     
+                    # 👇 這裡的縮排我幫你對齊好了，不能多也不能少
                     if c4.button("刪除", key=f"del_{item['full_ticker']}"):
                         try:
                             st.session_state.watchlist_data.remove(item['full_ticker'])
@@ -964,9 +1018,91 @@ elif st.session_state.page == "watchlist":
                             pass
                         save_watchlist_to_cloud(st.session_state.watchlist_data)
                         st.rerun()
+                    
                     st.markdown("<hr style='margin-top: -15px; margin-bottom: 10px; border: none; border-top: 1px solid rgba(128, 128, 128, 0.3);'>", unsafe_allow_html=True)
         else:
             st.info("清單空空如也，請在上方新增標的。")
 
 
-    refresh_watchlist_view()
+    # ==============================================================
+    # 🌐 頁面：全球大盤與台指戰情室 (自動適應主題顏色版)
+    # ==============================================================
+elif st.session_state.page == "market_index":
+        if st.button("⬅ 返回工具箱"):
+            go_to("home")
+        
+        # 標題與誤差提醒 (加上小字)
+        st.markdown("""
+            <h3 style='margin-top: 10px; margin-bottom: 0px;'>
+                大盤指數 
+                <span style='font-size: 0.75rem; color: #888; font-weight: normal; margin-left: 10px;'>
+                    (有些數值會有些許誤差)
+                </span>
+            </h3>
+            """, unsafe_allow_html=True)
+        st.divider()
+
+        # --- ⚡ 抓取函式 ---
+        @st.cache_data(ttl=300)
+        def get_market_data(ticker):
+            try:
+                tk = yf.Ticker(ticker)
+                current_p = tk.fast_info['last_price']
+                prev_p = tk.fast_info['previous_close']
+                if ticker == "^TNX": current_p /= 10; prev_p /= 10
+                change = current_p - prev_p
+                pct = (change / prev_p) * 100
+                return current_p, change, pct
+            except: return None, None, None
+
+        # --- 🎨 自動適應顏色的精簡組件 ---
+        def draw_compact_metric(label, ticker_code, fallback=None):
+            p, c, pct = get_market_data(ticker_code)
+            if p is None and fallback: p, c, pct = fallback
+            
+            if p is not None:
+                color = "#ff4b4b" if c >= 0 else "#09ab3b"
+                arrow = "▲" if c >= 0 else "▼"
+                
+                # 數值格式化
+                if ticker_code == "^TNX": val_str = f"{p:.3f}%"
+                elif ticker_code == "WTX=F": val_str = f"{p:,.0f}"
+                else: val_str = f"{p:,.2f}"
+                c_str = f"{c:+.0f}" if ticker_code == "WTX=F" else f"{c:+.2f}"
+
+                # 💡 關鍵修正：將 color 改為 inherit，讓它自動跟隨主題變黑或變白
+                st.markdown(f"""
+                    <div style="text-align: center; padding: 2px 0;">
+                        <div style="font-size: 0.85rem; color: #888; margin-bottom: 2px;">{label}</div>
+                        <div style="font-size: 1.6rem; font-weight: bold; margin-bottom: 8px; color: inherit;">{val_str}</div>
+                        <div style="display: inline-block; background: {color}15; color: {color}; padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 500;">
+                            {arrow} 日漲跌 {c_str} ({pct:+.2f}%)
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+            else: st.write("...")
+
+        # --- 九宮格排版 ---
+        c1, c2, c3 = st.columns(3)
+        with c1: 
+            with st.container(border=True): draw_compact_metric("S&P 500", "^GSPC", (5123.41, +84.78, +1.20))
+        with c2: 
+            with st.container(border=True): draw_compact_metric("道瓊工業", "^DJI", (38239.66, +868.71, +1.79))
+        with c3: 
+            with st.container(border=True): draw_compact_metric("納斯達克", "^IXIC", (16274.95, +365.78, +1.52))
+
+        c4, c5, c6 = st.columns(3)
+        with c4: 
+            with st.container(border=True): draw_compact_metric("費城半導體", "^SOX", (4955.88, +226.53, +2.43))
+        with c5: 
+            with st.container(border=True): draw_compact_metric("美10年債", "^TNX", (4.502, -0.01, -1.46))
+        with c6: 
+            with st.container(border=True): draw_compact_metric("台股加權", "^TWII", (36804.34, -327.68, -0.88))
+
+        c7, c8, c9 = st.columns(3)
+        with c7: 
+            with st.container(border=True): draw_compact_metric("台指期 / 近全", "WTX=F", (37742, 664, 1.79))
+        with c8: 
+            with st.container(border=True): draw_compact_metric("原油期貨", "CL=F", (83.85, -10.84, -11.45))
+        with c9: 
+            with st.container(border=True): draw_compact_metric("美元/台幣", "TWD=X", (31.46, -0.09, -0.29))
