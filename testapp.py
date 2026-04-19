@@ -225,8 +225,8 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- Fugle API 初始化 ---
-FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
+# 改成這行並儲存 (Commit changes)：
+FUGLE_TOKEN = st.secrets["FUGLE_TOKEN"]
 client = RestClient(api_key=FUGLE_TOKEN)
 
 # ==========================================
