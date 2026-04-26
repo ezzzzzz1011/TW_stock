@@ -1131,12 +1131,12 @@ elif st.session_state.page == "market_index":
             with st.container(border=True): draw_compact_metric("美元/台幣", "TWD=X")
 
 # ==============================================================
-# 📝 頁面：股利報稅與綜合所得稅試算 (114年度 / 薪資精準防呆 + 級距表完整版)
+# 📝 頁面：股利報稅與綜合所得稅試算 (114年度 / 20%排富條款自動觸發版)
 # ==============================================================
 elif st.session_state.page == "tax_calc":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("📝 股利報稅與綜合所得稅試算")
-    st.info("本系統採用 **114年度（115年5月申報）** 最新稅法公式。請在下方填寫資料，填完後可隨時切換分頁查看兩種計稅方式的完整明細！")
+    st.info("本系統採用 **114年度（115年5月申報）** 最新稅法公式。具備「薪資精準防呆」與「20% 稅率自動排富」功能。")
 
     # ==========================================
     # 📝 共用填寫區域 (放在分頁外面，只需填一次)
@@ -1193,13 +1193,8 @@ elif st.session_state.page == "tax_calc":
     # ==========================================
     # ⚙️ 共用基礎運算與共同表格建立
     # ==========================================
-    # 1. 總薪資加總
     salary = sal_1 + sal_2 + sal_3 + sal_4
-    
-    # 2. 精準計算薪資扣除額：每個人各自與 21.8萬 比大小後加總
     salary_deduction = min(sal_1, 218000) + min(sal_2, 218000) + min(sal_3, 218000) + min(sal_4, 218000)
-    
-    # 3. 其他基礎扣除額計算
     general_deduction = max(standard_deduction, itemized_deduction)
     deduction_type_str = "列舉" if itemized_deduction > standard_deduction else "標準"
     disability_deduction = disability_count * 218000
@@ -1209,7 +1204,6 @@ elif st.session_state.page == "tax_calc":
     basic_expense_unit = 213000
     total_basic_living = basic_expense_unit * total_people
 
-    # 4. 準備 114 年度級距表資料 (供兩個分頁共用顯示)
     import pandas as pd
     tax_table_data = pd.DataFrame({
         "所得淨額": ["0 ~ 590,000", "590,001 ~ 1,330,000", "1,330,001 ~ 2,660,000", "2,660,001 ~ 4,980,000", "4,980,001 以上"],
@@ -1221,15 +1215,37 @@ elif st.session_state.page == "tax_calc":
     tab1, tab2 = st.tabs(["📊 方案 A：一般合併申報明細", "👑 方案 B：股利 28% 分開計稅明細"])
 
     # ==========================================
-    # 分頁 1：一般合併試算 (福利全開版)
+    # 分頁 1：一般合併試算 (自動偵測 20% 排富)
     # ==========================================
     with tab1:
-        if preschool_count == 0: preschool_deduction_a = 0
-        elif preschool_count == 1: preschool_deduction_a = 120000
-        else: preschool_deduction_a = 120000 + (preschool_count - 1) * 135000
-        
-        ltc_deduction_a = ltc_count * 180000
-        rent_deduction_a = rent_deduction
+        # 🟢 第一階段測試：假設享有福利，測試稅率是否達 20%
+        temp_preschool = 0
+        if preschool_count == 1: temp_preschool = 120000
+        elif preschool_count > 1: temp_preschool = 120000 + (preschool_count - 1) * 135000
+        temp_ltc = ltc_count * 180000
+        temp_rent = rent_deduction
+
+        temp_sum_deductions = (total_exemption + general_deduction + saving_deduction + 
+                               disability_deduction + edu_deduction + temp_preschool + temp_ltc + temp_rent)
+        temp_basic_diff = max(0, total_basic_living - temp_sum_deductions)
+        temp_net = max(0, (salary + div_total) - (temp_sum_deductions + salary_deduction) - temp_basic_diff)
+
+        # 判斷是否觸發排富條款 (所得淨額 > 1,330,000，即稅率達 20% 以上)
+        is_rich_a = temp_net > 1330000
+
+        # 🔴 第二階段正式計算：若排富則歸零，否則保留
+        if is_rich_a:
+            preschool_deduction_a = 0
+            ltc_deduction_a = 0
+            rent_deduction_a = 0
+            rich_tag = '<br><span style="font-size:12px; color:#c00;">(稅率達20%排富)</span>'
+            td_style = 'style="color:#aaa;"'
+        else:
+            preschool_deduction_a = temp_preschool
+            ltc_deduction_a = temp_ltc
+            rent_deduction_a = temp_rent
+            rich_tag = ''
+            td_style = ''
 
         sum_deductions_for_basic_a = (total_exemption + general_deduction + saving_deduction + 
                                     disability_deduction + edu_deduction + preschool_deduction_a + 
@@ -1250,6 +1266,9 @@ elif st.session_state.page == "tax_calc":
         div_credit_a = min(80000, div_total * 0.085)
         final_tax_to_pay_a = base_tax_a - div_credit_a
 
+        if is_rich_a:
+            st.warning("⚠️ **系統偵測：您的課稅級距達 20% 以上，已自動觸發排富條款！**\n\n依法規定，長照、幼兒學前、房屋租金等特別扣除額皆已自動歸零。")
+
         st.markdown("### 📝 扣除額與抵減稅額明細 (方案 A)")
         table_css = """
         <style>
@@ -1262,7 +1281,6 @@ elif st.session_state.page == "tax_calc":
         """
         st.markdown(table_css, unsafe_allow_html=True)
 
-        st.markdown("★ **基本生活差額：**")
         table1_html_a = f"""
         <table class="tax-table">
             <tr>
@@ -1282,8 +1300,9 @@ elif st.session_state.page == "tax_calc":
             </tr>
             <tr>
                 <td>{disability_deduction:,}</td><td class="operator">－</td><td>{edu_deduction:,}</td><td class="operator">－</td>
-                <td>{preschool_deduction_a:,}</td><td class="operator">－</td><td>{ltc_deduction_a:,}</td><td class="operator">－</td>
-                <td>{rent_deduction_a:,}</td><td class="operator">＝</td>
+                <td {td_style}>{preschool_deduction_a:,}{rich_tag}</td><td class="operator">－</td>
+                <td {td_style}>{ltc_deduction_a:,}{rich_tag}</td><td class="operator">－</td>
+                <td {td_style}>{rent_deduction_a:,}{rich_tag}</td><td class="operator">＝</td>
             </tr>
             <tr><th colspan="10" style="text-align: left; padding-left: 20px;">基本生活費差額</th></tr>
             <tr><td colspan="10" style="text-align: left; padding-left: 20px; font-weight: bold; font-size: 18px; color: #d9534f;">{basic_diff_a:,}</td></tr>
@@ -1325,7 +1344,7 @@ elif st.session_state.page == "tax_calc":
                 st.markdown(f"<div style='text-align: center; font-size: 38px; font-weight: bold; color: {fc_a};'>{final_tax_to_pay_a:,.0f} <span style='font-size: 16px;'>元</span></div>", unsafe_allow_html=True)
 
     # ==========================================
-    # 分頁 2：大戶 28% 分開計稅 (福利沒收版)
+    # 分頁 2：大戶 28% 分開計稅 (福利強制沒收版)
     # ==========================================
     with tab2:
         preschool_deduction_b = 0
@@ -1351,10 +1370,11 @@ elif st.session_state.page == "tax_calc":
         div_tax_b = div_total * 0.28
         final_tax_to_pay_b = base_tax_b + div_tax_b
 
+        st.warning("👑 **方案 B 預設：凡選擇股利 28% 分開計稅，即自動觸發排富條款！**\n\n長照、幼兒學前、房屋租金等特別扣除額皆已自動歸零。")
+
         st.markdown("### 📝 扣除額明細 (方案 B：排富沒收版)")
         st.markdown(table_css, unsafe_allow_html=True)
 
-        st.markdown("★ **基本生活差額：**")
         table1_html_b = f"""
         <table class="tax-table">
             <tr>
@@ -1374,9 +1394,9 @@ elif st.session_state.page == "tax_calc":
             </tr>
             <tr>
                 <td>{disability_deduction:,}</td><td class="operator">－</td><td>{edu_deduction:,}</td><td class="operator">－</td>
-                <td style="color:#aaa;">0 <br><span style="font-size:12px; color:#c00;">(排富取消)</span></td><td class="operator">－</td>
-                <td style="color:#aaa;">0 <br><span style="font-size:12px; color:#c00;">(排富取消)</span></td><td class="operator">－</td>
-                <td style="color:#aaa;">0 <br><span style="font-size:12px; color:#c00;">(排富取消)</span></td><td class="operator">＝</td>
+                <td style="color:#aaa;">0 <br><span style="font-size:12px; color:#c00;">(28%排富取消)</span></td><td class="operator">－</td>
+                <td style="color:#aaa;">0 <br><span style="font-size:12px; color:#c00;">(28%排富取消)</span></td><td class="operator">－</td>
+                <td style="color:#aaa;">0 <br><span style="font-size:12px; color:#c00;">(28%排富取消)</span></td><td class="operator">＝</td>
             </tr>
             <tr><th colspan="10" style="text-align: left; padding-left: 20px;">基本生活費差額</th></tr>
             <tr><td colspan="10" style="text-align: left; padding-left: 20px; font-weight: bold; font-size: 18px; color: #d9534f;">{basic_diff_b:,}</td></tr>
