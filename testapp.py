@@ -13,7 +13,7 @@ from google.oauth2.service_account import Credentials
 from fugle_marketdata import RestClient
 
 # --- 1. 網頁全域設定 (必須放在最上方) ---
-st.set_page_config(page_title="台股個股/ETF查詢 Ez開發", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="Ez測試", page_icon="🔍", layout="wide")
 tw_tz = pytz.timezone('Asia/Taipei')
 
 # --- 0. 雲端資料庫連線與帳號邏輯 ---
@@ -225,12 +225,12 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 改成這行並儲存 (Commit changes)：
-FUGLE_TOKEN = st.secrets["FUGLE_TOKEN"]
+# --- Fugle API 初始化 ---
+FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
 client = RestClient(api_key=FUGLE_TOKEN)
 
 # ==========================================
-#  1：報價與總量 (強制 Fugle 備援，解決卡死)
+# 🚀 終極數據引擎 1：報價與總量 (強制 Fugle 備援，解決卡死)
 # ==========================================
 def get_stock_info(symbol):
     clean_symbol = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
@@ -256,9 +256,9 @@ def get_stock_info(symbol):
     except Exception:
         return None
 
-# ===========================================
-#  2：配息與日期去重複 (三引擎備援架構)         
-#============================================
+# ==========================================
+# 🚀 終極數據引擎 2：配息與日期去重複 (三引擎備援架構)
+# ==========================================
 def fetch_dividend_history_super(symbol):
     clean_s = str(symbol).strip().upper().replace('.TW', '').replace('.TWO', '')
     div_list = []
@@ -453,13 +453,17 @@ with st.sidebar:
     if st.button("⭐ 我的關注清單", use_container_width=True): go_to("watchlist")
     if st.button("🚀 台股查詢", use_container_width=True): go_to("home")
     
+    # --- 👇 新增這一行，讓按鈕直接出現在側邊欄 ---
+    if st.button("📝 股利報稅", use_container_width=True): go_to("tax_calc")
+    # ------------------------------------------
+
     st.markdown("""<hr style="margin: 10px 0; border-color: #444;">""", unsafe_allow_html=True)
     
     if st.button("🚪 登出系統", use_container_width=True):
         st.session_state.logged_in = False
         st.rerun()
         
-    st.markdown("<br><br>", unsafe_allow_html=True) 
+    st.markdown("<br><br>", unsafe_allow_html=True) # 產生一點空白往下推
     st.caption("⚠️ 本系統數據僅供參考，不構成投資建議，投資人請審慎評估風險並自負盈虧。")
 if st.session_state.page == "welcome":
     st.markdown("<br><br><br><h3 style='text-align: center; color: #555;'>👈 請從左側選單選擇功能</h3>", unsafe_allow_html=True)
@@ -469,7 +473,7 @@ elif st.session_state.page == "home":
         st.markdown("<h3 style='color: #888;'>請選擇功能進入：</h3>", unsafe_allow_html=True)
         st.divider()
 
-    
+        # 👇 就是這行！必須先創造這 5 個欄位，下面才找得到 col_a
         col_a, col_b, col_c, col_d, col_e = st.columns(5)
 
         with col_a:
@@ -502,12 +506,12 @@ elif st.session_state.page == "stock_query":
         # 1. 股票代碼輸入框
         stock_code = st.text_input("請輸入台股代碼 (例如: 2330)")
         
-        # 2.  把 EPS 和 本益比的輸入框搬到這裡 (在 if 的外面) 
+        # 2. ✨ 把 EPS 和 本益比的輸入框搬到這裡 (在 if 的外面) ✨
         col_eps, col_pe = st.columns(2)
         with col_eps: eps = st.number_input("輸入該股 EPS (4季累積)", min_value=0.01, step=0.1, value=10.0)
         with col_pe: pe_target = st.number_input("自訂參考本益比 (PE)", value=15.0, step=0.1)
 
-        st.divider() 
+        st.divider() # 加一條分隔線讓畫面比較好看
 
         # 3. 有輸入代碼時，才開始抓資料跟計算
         if stock_code:
@@ -515,7 +519,7 @@ elif st.session_state.page == "stock_query":
             if info:
                 current_price = info['price']
                 
-                # ======  新增：左右排版與官網搜尋按鈕 ======
+                # ====== ✨ 新增：左右排版與官網搜尋按鈕 ======
                 col_title, col_btn = st.columns([3, 1])
                 with col_title:
                     st.markdown(f"## {info['name']}")
@@ -536,7 +540,7 @@ elif st.session_state.page == "stock_query":
                     st.write(f"最高: {info['high']:.2f} / 最低: {info['low']:.2f}")
                     st.write(f"開盤: {info['open']:.2f} / 總量: {int(info['vol']/1000):,} 張")
                 
-                st.divider()
+                st.divider() # 加一條線把行情跟試算結果隔開，視覺會比較乾淨
                 
                 # 這裡就不用再放輸入框了，直接進行計算
                 if current_price > 0:
@@ -596,6 +600,7 @@ elif st.session_state.page == "etf_query":
                 st.divider()
                 st.subheader("📑 歷史配息參考")
                 
+                # --- 新增這段配息頻率選擇器 ---
                 freq_map = {"月配": 12, "季配": 4, "半年配": 2, "年配": 1}
                 sys_freq_name = f"{d['freq_label']}配" if f"{d['freq_label']}配" in freq_map else "年配"
                 sys_index = list(freq_map.keys()).index(sys_freq_name)
@@ -604,6 +609,7 @@ elif st.session_state.page == "etf_query":
                 
                 d['multiplier'] = freq_map[user_freq]
                 d['freq_label'] = user_freq.replace("配", "")
+                # ------------------------------
             
                 e_cols = st.columns(4)
                 d1 = e_cols[0].number_input("最新", value=float(d["raw_divs"][0]), format="%.3f")
@@ -690,7 +696,7 @@ elif st.session_state.page == "etf_query":
                 st.divider()
                 st.subheader("🔮 存股未來財富試算")
                 with st.container():
-                    
+                    # 第一排：改成 4 個欄位，讓數字輸入框有絕對寬敞的空間
                     f_col0, f_col1, f_col2, f_col3 = st.columns(4)
                     with f_col0: custom_initial = st.number_input("初始投入總金額 (元)", min_value=0, value=3000000, step=100000)
                     with f_col1: custom_monthly = st.number_input("每月預計投入 (元)", min_value=0, value=0, step=1000)
@@ -698,7 +704,7 @@ elif st.session_state.page == "etf_query":
                     with f_col3: custom_yield = st.number_input("自訂年化殖利率 (%)", value=float(f"{real_yield:.2f}"), step=0.1)
                     
                     # 第二排：將拉桿獨立放一行，長度拉滿更好滑動
-                    st.write("") 
+                    st.write("") # 加一點點小留白讓視覺不擁擠
                     custom_years = st.slider("目標投入年數", 1, 40, 10)
                     
                     r = (custom_yield / 100) / 12
@@ -958,12 +964,12 @@ elif st.session_state.page == "portfolio":
         st.info("請先在上方表格輸入股票代碼與持有張數。")
 
 # ==============================================================
-#  頁面：我的關注清單 (對齊雲端 gspread 邏輯 + 精緻卡片版) 
+# ⭐ 頁面：我的關注清單 (對齊雲端 gspread 邏輯 + 精緻卡片版)
 # ==============================================================
 elif st.session_state.page == "watchlist":
-    #  這裡重複定義一次美化函式，確保這頁能獨立運作
+    # 💡 這裡重複定義一次美化函式，確保這頁能獨立運作
     def draw_watchlist_card(label, ticker_code):
-        # 使用你現有的數據引擎 get_stock_info 
+        # 使用你現有的數據引擎 get_stock_info (1.txt line 42)
         item = get_stock_info(ticker_code)
         if item:
             # 紅漲綠跌判斷
@@ -985,7 +991,7 @@ elif st.session_state.page == "watchlist":
 
     st.markdown("<h3 style='margin-top: 10px;'>⭐ 我的關注清單</h3>", unsafe_allow_html=True)
 
-    # 1. 確保資料已載入 
+    # 1. 確保資料已載入 (使用你 1.txt 的 load_watchlist_from_cloud 函式)
     if 'watchlist_data' not in st.session_state:
         st.session_state.watchlist_data = load_watchlist_from_cloud() 
 
@@ -1034,7 +1040,7 @@ elif st.session_state.page == "watchlist":
         st.info("目前清單空空如也，請在上方新增標的。")
 
     # ==============================================================
-    #  頁面：全球大盤與台指戰情室 (自動適應主題顏色版)  
+    # 🌐 頁面：全球大盤與台指戰情室 (自動適應主題顏色版)
     # ==============================================================
 elif st.session_state.page == "market_index":
         if st.button("⬅ 返回工具箱"):
@@ -1051,7 +1057,7 @@ elif st.session_state.page == "market_index":
             """, unsafe_allow_html=True)
         st.divider()
 
-        # ---  抓取函式 ---
+        # --- ⚡ 抓取函式 ---
         @st.cache_data(ttl=300)
         def get_market_data(ticker):
             try:
@@ -1064,11 +1070,11 @@ elif st.session_state.page == "market_index":
                 return current_p, change, pct
             except: return None, None, None
 
-        # ---  自動適應顏色的精簡組件 ---
+        # --- 🎨 自動適應顏色的精簡組件 ---
         def draw_compact_metric(label, ticker_code, fallback=None):
             p, c, pct = get_market_data(ticker_code)
             
-            #  關鍵修正：只要有給 fallback 校正值，就強制覆蓋 (無視 yfinance 的錯誤資料)
+            # 💡 關鍵修正：只要有給 fallback 校正值，就強制覆蓋 (無視 yfinance 的錯誤資料)
             if fallback: 
                 p, c, pct = fallback
             
@@ -1082,7 +1088,7 @@ elif st.session_state.page == "market_index":
                 else: val_str = f"{p:,.2f}"
                 c_str = f"{c:+.0f}" if ticker_code == "WTX=F" else f"{c:+.2f}"
 
-                #  介面渲染
+                # 💡 介面渲染
                 st.markdown(f"""
                     <div style="text-align: center; padding: 2px 0;">
                         <div style="font-size: 0.85rem; color: #888; margin-bottom: 2px;">{label}</div>
@@ -1106,22 +1112,247 @@ elif st.session_state.page == "market_index":
 
         c4, c5, c6 = st.columns(3)
         with c4: 
-            #  移除強制數值，讓它抓取真實 API 數據
             with st.container(border=True): draw_compact_metric("費城半導體", "^SOX")
         with c5: 
-            #  移除強制數值，讓它抓取真實 API 數據
             with st.container(border=True): draw_compact_metric("美10年債", "^TNX")
         with c6: 
-            #  只有台股加權保留週末強制校正
-            with st.container(border=True): draw_compact_metric("台股加權", "^TWII", (36804.34, -327.68, -0.88))
+            # 💡 移除強制校正數值，恢復即時抓取！
+            with st.container(border=True): draw_compact_metric("台股加權", "^TWII")
 
         c7, c8, c9 = st.columns(3)
         with c7: 
-            #  只有台指期保留週末強制校正
-            with st.container(border=True): draw_compact_metric("台指期 / 近全", "WTX=F", (37742, 664, 1.79))
+            # 💡 移除強制校正數值，恢復即時抓取！
+            # 注意：台指期在 yfinance 的代碼有時會變動，若 WTX=F 抓不到，可嘗試改為 TWF=F
+            with st.container(border=True): draw_compact_metric("台指期 / 近全", "WTX=F")
         with c8: 
-            #  只有原油期貨保留週末強制校正
-            with st.container(border=True): draw_compact_metric("原油期貨", "CL=F", (83.85, -10.84, -11.45))
+            # 💡 移除強制校正數值，恢復即時抓取！
+            with st.container(border=True): draw_compact_metric("原油期貨", "CL=F")
         with c9: 
-            #  移除強制數值
             with st.container(border=True): draw_compact_metric("美元/台幣", "TWD=X")
+
+# ==============================================================
+# 📝 頁面：股利報稅與基本生活費試算 (114年度 / 預設值全歸零清爽版)
+# ==============================================================
+elif st.session_state.page == "tax_calc":
+    if st.button("⬅️ 返回工具箱"): go_to("home")
+    st.title("📝 股利報稅與綜合所得稅試算")
+    st.info("本系統採用 **114年度（115年5月申報）** 最新稅法公式，支援「標準/列舉扣除額自動比大小」最優化試算。")
+
+    # --- 1. 填寫區域 ---
+    with st.expander("✏️ 展開填寫：所得與家庭扣除額資料", expanded=True):
+        st.markdown("#### 💼 第一部分：所得資料")
+        c_inc1, c_inc2, c_inc3 = st.columns(3)
+        with c_inc1:
+            salary = st.number_input("全家薪資所得總額", min_value=0, value=0, step=10000)
+        with c_inc2:
+            salary_earners = st.number_input("有薪資收入的【人數】", min_value=0, value=0, step=1)
+        with c_inc3:
+            div_total = st.number_input("全年股利及盈餘合計金額", min_value=0, value=0, step=1000)
+            
+        st.divider()
+        st.markdown("#### 👨‍👩‍👧‍👦 第二部分：家庭與一般扣除額")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            marital_status = st.selectbox("婚姻狀態 (決定標準扣除額)", ["單身 (13.1萬)", "夫妻合併申報 (26.2萬)"])
+            standard_deduction = 131000 if "單身" in marital_status else 262000
+        with c2:
+            dependents_normal = st.number_input("未滿70歲人數 (含本人/配偶/扶養)", min_value=0, value=0, step=1)
+        with c3:
+            dependents_70plus = st.number_input("滿70歲以上扶養人數", min_value=0, value=0, step=1)
+        
+        c_item1, c_item2 = st.columns([1, 2])
+        with c_item1:
+            itemized_deduction = st.number_input("🏥 列舉扣除額總計 (如醫藥/保險/捐贈)", min_value=0, value=0, step=10000)
+        with c_item2:
+            st.write("") # 往下推一點對齊
+            st.info("💡 系統會自動比較「標準扣除額」與「列舉扣除額」，並自動採用金額 **較高** 的方案來節稅！")
+            
+        st.divider()
+        st.markdown("#### 🌟 第三部分：特別扣除額")
+        st.caption("以下按「人數」計算的項目，請直接輸入符合資格的【人數】，系統會自動乘上對應額度。")
+        c4, c5, c6 = st.columns(3)
+        with c4:
+            saving_deduction = st.number_input("儲蓄投資金額 (上限27萬)", min_value=0, value=0, step=1000)
+            disability_count = st.number_input("身心障礙【人數】 (每人21.8萬)", min_value=0, value=0, step=1)
+        with c5:
+            edu_count = st.number_input("教育學費【人數】 (每人2.5萬)", min_value=0, value=0, step=1)
+            preschool_count = st.number_input("幼兒學前【人數】 (第1名12萬/第2名起13.5萬)", min_value=0, value=0, step=1)
+        with c6:
+            ltc_count = st.number_input("長期照顧【人數】 (每人18萬)", min_value=0, value=0, step=1)
+            rent_deduction = st.number_input("房屋租金支出金額 (上限18萬)", min_value=0, value=0, step=1000)
+
+    # --- 2. 後台精準計算邏輯 ---
+    # 【自動比大小】決定「一般扣除額」要用 標準 還是 列舉
+    general_deduction = max(standard_deduction, itemized_deduction)
+    deduction_type_str = "列舉" if itemized_deduction > standard_deduction else "標準"
+
+    # 【自動計算】將人數轉換為扣除額總金額
+    disability_deduction = disability_count * 218000
+    edu_deduction = edu_count * 25000
+    ltc_deduction = ltc_count * 180000
+    
+    # 幼兒學前比較特別：第1名12萬，第2名起每人13.5萬
+    if preschool_count == 0:
+        preschool_deduction = 0
+    elif preschool_count == 1:
+        preschool_deduction = 120000
+    else:
+        preschool_deduction = 120000 + (preschool_count - 1) * 135000
+
+    # 【自動防呆】薪資特別扣除額
+    salary_deduction_limit = 218000 * salary_earners
+    salary_deduction = min(salary, salary_deduction_limit) 
+    
+    # 總人數與免稅額
+    total_people = dependents_normal + dependents_70plus
+    total_exemption = (dependents_normal * 97000) + (dependents_70plus * 145500)
+    
+    # 計算基本生活費差額
+    basic_expense_unit = 213000
+    total_basic_living = basic_expense_unit * total_people
+    sum_deductions_for_basic = (total_exemption + general_deduction + saving_deduction + 
+                                disability_deduction + edu_deduction + preschool_deduction + 
+                                ltc_deduction + rent_deduction)
+    basic_diff = max(0, total_basic_living - sum_deductions_for_basic)
+    
+    # 計算綜合所得總額與淨額
+    total_income = salary + div_total
+    total_deductions_all = sum_deductions_for_basic + salary_deduction
+    taxable_income = max(0, total_income - total_deductions_all - basic_diff)
+
+    # 套用 114 年度綜合所得稅速算公式
+    if taxable_income <= 590000: 
+        tax_rate, prog_diff = 0.05, 0
+    elif taxable_income <= 1330000: 
+        tax_rate, prog_diff = 0.12, 41300
+    elif taxable_income <= 2660000: 
+        tax_rate, prog_diff = 0.20, 147700
+    elif taxable_income <= 4980000: 
+        tax_rate, prog_diff = 0.30, 413700
+    else: 
+        tax_rate, prog_diff = 0.40, 911700
+
+    base_tax = (taxable_income * tax_rate) - prog_diff
+    
+    # 股利抵減稅額 (上限8萬)
+    div_credit = min(80000, div_total * 0.085)
+    final_tax_to_pay = base_tax - div_credit
+
+    # --- 3. 繪製國稅局風格表格 ---
+    st.markdown("### 📝 扣除額與抵減稅額明細")
+    table_css = """
+    <style>
+    .tax-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; text-align: center; font-family: '微軟正黑體', sans-serif; background-color: white; color: black; }
+    .tax-table th, .tax-table td { border: 1px solid #333; padding: 8px; }
+    .tax-table th { background-color: #f2f2f2; font-weight: bold; }
+    .tax-table td { font-family: 'Consolas', monospace; font-size: 15px; }
+    .operator { width: 30px; background-color: #f9f9f9; font-weight: bold; }
+    </style>
+    """
+    st.markdown(table_css, unsafe_allow_html=True)
+
+    st.markdown("★ **基本生活差額：**")
+    table1_html = f"""
+    <table class="tax-table">
+        <tr>
+            <th>每人基本生活費</th><th class="operator">乘</th>
+            <th>總申報人數</th><th class="operator">減</th>
+            <th>全部免稅額</th><th class="operator">減</th>
+            <th>一般扣除額<br><span style="font-size:12px; color:#c00;">(採用{deduction_type_str})</span></th><th class="operator">減</th>
+            <th>儲蓄投資<br>特別扣除額</th><th class="operator">減</th>
+        </tr>
+        <tr>
+            <td>{basic_expense_unit:,}</td><td class="operator">✕</td>
+            <td>{total_people}</td><td class="operator">－</td>
+            <td>{total_exemption:,}</td><td class="operator">－</td>
+            <td style="font-weight:bold; color:#0056b3;">{general_deduction:,}</td><td class="operator">－</td>
+            <td>{saving_deduction:,}</td><td class="operator">－</td>
+        </tr>
+        <tr>
+            <th>身心障礙<br>特別扣除額</th><th class="operator">減</th>
+            <th>教育學費<br>特別扣除額</th><th class="operator">減</th>
+            <th>幼兒學前<br>特別扣除額</th><th class="operator">減</th>
+            <th>長期照顧<br>特別扣除額</th><th class="operator">減</th>
+            <th>房屋租金<br>特別扣除額</th><th class="operator">等於</th>
+        </tr>
+        <tr>
+            <td>{disability_deduction:,}</td><td class="operator">－</td>
+            <td>{edu_deduction:,}</td><td class="operator">－</td>
+            <td>{preschool_deduction:,}</td><td class="operator">－</td>
+            <td>{ltc_deduction:,}</td><td class="operator">－</td>
+            <td>{rent_deduction:,}</td><td class="operator">＝</td>
+        </tr>
+        <tr>
+            <th colspan="10" style="text-align: left; padding-left: 20px;">基本生活費差額</th>
+        </tr>
+        <tr>
+            <td colspan="10" style="text-align: left; padding-left: 20px; font-weight: bold; font-size: 18px; color: #d9534f;">{basic_diff:,}</td>
+        </tr>
+    </table>
+    """
+    st.markdown(table1_html, unsafe_allow_html=True)
+
+    st.markdown("★ **股利及盈餘可抵減稅額：**")
+    table2_html = f"""
+    <table class="tax-table">
+        <tr>
+            <th style="width: 40%;">股利及盈餘合計金額</th>
+            <th class="operator">乘</th>
+            <th style="width: 20%;">抵減率</th>
+            <th class="operator">等於</th>
+            <th style="width: 40%;">股利及盈餘可抵減稅額</th>
+        </tr>
+        <tr>
+            <td>{div_total:,}</td>
+            <td class="operator">✕</td>
+            <td>8.5%</td>
+            <td class="operator">＝</td>
+            <td style="font-weight: bold; font-size: 18px; color: #28a745;">
+                {div_credit:,.0f}<br>
+                <span style="font-size: 12px; color: #666; font-weight: normal;">(上限8萬元)</span>
+            </td>
+        </tr>
+    </table>
+    """
+    st.markdown(table2_html, unsafe_allow_html=True)
+
+    # --- 4. 最終稅額計算與級距表呈現 ---
+    st.divider()
+    col_chart, col_result = st.columns([1.2, 1])
+    
+    with col_chart:
+        st.markdown("### 📊 114年度綜合所得稅級距表")
+        st.caption("根據您輸入的資料，系統會自動對應下表計算：")
+        
+        import pandas as pd
+        tax_table_data = pd.DataFrame({
+            "所得淨額": ["0 ~ 590,000", "590,001 ~ 1,330,000", "1,330,001 ~ 2,660,000", "2,660,001 ~ 4,980,000", "4,980,001 以上"],
+            "稅率": ["5%", "12%", "20%", "30%", "40%"],
+            "累進差額": ["0", "41,300", "147,700", "413,700", "911,700"]
+        })
+        st.table(tax_table_data)
+        
+    with col_result:
+        st.markdown("### 🧾 結算單：一年要繳多少稅？")
+        
+        with st.container(border=True):
+            st.markdown(f"**綜合所得總額：** <span style='float:right;'>{total_income:,.0f} 元</span>", unsafe_allow_html=True)
+            
+            st.markdown(f"<div style='color:#888; font-size: 13px; margin-top: -10px; margin-bottom: 5px;'>└ 包含自動核算之薪資特別扣除額: {salary_deduction:,.0f} 元</div>", unsafe_allow_html=True)
+            
+            st.markdown(f"**扣除額及免稅額合計：** <span style='float:right; color:#ffbc4b;'>- {total_deductions_all:,.0f} 元</span>", unsafe_allow_html=True)
+            st.markdown(f"**基本生活費差額：** <span style='float:right; color:#ffbc4b;'>- {basic_diff:,.0f} 元</span>", unsafe_allow_html=True)
+            
+            st.markdown("---")
+            st.markdown(f"<h4 style='color:#4bc0ff; margin-top: 0;'>➤ 綜合所得淨額： <span style='float:right;'>{taxable_income:,.0f} 元</span></h4>", unsafe_allow_html=True)
+            
+            st.caption(f"套用稅率 {int(tax_rate*100)}% 減去累進差額 {prog_diff:,.0f} = 應納稅額 {base_tax:,.0f} 元")
+            
+            st.markdown(f"**股利 8.5% 可抵減稅額：** <span style='float:right; color:#09ab3b;'>- {div_credit:,.0f} 元</span>", unsafe_allow_html=True)
+            
+            st.markdown("---")
+            final_color = "#ff4b4b" if final_tax_to_pay > 0 else "#09ab3b"
+            
+            st.markdown("<div style='text-align: center; color: #aaa; font-size: 16px;'>最終實繳 / 退稅金額</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: center; font-size: 38px; font-weight: bold; color: {final_color};'>{final_tax_to_pay:,.0f} <span style='font-size: 16px;'>元</span></div>", unsafe_allow_html=True)
+            st.markdown("<div style='text-align: center; color: #888; font-size: 13px;'>(若為正數為應補繳，負數為國稅局將退稅給您)</div>", unsafe_allow_html=True)
