@@ -1131,112 +1131,105 @@ elif st.session_state.page == "market_index":
             with st.container(border=True): draw_compact_metric("美元/台幣", "TWD=X")
 
 # ==============================================================
-# 📝 頁面：股利報稅與綜合所得稅試算 (114年度 / 分頁與超詳細明細版)
+# 📝 頁面：股利報稅與綜合所得稅試算 (114年度 / 共用輸入 + 雙明細表版)
 # ==============================================================
 elif st.session_state.page == "tax_calc":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("📝 股利報稅與綜合所得稅試算")
-    st.info("本系統採用 **114年度（115年5月申報）** 最新稅法公式，支援「標準/列舉自動比大小」與「大戶 28% 方案對決」。")
+    st.info("本系統採用 **114年度（115年5月申報）** 最新稅法公式。請在下方填寫資料，填完後可隨時切換分頁查看兩種計稅方式的完整明細！")
+
+    # ==========================================
+    # 📝 共用填寫區域 (放在分頁外面，只需填一次)
+    # ==========================================
+    with st.expander("✏️ 展開填寫：所得與家庭扣除額資料", expanded=True):
+        st.markdown("#### 💼 第一部分：所得資料")
+        c_inc1, c_inc2, c_inc3 = st.columns(3)
+        with c_inc1:
+            salary = st.number_input("全家薪資所得總額", min_value=0, value=0, step=10000)
+        with c_inc2:
+            salary_earners = st.number_input("有薪資收入的【人數】", min_value=0, value=0, step=1)
+        with c_inc3:
+            div_total = st.number_input("全年股利及盈餘合計金額", min_value=0, value=0, step=1000)
+            
+        st.divider()
+        st.markdown("#### 👨‍👩‍👧‍👦 第二部分：家庭與一般扣除額")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            marital_status = st.selectbox("婚姻狀態 (決定標準扣除額)", ["單身 (13.1萬)", "夫妻合併申報 (26.2萬)"])
+            standard_deduction = 131000 if "單身" in marital_status else 262000
+        with c2:
+            dependents_normal = st.number_input("未滿70歲人數 (含本人/配偶/扶養)", min_value=0, value=0, step=1)
+        with c3:
+            dependents_70plus = st.number_input("滿70歲以上扶養人數", min_value=0, value=0, step=1)
+        
+        c_item1, c_item2 = st.columns([1, 2])
+        with c_item1:
+            itemized_deduction = st.number_input("🏥 列舉扣除額總計 (如醫藥/保險/捐贈)", min_value=0, value=0, step=10000)
+        with c_item2:
+            st.write("") 
+            st.info("💡 系統會自動比較「標準」與「列舉」，採用金額較高者。")
+            
+        st.divider()
+        st.markdown("#### 🌟 第三部分：特別扣除額")
+        st.caption("以下按「人數」計算的項目，請直接輸入符合資格的【人數】，系統會自動乘上對應額度。")
+        c4, c5, c6 = st.columns(3)
+        with c4:
+            saving_deduction = st.number_input("儲蓄投資金額 (上限27萬)", min_value=0, value=0, step=1000)
+            disability_count = st.number_input("身心障礙【人數】 (每人21.8萬)", min_value=0, value=0, step=1)
+        with c5:
+            edu_count = st.number_input("教育學費【人數】 (每人2.5萬)", min_value=0, value=0, step=1)
+            preschool_count = st.number_input("幼兒學前【人數】 (第1名12萬/第2名起13.5萬)", min_value=0, value=0, step=1)
+        with c6:
+            ltc_count = st.number_input("長期照顧【人數】 (每人18萬)", min_value=0, value=0, step=1)
+            rent_deduction = st.number_input("房屋租金支出金額 (上限18萬)", min_value=0, value=0, step=1000)
+
+    # 共用基礎運算
+    general_deduction = max(standard_deduction, itemized_deduction)
+    deduction_type_str = "列舉" if itemized_deduction > standard_deduction else "標準"
+    disability_deduction = disability_count * 218000
+    edu_deduction = edu_count * 25000
+    salary_deduction_limit = 218000 * salary_earners
+    salary_deduction = min(salary, salary_deduction_limit) 
+    total_people = dependents_normal + dependents_70plus
+    total_exemption = (dependents_normal * 97000) + (dependents_70plus * 145500)
+    basic_expense_unit = 213000
+    total_basic_living = basic_expense_unit * total_people
 
     # 💡 建立分頁標籤
-    tab1, tab2 = st.tabs(["📊 一般合併試算 (詳細明細表)", "👑 大戶 28% 分開計稅對決"])
+    tab1, tab2 = st.tabs(["📊 方案 A：一般合併申報明細", "👑 方案 B：股利 28% 分開計稅明細"])
 
     # ==========================================
-    # 分頁 1：一般合併試算 (無刪減詳細版)
+    # 分頁 1：一般合併試算 (福利全開版)
     # ==========================================
     with tab1:
-        # --- 1. 填寫區域 ---
-        with st.expander("✏️ 展開填寫：所得與家庭扣除額資料", expanded=True):
-            st.markdown("#### 💼 第一部分：所得資料")
-            c_inc1, c_inc2, c_inc3 = st.columns(3)
-            with c_inc1:
-                salary = st.number_input("全家薪資所得總額", min_value=0, value=0, step=10000, key="t1_sal")
-            with c_inc2:
-                salary_earners = st.number_input("有薪資收入的【人數】", min_value=0, value=0, step=1, key="t1_ern")
-            with c_inc3:
-                div_total = st.number_input("全年股利及盈餘合計金額", min_value=0, value=0, step=1000, key="t1_div")
-                
-            st.divider()
-            st.markdown("#### 👨‍👩‍👧‍👦 第二部分：家庭與一般扣除額")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                marital_status = st.selectbox("婚姻狀態 (決定標準扣除額)", ["單身 (13.1萬)", "夫妻合併申報 (26.2萬)"], key="t1_mar")
-                standard_deduction = 131000 if "單身" in marital_status else 262000
-            with c2:
-                dependents_normal = st.number_input("未滿70歲人數 (含本人/配偶/扶養)", min_value=0, value=0, step=1, key="t1_dn")
-            with c3:
-                dependents_70plus = st.number_input("滿70歲以上扶養人數", min_value=0, value=0, step=1, key="t1_d7")
-            
-            c_item1, c_item2 = st.columns([1, 2])
-            with c_item1:
-                itemized_deduction = st.number_input("🏥 列舉扣除額總計 (如醫藥/保險/捐贈)", min_value=0, value=0, step=10000, key="t1_item")
-            with c_item2:
-                st.write("") # 往下推一點對齊
-                st.info("💡 系統會自動比較「標準扣除額」與「列舉扣除額」，並自動採用金額 **較高** 的方案來節稅！")
-                
-            st.divider()
-            st.markdown("#### 🌟 第三部分：特別扣除額")
-            st.caption("以下按「人數」計算的項目，請直接輸入符合資格的【人數】，系統會自動乘上對應額度。")
-            c4, c5, c6 = st.columns(3)
-            with c4:
-                saving_deduction = st.number_input("儲蓄投資金額 (上限27萬)", min_value=0, value=0, step=1000, key="t1_sav")
-                disability_count = st.number_input("身心障礙【人數】 (每人21.8萬)", min_value=0, value=0, step=1, key="t1_dis")
-            with c5:
-                edu_count = st.number_input("教育學費【人數】 (每人2.5萬)", min_value=0, value=0, step=1, key="t1_edu")
-                preschool_count = st.number_input("幼兒學前【人數】 (第1名12萬/第2名起13.5萬)", min_value=0, value=0, step=1, key="t1_pre")
-            with c6:
-                ltc_count = st.number_input("長期照顧【人數】 (每人18萬)", min_value=0, value=0, step=1, key="t1_ltc")
-                rent_deduction = st.number_input("房屋租金支出金額 (上限18萬)", min_value=0, value=0, step=1000, key="t1_rnt")
-
-        # --- 2. 後台精準計算邏輯 ---
-        general_deduction = max(standard_deduction, itemized_deduction)
-        deduction_type_str = "列舉" if itemized_deduction > standard_deduction else "標準"
-
-        disability_deduction = disability_count * 218000
-        edu_deduction = edu_count * 25000
-        ltc_deduction = ltc_count * 180000
+        # 方案A 專屬計算
+        if preschool_count == 0: preschool_deduction_a = 0
+        elif preschool_count == 1: preschool_deduction_a = 120000
+        else: preschool_deduction_a = 120000 + (preschool_count - 1) * 135000
         
-        if preschool_count == 0:
-            preschool_deduction = 0
-        elif preschool_count == 1:
-            preschool_deduction = 120000
-        else:
-            preschool_deduction = 120000 + (preschool_count - 1) * 135000
+        ltc_deduction_a = ltc_count * 180000
+        rent_deduction_a = rent_deduction
 
-        salary_deduction_limit = 218000 * salary_earners
-        salary_deduction = min(salary, salary_deduction_limit) 
+        sum_deductions_for_basic_a = (total_exemption + general_deduction + saving_deduction + 
+                                    disability_deduction + edu_deduction + preschool_deduction_a + 
+                                    ltc_deduction_a + rent_deduction_a)
+        basic_diff_a = max(0, total_basic_living - sum_deductions_for_basic_a)
         
-        total_people = dependents_normal + dependents_70plus
-        total_exemption = (dependents_normal * 97000) + (dependents_70plus * 145500)
-        
-        basic_expense_unit = 213000
-        total_basic_living = basic_expense_unit * total_people
-        sum_deductions_for_basic = (total_exemption + general_deduction + saving_deduction + 
-                                    disability_deduction + edu_deduction + preschool_deduction + 
-                                    ltc_deduction + rent_deduction)
-        basic_diff = max(0, total_basic_living - sum_deductions_for_basic)
-        
-        total_income = salary + div_total
-        total_deductions_all = sum_deductions_for_basic + salary_deduction
-        taxable_income = max(0, total_income - total_deductions_all - basic_diff)
+        total_income_a = salary + div_total
+        total_deductions_all_a = sum_deductions_for_basic_a + salary_deduction
+        taxable_income_a = max(0, total_income_a - total_deductions_all_a - basic_diff_a)
 
-        if taxable_income <= 590000: 
-            tax_rate, prog_diff = 0.05, 0
-        elif taxable_income <= 1330000: 
-            tax_rate, prog_diff = 0.12, 41300
-        elif taxable_income <= 2660000: 
-            tax_rate, prog_diff = 0.20, 147700
-        elif taxable_income <= 4980000: 
-            tax_rate, prog_diff = 0.30, 413700
-        else: 
-            tax_rate, prog_diff = 0.40, 911700
+        if taxable_income_a <= 590000: tax_rate_a, prog_diff_a = 0.05, 0
+        elif taxable_income_a <= 1330000: tax_rate_a, prog_diff_a = 0.12, 41300
+        elif taxable_income_a <= 2660000: tax_rate_a, prog_diff_a = 0.20, 147700
+        elif taxable_income_a <= 4980000: tax_rate_a, prog_diff_a = 0.30, 413700
+        else: tax_rate_a, prog_diff_a = 0.40, 911700
 
-        base_tax = (taxable_income * tax_rate) - prog_diff
-        div_credit = min(80000, div_total * 0.085)
-        final_tax_to_pay = base_tax - div_credit
+        base_tax_a = (taxable_income_a * tax_rate_a) - prog_diff_a
+        div_credit_a = min(80000, div_total * 0.085)
+        final_tax_to_pay_a = base_tax_a - div_credit_a
 
-        # --- 3. 繪製國稅局風格表格 ---
-        st.markdown("### 📝 扣除額與抵減稅額明細")
+        st.markdown("### 📝 扣除額與抵減稅額明細 (方案 A)")
         table_css = """
         <style>
         .tax-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; text-align: center; font-family: '微軟正黑體', sans-serif; background-color: white; color: black; }
@@ -1249,166 +1242,147 @@ elif st.session_state.page == "tax_calc":
         st.markdown(table_css, unsafe_allow_html=True)
 
         st.markdown("★ **基本生活差額：**")
-        table1_html = f"""
+        table1_html_a = f"""
         <table class="tax-table">
             <tr>
-                <th>每人基本生活費</th><th class="operator">乘</th>
-                <th>總申報人數</th><th class="operator">減</th>
-                <th>全部免稅額</th><th class="operator">減</th>
-                <th>一般扣除額<br><span style="font-size:12px; color:#c00;">(採用{deduction_type_str})</span></th><th class="operator">減</th>
-                <th>儲蓄投資<br>特別扣除額</th><th class="operator">減</th>
+                <th>每人基本生活費</th><th class="operator">乘</th><th>總申報人數</th><th class="operator">減</th>
+                <th>全部免稅額</th><th class="operator">減</th><th>一般扣除額</th><th class="operator">減</th>
+                <th>儲蓄投資扣除額</th><th class="operator">減</th>
             </tr>
             <tr>
-                <td>{basic_expense_unit:,}</td><td class="operator">✕</td>
-                <td>{total_people}</td><td class="operator">－</td>
-                <td>{total_exemption:,}</td><td class="operator">－</td>
-                <td style="font-weight:bold; color:#0056b3;">{general_deduction:,}</td><td class="operator">－</td>
+                <td>{basic_expense_unit:,}</td><td class="operator">✕</td><td>{total_people}</td><td class="operator">－</td>
+                <td>{total_exemption:,}</td><td class="operator">－</td><td style="font-weight:bold; color:#0056b3;">{general_deduction:,}</td><td class="operator">－</td>
                 <td>{saving_deduction:,}</td><td class="operator">－</td>
             </tr>
             <tr>
-                <th>身心障礙<br>特別扣除額</th><th class="operator">減</th>
-                <th>教育學費<br>特別扣除額</th><th class="operator">減</th>
-                <th>幼兒學前<br>特別扣除額</th><th class="operator">減</th>
-                <th>長期照顧<br>特別扣除額</th><th class="operator">減</th>
-                <th>房屋租金<br>特別扣除額</th><th class="operator">等於</th>
+                <th>身心障礙扣除額</th><th class="operator">減</th><th>教育學費扣除額</th><th class="operator">減</th>
+                <th>幼兒學前扣除額</th><th class="operator">減</th><th>長期照顧扣除額</th><th class="operator">減</th>
+                <th>房屋租金扣除額</th><th class="operator">等於</th>
             </tr>
             <tr>
-                <td>{disability_deduction:,}</td><td class="operator">－</td>
-                <td>{edu_deduction:,}</td><td class="operator">－</td>
-                <td>{preschool_deduction:,}</td><td class="operator">－</td>
-                <td>{ltc_deduction:,}</td><td class="operator">－</td>
-                <td>{rent_deduction:,}</td><td class="operator">＝</td>
+                <td>{disability_deduction:,}</td><td class="operator">－</td><td>{edu_deduction:,}</td><td class="operator">－</td>
+                <td>{preschool_deduction_a:,}</td><td class="operator">－</td><td>{ltc_deduction_a:,}</td><td class="operator">－</td>
+                <td>{rent_deduction_a:,}</td><td class="operator">＝</td>
             </tr>
-            <tr>
-                <th colspan="10" style="text-align: left; padding-left: 20px;">基本生活費差額</th>
-            </tr>
-            <tr>
-                <td colspan="10" style="text-align: left; padding-left: 20px; font-weight: bold; font-size: 18px; color: #d9534f;">{basic_diff:,}</td>
-            </tr>
+            <tr><th colspan="10" style="text-align: left; padding-left: 20px;">基本生活費差額</th></tr>
+            <tr><td colspan="10" style="text-align: left; padding-left: 20px; font-weight: bold; font-size: 18px; color: #d9534f;">{basic_diff_a:,}</td></tr>
         </table>
         """
-        st.markdown(table1_html, unsafe_allow_html=True)
+        st.markdown(table1_html_a, unsafe_allow_html=True)
 
         st.markdown("★ **股利及盈餘可抵減稅額：**")
-        table2_html = f"""
+        table2_html_a = f"""
         <table class="tax-table">
-            <tr>
-                <th style="width: 40%;">股利及盈餘合計金額</th>
-                <th class="operator">乘</th>
-                <th style="width: 20%;">抵減率</th>
-                <th class="operator">等於</th>
-                <th style="width: 40%;">股利及盈餘可抵減稅額</th>
-            </tr>
-            <tr>
-                <td>{div_total:,}</td>
-                <td class="operator">✕</td>
-                <td>8.5%</td>
-                <td class="operator">＝</td>
-                <td style="font-weight: bold; font-size: 18px; color: #28a745;">
-                    {div_credit:,.0f}<br>
-                    <span style="font-size: 12px; color: #666; font-weight: normal;">(上限8萬元)</span>
-                </td>
-            </tr>
+            <tr><th style="width: 40%;">股利及盈餘合計金額</th><th class="operator">乘</th><th style="width: 20%;">抵減率</th><th class="operator">等於</th><th style="width: 40%;">可抵減稅額</th></tr>
+            <tr><td>{div_total:,}</td><td class="operator">✕</td><td>8.5%</td><td class="operator">＝</td><td style="font-weight: bold; font-size: 18px; color: #28a745;">{div_credit_a:,.0f} <span style="font-size: 12px; font-weight: normal;">(上限8萬)</span></td></tr>
         </table>
         """
-        st.markdown(table2_html, unsafe_allow_html=True)
+        st.markdown(table2_html_a, unsafe_allow_html=True)
 
-        # --- 4. 最終稅額計算與級距表呈現 ---
         st.divider()
-        col_chart, col_result = st.columns([1.2, 1])
-        
-        with col_chart:
-            st.markdown("### 📊 114年度綜合所得稅級距表")
-            st.caption("根據您輸入的資料，系統會自動對應下表計算：")
-            
-            import pandas as pd
-            tax_table_data = pd.DataFrame({
-                "所得淨額": ["0 ~ 590,000", "590,001 ~ 1,330,000", "1,330,001 ~ 2,660,000", "2,660,001 ~ 4,980,000", "4,980,001 以上"],
-                "稅率": ["5%", "12%", "20%", "30%", "40%"],
-                "累進差額": ["0", "41,300", "147,700", "413,700", "911,700"]
-            })
-            st.table(tax_table_data)
-            
-        with col_result:
-            st.markdown("### 🧾 結算單：一年要繳多少稅？")
-            
-            with st.container(border=True):
-                st.markdown(f"**綜合所得總額：** <span style='float:right;'>{total_income:,.0f} 元</span>", unsafe_allow_html=True)
-                
-                st.markdown(f"<div style='color:#888; font-size: 13px; margin-top: -10px; margin-bottom: 5px;'>└ 包含自動核算之薪資特別扣除額: {salary_deduction:,.0f} 元</div>", unsafe_allow_html=True)
-                
-                st.markdown(f"**扣除額及免稅額合計：** <span style='float:right; color:#ffbc4b;'>- {total_deductions_all:,.0f} 元</span>", unsafe_allow_html=True)
-                st.markdown(f"**基本生活費差額：** <span style='float:right; color:#ffbc4b;'>- {basic_diff:,.0f} 元</span>", unsafe_allow_html=True)
-                
-                st.markdown("---")
-                st.markdown(f"<h4 style='color:#4bc0ff; margin-top: 0;'>➤ 綜合所得淨額： <span style='float:right;'>{taxable_income:,.0f} 元</span></h4>", unsafe_allow_html=True)
-                
-                st.caption(f"套用稅率 {int(tax_rate*100)}% 減去累進差額 {prog_diff:,.0f} = 應納稅額 {base_tax:,.0f} 元")
-                
-                st.markdown(f"**股利 8.5% 可抵減稅額：** <span style='float:right; color:#09ab3b;'>- {div_credit:,.0f} 元</span>", unsafe_allow_html=True)
-                
-                st.markdown("---")
-                final_color = "#ff4b4b" if final_tax_to_pay > 0 else "#09ab3b"
-                
-                st.markdown("<div style='text-align: center; color: #aaa; font-size: 16px;'>最終實繳 / 退稅金額</div>", unsafe_allow_html=True)
-                st.markdown(f"<div style='text-align: center; font-size: 38px; font-weight: bold; color: {final_color};'>{final_tax_to_pay:,.0f} <span style='font-size: 16px;'>元</span></div>", unsafe_allow_html=True)
-                st.markdown("<div style='text-align: center; color: #888; font-size: 13px;'>(若為正數為應補繳，負數為國稅局將退稅給您)</div>", unsafe_allow_html=True)
+        st.markdown("### 🧾 結算單 (方案 A)")
+        with st.container(border=True):
+            st.markdown(f"**綜合所得總額 (含股利)：** <span style='float:right;'>{total_income_a:,.0f} 元</span>", unsafe_allow_html=True)
+            st.markdown(f"<div style='color:#888; font-size: 13px; margin-top: -10px; margin-bottom: 5px;'>└ 包含薪資特別扣除額: {salary_deduction:,.0f} 元</div>", unsafe_allow_html=True)
+            st.markdown(f"**全部扣除額及免稅額合計：** <span style='float:right; color:#ffbc4b;'>- {total_deductions_all_a:,.0f} 元</span>", unsafe_allow_html=True)
+            st.markdown(f"**基本生活費差額：** <span style='float:right; color:#ffbc4b;'>- {basic_diff_a:,.0f} 元</span>", unsafe_allow_html=True)
+            st.markdown("---")
+            st.markdown(f"<h4 style='color:#4bc0ff; margin-top: 0;'>➤ 綜合所得淨額： <span style='float:right;'>{taxable_income_a:,.0f} 元</span></h4>", unsafe_allow_html=True)
+            st.caption(f"套用稅率 {int(tax_rate_a*100)}% 減去累進差額 {prog_diff_a:,.0f} = 應納稅額 {base_tax_a:,.0f} 元")
+            st.markdown(f"**股利 8.5% 可抵減稅額：** <span style='float:right; color:#09ab3b;'>- {div_credit_a:,.0f} 元</span>", unsafe_allow_html=True)
+            st.markdown("---")
+            fc_a = "#ff4b4b" if final_tax_to_pay_a > 0 else "#09ab3b"
+            st.markdown("<div style='text-align: center; color: #aaa; font-size: 16px;'>方案 A 最終實繳 / 退稅金額</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: center; font-size: 38px; font-weight: bold; color: {fc_a};'>{final_tax_to_pay_a:,.0f} <span style='font-size: 16px;'>元</span></div>", unsafe_allow_html=True)
 
     # ==========================================
-    # 分頁 2：大戶 28% 分開計稅對決
+    # 分頁 2：大戶 28% 分開計稅 (福利沒收版)
     # ==========================================
     with tab2:
-        st.warning("👑 此區塊專為「高薪族群」或「股利大戶」設計。系統將直接幫您對比兩種方案的最終稅額，找出黃金交叉點！")
-        
-        with st.container(border=True):
-            st.markdown("#### 🛠️ 快速對比設定")
-            c_28_1, c_28_2 = st.columns(2)
-            with c_28_1:
-                income_net_base = st.number_input("您的「綜合所得淨額」 (已扣完免稅額、標扣額等，且 不含 股利)", min_value=0, value=0, step=100000, key="inb2")
-            with c_28_2:
-                div_total_28 = st.number_input("您的「全年股利總額」", min_value=0, value=0, step=100000, key="dt28")
+        # 方案B 專屬計算 (拔除三大福利)
+        preschool_deduction_b = 0
+        ltc_deduction_b = 0
+        rent_deduction_b = 0
 
-        # 計算方案 A (合併)
-        total_net_a_28 = income_net_base + div_total_28
-        if total_net_a_28 <= 590000: r_a, d_a = 0.05, 0
-        elif total_net_a_28 <= 1330000: r_a, d_a = 0.12, 41300
-        elif total_net_a_28 <= 2660000: r_a, d_a = 0.20, 147700
-        elif total_net_a_28 <= 4980000: r_a, d_a = 0.30, 413700
-        else: r_a, d_a = 0.40, 911700
+        sum_deductions_for_basic_b = (total_exemption + general_deduction + saving_deduction + 
+                                    disability_deduction + edu_deduction + preschool_deduction_b + 
+                                    ltc_deduction_b + rent_deduction_b)
+        basic_diff_b = max(0, total_basic_living - sum_deductions_for_basic_b)
         
-        base_tax_a_28 = (total_net_a_28 * r_a) - d_a
-        div_credit_a_28 = min(80000, div_total_28 * 0.085)
-        tax_a = max(0, base_tax_a_28 - div_credit_a_28)
+        # 總收入「不含股利」，因為股利獨立了
+        total_income_b = salary 
+        total_deductions_all_b = sum_deductions_for_basic_b + salary_deduction
+        taxable_income_b = max(0, total_income_b - total_deductions_all_b - basic_diff_b)
 
-        # 計算方案 B (28% 分開)
-        if income_net_base <= 590000: r_b, d_b = 0.05, 0
-        elif income_net_base <= 1330000: r_b, d_b = 0.12, 41300
-        elif income_net_base <= 2660000: r_b, d_b = 0.20, 147700
-        elif income_net_base <= 4980000: r_b, d_b = 0.30, 413700
-        else: r_b, d_b = 0.40, 911700
+        if taxable_income_b <= 590000: tax_rate_b, prog_diff_b = 0.05, 0
+        elif taxable_income_b <= 1330000: tax_rate_b, prog_diff_b = 0.12, 41300
+        elif taxable_income_b <= 2660000: tax_rate_b, prog_diff_b = 0.20, 147700
+        elif taxable_income_b <= 4980000: tax_rate_b, prog_diff_b = 0.30, 413700
+        else: tax_rate_b, prog_diff_b = 0.40, 911700
+
+        base_tax_b = (taxable_income_b * tax_rate_b) - prog_diff_b
         
-        tax_b = max(0, (income_net_base * r_b) - d_b) + (div_total_28 * 0.28)
+        # 股利稅額 28% (無抵減)
+        div_tax_b = div_total * 0.28
+        final_tax_to_pay_b = base_tax_b + div_tax_b
 
-        # 顯示對比結果
+        st.markdown("### 📝 扣除額明細 (方案 B：排富沒收版)")
+        st.markdown(table_css, unsafe_allow_html=True)
+
+        st.markdown("★ **基本生活差額：**")
+        # 紅字標示被取消的項目
+        table1_html_b = f"""
+        <table class="tax-table">
+            <tr>
+                <th>每人基本生活費</th><th class="operator">乘</th><th>總申報人數</th><th class="operator">減</th>
+                <th>全部免稅額</th><th class="operator">減</th><th>一般扣除額</th><th class="operator">減</th>
+                <th>儲蓄投資扣除額</th><th class="operator">減</th>
+            </tr>
+            <tr>
+                <td>{basic_expense_unit:,}</td><td class="operator">✕</td><td>{total_people}</td><td class="operator">－</td>
+                <td>{total_exemption:,}</td><td class="operator">－</td><td style="font-weight:bold; color:#0056b3;">{general_deduction:,}</td><td class="operator">－</td>
+                <td>{saving_deduction:,}</td><td class="operator">－</td>
+            </tr>
+            <tr>
+                <th>身心障礙扣除額</th><th class="operator">減</th><th>教育學費扣除額</th><th class="operator">減</th>
+                <th>幼兒學前扣除額</th><th class="operator">減</th><th>長期照顧扣除額</th><th class="operator">減</th>
+                <th>房屋租金扣除額</th><th class="operator">等於</th>
+            </tr>
+            <tr>
+                <td>{disability_deduction:,}</td><td class="operator">－</td><td>{edu_deduction:,}</td><td class="operator">－</td>
+                <td style="color:#aaa;">0 <br><span style="font-size:12px; color:#c00;">(排富取消)</span></td><td class="operator">－</td>
+                <td style="color:#aaa;">0 <br><span style="font-size:12px; color:#c00;">(排富取消)</span></td><td class="operator">－</td>
+                <td style="color:#aaa;">0 <br><span style="font-size:12px; color:#c00;">(排富取消)</span></td><td class="operator">＝</td>
+            </tr>
+            <tr><th colspan="10" style="text-align: left; padding-left: 20px;">基本生活費差額</th></tr>
+            <tr><td colspan="10" style="text-align: left; padding-left: 20px; font-weight: bold; font-size: 18px; color: #d9534f;">{basic_diff_b:,}</td></tr>
+        </table>
+        """
+        st.markdown(table1_html_b, unsafe_allow_html=True)
+
+        st.markdown("★ **股利及盈餘分開計稅：**")
+        table2_html_b = f"""
+        <table class="tax-table">
+            <tr><th style="width: 40%;">股利及盈餘合計金額</th><th class="operator">乘</th><th style="width: 20%;">單一稅率</th><th class="operator">等於</th><th style="width: 40%;">股利應納稅額</th></tr>
+            <tr><td>{div_total:,}</td><td class="operator">✕</td><td>28%</td><td class="operator">＝</td><td style="font-weight: bold; font-size: 18px; color: #ffbc4b;">{div_tax_b:,.0f}</td></tr>
+        </table>
+        """
+        st.markdown(table2_html_b, unsafe_allow_html=True)
+
         st.divider()
-        res_a, res_b = st.columns(2)
-        with res_a:
-            with st.container(border=True):
-                st.markdown("<h4 style='text-align:center;'>方案 A：全部合併計稅</h4>", unsafe_allow_html=True)
-                st.markdown(f"<h2 style='text-align:center; color:#28a745;'>{tax_a:,.0f} 元</h2>", unsafe_allow_html=True)
-                st.caption(f"✔ 享有 8.5% 股利抵減 (省下 {div_credit_a_28:,.0f} 元)")
-                st.caption("✔ 保留長照、幼兒、租金等特別扣除額資格")
-        with res_b:
-            with st.container(border=True):
-                st.markdown("<h4 style='text-align:center;'>方案 B：股利 28% 分開計稅</h4>", unsafe_allow_html=True)
-                st.markdown(f"<h2 style='text-align:center; color:#ffbc4b;'>{tax_b:,.0f} 元</h2>", unsafe_allow_html=True)
-                st.caption("❌ 取消 8.5% 股利抵減資格")
-                st.caption("❌ 沒收長照、幼兒、租金等特別扣除額資格")
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        if tax_a == 0 and tax_b == 0:
-            pass # 都免稅
-        elif tax_a <= tax_b:
-            st.success(f"🎉 **試算結果：方案 A (合併計稅) 勝出！** 選擇方案 A 可為您省下 **{(tax_b - tax_a):,.0f} 元** 的稅金！")
-        else:
-            st.warning(f"👑 **試算結果：方案 B (28% 分開計稅) 勝出！** 選擇方案 B 可為您省下 **{(tax_a - tax_b):,.0f} 元** 的稅金！")
+        st.markdown("### 🧾 結算單 (方案 B)")
+        with st.container(border=True):
+            st.markdown(f"**綜合所得總額 (⚠️ 不含股利)：** <span style='float:right;'>{total_income_b:,.0f} 元</span>", unsafe_allow_html=True)
+            st.markdown(f"<div style='color:#888; font-size: 13px; margin-top: -10px; margin-bottom: 5px;'>└ 包含薪資特別扣除額: {salary_deduction:,.0f} 元</div>", unsafe_allow_html=True)
+            st.markdown(f"**全部扣除額及免稅額合計：** <span style='float:right; color:#ffbc4b;'>- {total_deductions_all_b:,.0f} 元</span>", unsafe_allow_html=True)
+            st.markdown(f"**基本生活費差額：** <span style='float:right; color:#ffbc4b;'>- {basic_diff_b:,.0f} 元</span>", unsafe_allow_html=True)
+            st.markdown("---")
+            st.markdown(f"<h4 style='color:#4bc0ff; margin-top: 0;'>➤ 本薪綜合所得淨額： <span style='float:right;'>{taxable_income_b:,.0f} 元</span></h4>", unsafe_allow_html=True)
+            st.caption(f"套用稅率 {int(tax_rate_b*100)}% 減去累進差額 {prog_diff_b:,.0f} = 薪資應納稅額 {base_tax_b:,.0f} 元")
+            
+            st.markdown(f"**➕ 股利 28% 分開計稅額：** <span style='float:right; color:#ffbc4b;'>+ {div_tax_b:,.0f} 元</span>", unsafe_allow_html=True)
+            
+            st.markdown("---")
+            fc_b = "#ff4b4b" if final_tax_to_pay_b > 0 else "#09ab3b"
+            st.markdown("<div style='text-align: center; color: #aaa; font-size: 16px;'>方案 B 最終實繳金額</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: center; font-size: 38px; font-weight: bold; color: {fc_b};'>{final_tax_to_pay_b:,.0f} <span style='font-size: 16px;'>元</span></div>", unsafe_allow_html=True)
