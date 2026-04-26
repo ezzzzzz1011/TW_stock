@@ -1131,29 +1131,29 @@ elif st.session_state.page == "market_index":
             with st.container(border=True): draw_compact_metric("美元/台幣", "TWD=X")
 
 # ==============================================================
-# 📝 頁面：股利報稅與綜合所得稅試算 (114年度 / 精準打工薪資防呆版)
+# 📝 頁面：股利報稅與綜合所得稅試算 (114年度 / 薪資精準防呆 + 級距表完整版)
 # ==============================================================
 elif st.session_state.page == "tax_calc":
     if st.button("⬅️ 返回工具箱"): go_to("home")
     st.title("📝 股利報稅與綜合所得稅試算")
-    st.info("本系統採用 **114年度（115年5月申報）** 最新稅法公式。支援「打工族薪資精準扣除」與「大戶 28% 方案對決」。")
+    st.info("本系統採用 **114年度（115年5月申報）** 最新稅法公式。請在下方填寫資料，填完後可隨時切換分頁查看兩種計稅方式的完整明細！")
 
     # ==========================================
     # 📝 共用填寫區域 (放在分頁外面，只需填一次)
     # ==========================================
     with st.expander("✏️ 展開填寫：所得與家庭扣除額資料", expanded=True):
-        st.markdown("#### 💼 第一部分：全家個別薪資資料 (精準計算薪資扣除額)")
-        st.caption("💡 若有打工族，請務必分開填寫！系統會自動判斷「實領薪資」與「21.8萬上限」取低值扣除。")
+        st.markdown("#### 💼 第一部分：所得資料 (精準薪資防呆)")
+        st.caption("💡 若有打工族，請務必分開填寫薪資！系統會自動判斷「實領薪資」與「21.8萬上限」取低值扣除。股利則直接填寫全家總和即可。")
         
         c_inc1, c_inc2, c_inc3, c_inc4 = st.columns(4)
         with c_inc1:
-            sal_1 = st.number_input("報稅人 (如爸爸) 薪資", min_value=0, value=0, step=10000)
+            sal_1 = st.number_input("報稅人(爸爸) 薪資", min_value=0, value=0, step=10000)
         with c_inc2:
-            sal_2 = st.number_input("配偶 (如媽媽) 薪資", min_value=0, value=0, step=10000)
+            sal_2 = st.number_input("配偶(媽媽) 薪資", min_value=0, value=0, step=10000)
         with c_inc3:
-            sal_3 = st.number_input("扶養親屬1 (如女兒) 薪資", min_value=0, value=0, step=10000)
+            sal_3 = st.number_input("扶養親屬1 薪資", min_value=0, value=0, step=10000)
         with c_inc4:
-            sal_4 = st.number_input("扶養親屬2 (如兒子) 薪資", min_value=0, value=0, step=10000)
+            sal_4 = st.number_input("扶養親屬2 薪資", min_value=0, value=0, step=10000)
             
         st.write("") # 排版微調
         div_total = st.number_input("全年股利及盈餘合計金額 (全家加總)", min_value=0, value=0, step=1000)
@@ -1191,7 +1191,7 @@ elif st.session_state.page == "tax_calc":
             rent_deduction = st.number_input("房屋租金支出金額 (上限18萬)", min_value=0, value=0, step=1000)
 
     # ==========================================
-    # ⚙️ 共用基礎運算 (打工薪資精準防呆)
+    # ⚙️ 共用基礎運算與共同表格建立
     # ==========================================
     # 1. 總薪資加總
     salary = sal_1 + sal_2 + sal_3 + sal_4
@@ -1208,6 +1208,14 @@ elif st.session_state.page == "tax_calc":
     total_exemption = (dependents_normal * 97000) + (dependents_70plus * 145500)
     basic_expense_unit = 213000
     total_basic_living = basic_expense_unit * total_people
+
+    # 4. 準備 114 年度級距表資料 (供兩個分頁共用顯示)
+    import pandas as pd
+    tax_table_data = pd.DataFrame({
+        "所得淨額": ["0 ~ 590,000", "590,001 ~ 1,330,000", "1,330,001 ~ 2,660,000", "2,660,001 ~ 4,980,000", "4,980,001 以上"],
+        "稅率": ["5%", "12%", "20%", "30%", "40%"],
+        "累進差額": ["0", "41,300", "147,700", "413,700", "911,700"]
+    })
 
     # 💡 建立分頁標籤
     tab1, tab2 = st.tabs(["📊 方案 A：一般合併申報明細", "👑 方案 B：股利 28% 分開計稅明細"])
@@ -1293,20 +1301,28 @@ elif st.session_state.page == "tax_calc":
         st.markdown(table2_html_a, unsafe_allow_html=True)
 
         st.divider()
-        st.markdown("### 🧾 結算單 (方案 A)")
-        with st.container(border=True):
-            st.markdown(f"**綜合所得總額 (薪資＋股利)：** <span style='float:right;'>{total_income_a:,.0f} 元</span>", unsafe_allow_html=True)
-            st.markdown(f"<div style='color:#888; font-size: 13px; margin-top: -10px; margin-bottom: 5px;'>└ 包含精準核算之薪資特別扣除額: {salary_deduction:,.0f} 元</div>", unsafe_allow_html=True)
-            st.markdown(f"**全部扣除額及免稅額合計：** <span style='float:right; color:#ffbc4b;'>- {total_deductions_all_a:,.0f} 元</span>", unsafe_allow_html=True)
-            st.markdown(f"**基本生活費差額：** <span style='float:right; color:#ffbc4b;'>- {basic_diff_a:,.0f} 元</span>", unsafe_allow_html=True)
-            st.markdown("---")
-            st.markdown(f"<h4 style='color:#4bc0ff; margin-top: 0;'>➤ 綜合所得淨額： <span style='float:right;'>{taxable_income_a:,.0f} 元</span></h4>", unsafe_allow_html=True)
-            st.caption(f"套用稅率 {int(tax_rate_a*100)}% 減去累進差額 {prog_diff_a:,.0f} = 應納稅額 {base_tax_a:,.0f} 元")
-            st.markdown(f"**股利 8.5% 可抵減稅額：** <span style='float:right; color:#09ab3b;'>- {div_credit_a:,.0f} 元</span>", unsafe_allow_html=True)
-            st.markdown("---")
-            fc_a = "#ff4b4b" if final_tax_to_pay_a > 0 else "#09ab3b"
-            st.markdown("<div style='text-align: center; color: #aaa; font-size: 16px;'>方案 A 最終實繳 / 退稅金額</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='text-align: center; font-size: 38px; font-weight: bold; color: {fc_a};'>{final_tax_to_pay_a:,.0f} <span style='font-size: 16px;'>元</span></div>", unsafe_allow_html=True)
+        col_chart_a, col_result_a = st.columns([1.2, 1])
+        
+        with col_chart_a:
+            st.markdown("### 📊 114年度綜合所得稅級距表")
+            st.caption("根據您輸入的資料，系統會自動對應下表計算：")
+            st.table(tax_table_data)
+            
+        with col_result_a:
+            st.markdown("### 🧾 結算單 (方案 A)")
+            with st.container(border=True):
+                st.markdown(f"**綜合所得總額 (薪資＋股利)：** <span style='float:right;'>{total_income_a:,.0f} 元</span>", unsafe_allow_html=True)
+                st.markdown(f"<div style='color:#888; font-size: 13px; margin-top: -10px; margin-bottom: 5px;'>└ 包含精準核算之薪資特別扣除額: {salary_deduction:,.0f} 元</div>", unsafe_allow_html=True)
+                st.markdown(f"**全部扣除額及免稅額合計：** <span style='float:right; color:#ffbc4b;'>- {total_deductions_all_a:,.0f} 元</span>", unsafe_allow_html=True)
+                st.markdown(f"**基本生活費差額：** <span style='float:right; color:#ffbc4b;'>- {basic_diff_a:,.0f} 元</span>", unsafe_allow_html=True)
+                st.markdown("---")
+                st.markdown(f"<h4 style='color:#4bc0ff; margin-top: 0;'>➤ 綜合所得淨額： <span style='float:right;'>{taxable_income_a:,.0f} 元</span></h4>", unsafe_allow_html=True)
+                st.caption(f"套用稅率 {int(tax_rate_a*100)}% 減去累進差額 {prog_diff_a:,.0f} = 應納稅額 {base_tax_a:,.0f} 元")
+                st.markdown(f"**股利 8.5% 可抵減稅額：** <span style='float:right; color:#09ab3b;'>- {div_credit_a:,.0f} 元</span>", unsafe_allow_html=True)
+                st.markdown("---")
+                fc_a = "#ff4b4b" if final_tax_to_pay_a > 0 else "#09ab3b"
+                st.markdown("<div style='text-align: center; color: #aaa; font-size: 16px;'>方案 A 最終實繳 / 退稅金額</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align: center; font-size: 38px; font-weight: bold; color: {fc_a};'>{final_tax_to_pay_a:,.0f} <span style='font-size: 16px;'>元</span></div>", unsafe_allow_html=True)
 
     # ==========================================
     # 分頁 2：大戶 28% 分開計稅 (福利沒收版)
@@ -1378,19 +1394,27 @@ elif st.session_state.page == "tax_calc":
         st.markdown(table2_html_b, unsafe_allow_html=True)
 
         st.divider()
-        st.markdown("### 🧾 結算單 (方案 B)")
-        with st.container(border=True):
-            st.markdown(f"**綜合所得總額 (⚠️ 不含股利)：** <span style='float:right;'>{total_income_b:,.0f} 元</span>", unsafe_allow_html=True)
-            st.markdown(f"<div style='color:#888; font-size: 13px; margin-top: -10px; margin-bottom: 5px;'>└ 包含精準核算之薪資特別扣除額: {salary_deduction:,.0f} 元</div>", unsafe_allow_html=True)
-            st.markdown(f"**全部扣除額及免稅額合計：** <span style='float:right; color:#ffbc4b;'>- {total_deductions_all_b:,.0f} 元</span>", unsafe_allow_html=True)
-            st.markdown(f"**基本生活費差額：** <span style='float:right; color:#ffbc4b;'>- {basic_diff_b:,.0f} 元</span>", unsafe_allow_html=True)
-            st.markdown("---")
-            st.markdown(f"<h4 style='color:#4bc0ff; margin-top: 0;'>➤ 本薪綜合所得淨額： <span style='float:right;'>{taxable_income_b:,.0f} 元</span></h4>", unsafe_allow_html=True)
-            st.caption(f"套用稅率 {int(tax_rate_b*100)}% 減去累進差額 {prog_diff_b:,.0f} = 薪資應納稅額 {base_tax_b:,.0f} 元")
+        col_chart_b, col_result_b = st.columns([1.2, 1])
+        
+        with col_chart_b:
+            st.markdown("### 📊 114年度綜合所得稅級距表")
+            st.caption("根據您輸入的資料，系統會自動對應下表計算：")
+            st.table(tax_table_data)
             
-            st.markdown(f"**➕ 股利 28% 分開計稅額：** <span style='float:right; color:#ffbc4b;'>+ {div_tax_b:,.0f} 元</span>", unsafe_allow_html=True)
-            
-            st.markdown("---")
-            fc_b = "#ff4b4b" if final_tax_to_pay_b > 0 else "#09ab3b"
-            st.markdown("<div style='text-align: center; color: #aaa; font-size: 16px;'>方案 B 最終實繳金額</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='text-align: center; font-size: 38px; font-weight: bold; color: {fc_b};'>{final_tax_to_pay_b:,.0f} <span style='font-size: 16px;'>元</span></div>", unsafe_allow_html=True)
+        with col_result_b:
+            st.markdown("### 🧾 結算單 (方案 B)")
+            with st.container(border=True):
+                st.markdown(f"**綜合所得總額 (⚠️ 不含股利)：** <span style='float:right;'>{total_income_b:,.0f} 元</span>", unsafe_allow_html=True)
+                st.markdown(f"<div style='color:#888; font-size: 13px; margin-top: -10px; margin-bottom: 5px;'>└ 包含精準核算之薪資特別扣除額: {salary_deduction:,.0f} 元</div>", unsafe_allow_html=True)
+                st.markdown(f"**全部扣除額及免稅額合計：** <span style='float:right; color:#ffbc4b;'>- {total_deductions_all_b:,.0f} 元</span>", unsafe_allow_html=True)
+                st.markdown(f"**基本生活費差額：** <span style='float:right; color:#ffbc4b;'>- {basic_diff_b:,.0f} 元</span>", unsafe_allow_html=True)
+                st.markdown("---")
+                st.markdown(f"<h4 style='color:#4bc0ff; margin-top: 0;'>➤ 本薪綜合所得淨額： <span style='float:right;'>{taxable_income_b:,.0f} 元</span></h4>", unsafe_allow_html=True)
+                st.caption(f"套用稅率 {int(tax_rate_b*100)}% 減去累進差額 {prog_diff_b:,.0f} = 薪資應納稅額 {base_tax_b:,.0f} 元")
+                
+                st.markdown(f"**➕ 股利 28% 分開計稅額：** <span style='float:right; color:#ffbc4b;'>+ {div_tax_b:,.0f} 元</span>", unsafe_allow_html=True)
+                
+                st.markdown("---")
+                fc_b = "#ff4b4b" if final_tax_to_pay_b > 0 else "#09ab3b"
+                st.markdown("<div style='text-align: center; color: #aaa; font-size: 16px;'>方案 B 最終實繳金額</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align: center; font-size: 38px; font-weight: bold; color: {fc_b};'>{final_tax_to_pay_b:,.0f} <span style='font-size: 16px;'>元</span></div>", unsafe_allow_html=True)
