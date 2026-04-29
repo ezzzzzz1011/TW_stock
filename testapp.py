@@ -824,19 +824,45 @@ elif st.session_state.page == "portfolio":
         if uploaded_file:
             import_df = pd.read_csv(uploaded_file)
             if "代碼" in import_df.columns and "張數" in import_df.columns:
-                new_data = import_df[["代碼", "張數"]].copy()
+                # 若 CSV 內本身沒有名稱欄位，自動補上
+                cols_to_keep = ["代碼", "名稱", "張數"] if "名稱" in import_df.columns else ["代碼", "張數"]
+                new_data = import_df[cols_to_keep].copy()
+                if "名稱" not in new_data.columns:
+                    new_data.insert(1, "名稱", "")
+                
                 if len(new_data) < 20:
-                    padding = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20 - len(new_data))])
+                    padding = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None} for _ in range(20 - len(new_data))])
                     new_data = pd.concat([new_data, padding], ignore_index=True)
                 st.session_state.portfolio = new_data
                 st.success("CSV 已載入編輯器，請檢查後點擊下方儲存。")
             else:
                 st.error("CSV 格式錯誤！需包含『代碼』與『張數』兩個欄位。")
 
-    st.markdown("### 📝 編輯投資清單")
+    # 標題與自動帶入按鈕並排
+    title_col, btn_col = st.columns([3, 1])
+    with title_col:
+        st.markdown("### 📝 編輯投資清單")
+    with btn_col:
+        if st.button("🔄 自動帶入股票名稱", use_container_width=True):
+            with st.spinner("抓取名稱中..."):
+                for i, row in st.session_state.portfolio.iterrows():
+                    code = str(row["代碼"]).strip()
+                    # 如果有代碼，且名稱是空白的，就呼叫 API 抓取並填入
+                    if code and not str(row.get("名稱", "")).strip():
+                        info = get_stock_info(code)
+                        if info:
+                            st.session_state.portfolio.at[i, "名稱"] = info["name"]
+                st.rerun()
+
+    # 確保空資料時有三個欄位 (代碼、名稱、張數)
     if st.session_state.portfolio is None or len(st.session_state.portfolio) == 0:
-        st.session_state.portfolio = pd.DataFrame([{"代碼": "", "張數": None} for _ in range(20)])
+        st.session_state.portfolio = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None} for _ in range(20)])
     
+    # 舊用戶雲端資料相容性處理：如果從資料庫抓下來的表沒有「名稱」欄，自動插在第二欄
+    if "名稱" not in st.session_state.portfolio.columns:
+        st.session_state.portfolio.insert(1, "名稱", "")
+
+    # 顯示編輯器
     edited_df = st.data_editor(st.session_state.portfolio, num_rows="dynamic", use_container_width=True)
 
     if st.button("💾 儲存變更至資料庫", type="primary"):
