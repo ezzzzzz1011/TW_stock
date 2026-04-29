@@ -911,7 +911,7 @@ elif st.session_state.page == "portfolio":
                                 # ---------------------------------
                                 
                                 results.append({
-                                    "名稱": data["name"], "代碼": code, "現價": data["price"],
+                                    "名稱": data["name"], "代碼": code, "張數": row["張數"], "現價": data["price"],
                                     "持有價值": m_val, "預估年領股息": ann_div
                                 })
                                 total_market_val += m_val
