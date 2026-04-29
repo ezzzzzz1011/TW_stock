@@ -822,7 +822,8 @@ elif st.session_state.page == "portfolio":
     with st.expander("📥 匯入投資清單 (CSV)"):
         uploaded_file = st.file_uploader("選擇 CSV 檔案", type="csv")
         if uploaded_file:
-            import_df = pd.read_csv(uploaded_file)
+            # 強制將「代碼」欄位當作字串讀取，防止開頭的 0 被刪除
+            import_df = pd.read_csv(uploaded_file, dtype={"代碼": str})
             if "代碼" in import_df.columns and "張數" in import_df.columns:
                 # 若 CSV 內本身沒有名稱欄位，自動補上
                 cols_to_keep = ["代碼", "名稱", "張數"] if "名稱" in import_df.columns else ["代碼", "張數"]
