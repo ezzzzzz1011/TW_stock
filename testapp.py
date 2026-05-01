@@ -922,21 +922,29 @@ elif st.session_state.page == "portfolio":
                                 ann_div = avg_annual * shares
                                 # ---------------------------------
                                 
-                                # 👇 將原本的 results.append 替換成這段，加入戰略屬性 👇
                                 category = get_asset_category(code, data["name"])
                                 results.append({
                                     "名稱": data["name"], "代碼": code, "張數": row["張數"], "現價": data["price"],
                                     "持有價值": m_val, "預估年領股息": ann_div,
-                                    "戰略屬性": category  # <--- 多了這一欄
+                                    "戰略屬性": category  
                                 })
-                                # 👆 替換結束 👆
-                                
                                 total_market_val += m_val
                                 total_annual_div += ann_div
                     except: continue
 
             if results:
                 res_df = pd.DataFrame(results)
+                
+                # 👇 新增：完美的自訂排序邏輯 👇
+                # 1. 定義我們想要的順序：進攻 -> 現金流 -> 防守
+                custom_order = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
+                
+                # 2. 把戰略屬性轉換成分類資料，並套用上面的順序
+                res_df["戰略屬性"] = pd.Categorical(res_df["戰略屬性"], categories=custom_order, ordered=True)
+                
+                # 3. 執行排序：先排屬性(依照上面定義)，同屬性內再依「持有價值」由大排到小 (ascending=[True, False])
+                res_df = res_df.sort_values(by=["戰略屬性", "持有價值"], ascending=[True, False])
+                # 👆 排序結束 👆
                 
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
@@ -978,7 +986,6 @@ elif st.session_state.page == "portfolio":
                 avg_yield = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
                 m2.metric("組合平均殖利率", f"{avg_yield:.2f}%")
                 
-                # 👇 將原本的單一圓餅圖替換成戰略佈局雙圓餅圖 👇
                 st.markdown("### 🎯 戰略資產佈局")
                 
                 # 統計屬性比例
@@ -1006,7 +1013,6 @@ elif st.session_state.page == "portfolio":
                 with col_table:
                     st.write("#### 詳細數據")
                     st.dataframe(res_df, use_container_width=True, hide_index=True)
-                # 👆 替換結束 👆
 
         st.divider()
         st.subheader("📅 自動化領息排程月曆")
