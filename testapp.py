@@ -817,6 +817,18 @@ elif st.session_state.page == "pk_tool":
 
 elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): go_to("home")
+    
+    # 👇 新增這個分類小工具 👇
+    def get_asset_category(code, name):
+        name_str = str(name)
+        if "債" in name_str or "防守" in name_str:
+            return "🛡️ 防守型 (債券/避險)"
+        elif "高股息" in name_str or "優息" in name_str or code in ["0056", "00878", "00919"]:
+            return "💰 現金流 (高股息)"
+        else:
+            return "⚔️ 進攻型 (市值/成長)"
+    # 👆 新增結束 👆
+
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
     
     with st.expander("📥 匯入投資清單 (CSV)"):
@@ -910,10 +922,15 @@ elif st.session_state.page == "portfolio":
                                 ann_div = avg_annual * shares
                                 # ---------------------------------
                                 
+                                # 👇 將原本的 results.append 替換成這段，加入戰略屬性 👇
+                                category = get_asset_category(code, data["name"])
                                 results.append({
                                     "名稱": data["name"], "代碼": code, "張數": row["張數"], "現價": data["price"],
-                                    "持有價值": m_val, "預估年領股息": ann_div
+                                    "持有價值": m_val, "預估年領股息": ann_div,
+                                    "戰略屬性": category  # <--- 多了這一欄
                                 })
+                                # 👆 替換結束 👆
+                                
                                 total_market_val += m_val
                                 total_annual_div += ann_div
                     except: continue
@@ -961,15 +978,35 @@ elif st.session_state.page == "portfolio":
                 avg_yield = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
                 m2.metric("組合平均殖利率", f"{avg_yield:.2f}%")
                 
-                col_chart, col_table = st.columns([1, 1])
-                with col_chart:
-                    fig = px.pie(res_df, values='持有價值', names='名稱', 
-                                 title="資產配置分佈圖", color_discrete_sequence=px.colors.qualitative.Pastel)
-                    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
-                    st.plotly_chart(fig, use_container_width=True)
+                # 👇 將原本的單一圓餅圖替換成戰略佈局雙圓餅圖 👇
+                st.markdown("### 🎯 戰略資產佈局")
+                
+                # 統計屬性比例
+                cat_df = res_df.groupby("戰略屬性")["持有價值"].sum().reset_index()
+                
+                col_pie1, col_pie2, col_table = st.columns([1, 1, 1.5])
+                
+                with col_pie1:
+                    # 第一張圖：原本的個股佔比
+                    fig1 = px.pie(res_df, values='持有價值', names='名稱', 
+                                 title="個股佔比分佈", hole=0.3,
+                                 color_discrete_sequence=px.colors.qualitative.Pastel)
+                    fig1.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
+                    fig1.update_traces(textposition='inside', textinfo='percent+label')
+                    st.plotly_chart(fig1, use_container_width=True)
+                    
+                with col_pie2:
+                    # 第二張圖：新的「戰略屬性」佔比
+                    fig2 = px.pie(cat_df, values='持有價值', names='戰略屬性', 
+                                 title="防守/進攻 戰略配置", hole=0.4,
+                                 color_discrete_sequence=["#ff9999", "#66b3ff", "#99ff99"])
+                    fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", legend=dict(orientation="h", y=-0.2))
+                    st.plotly_chart(fig2, use_container_width=True)
+                    
                 with col_table:
                     st.write("#### 詳細數據")
-                    st.dataframe(res_df, use_container_width=True)
+                    st.dataframe(res_df, use_container_width=True, hide_index=True)
+                # 👆 替換結束 👆
 
         st.divider()
         st.subheader("📅 自動化領息排程月曆")
