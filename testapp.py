@@ -816,26 +816,40 @@ elif st.session_state.page == "pk_tool":
                 st.error("查無資料，請確認代碼是否輸入正確。")
                 #------------------------------------------
 elif st.session_state.page == "portfolio":
-    # 🎨 視覺強化：解決下拉選單在選中時文字看不清的問題 (image_b2135e.png)
+    # 🎨 視覺強化：解決下拉選單在選中時看不清的問題 (針對 image_b1ad22.png 優化)
     st.markdown("""
         <style>
-        /* 強制讓下拉選單的選項文字顯示為白色並帶陰影，避免被高亮色吃掉 */
+        /* 1. 下拉選單整體的樣式容器 */
+        div[data-baseweb="popover"] {
+            background-color: #262730 !important; /* 深灰色背景 */
+            border: 1px solid #444 !important;
+            border-radius: 8px !important;
+        }
+
+        /* 2. 強制選單內的文字為純白色，增加粗細並加入陰影提高對比度 */
         div[data-baseweb="popover"] span, 
         div[data-baseweb="popover"] li {
-            color: white !important;
-            font-weight: 500 !important;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.8) !important;
+            color: #FFFFFF !important; 
+            font-weight: 600 !important;
+            font-size: 14px !important;
+            text-shadow: 1px 1px 3px rgba(0,0,0,1) !important; /* 強力黑色陰影，確保字體浮現 */
         }
-        /* 增加選單背景深度 */
-        div[data-baseweb="popover"] {
-            background-color: #1e1e28 !important;
+
+        /* 3. 當滑鼠懸停或選中時的紅色背景 (維持你的配色) */
+        div[data-baseweb="popover"] li:hover {
+            background-color: #FF4B4B !important; 
+        }
+
+        /* 4. 修正表格編輯器內部字體對齊與顏色 */
+        .stDataEditor [data-testid="stTable"] {
+            color: white !important;
         }
         </style>
     """, unsafe_allow_html=True)
 
     if st.button("⬅️ 返回工具箱"): go_to("home")
     
-    # 定義分類選項 (保持原始名稱與圖示)
+    # 🏆 定義分類選項 (保持原始名稱與圖示)
     asset_categories = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
 
     def get_asset_category(code, name):
@@ -884,20 +898,18 @@ elif st.session_state.page == "portfolio":
                                 st.session_state.portfolio.at[i, "戰略屬性"] = get_asset_category(code, info["name"])
                 st.rerun()
 
-    # --- 核心修正：初始化與資料清洗 (解決 image_b20edf.png 顯示空白的問題) ---
+    # --- 初始化與資料清洗 (解決重登後顯示空白問題) ---
     if st.session_state.portfolio is None or len(st.session_state.portfolio) == 0:
         st.session_state.portfolio = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None, "戰略屬性": ""} for _ in range(20)])
     
-    # 確保欄位存在
     if "名稱" not in st.session_state.portfolio.columns:
         st.session_state.portfolio.insert(1, "名稱", "")
     if "戰略屬性" not in st.session_state.portfolio.columns:
         st.session_state.portfolio["戰略屬性"] = ""
 
-    # 關鍵：強制清洗戰略屬性的字串，確保它能與 asset_categories 完美對應
+    # 強制清洗資料庫回傳的字串，確保與 Selectbox 選項一致
     for i, row in st.session_state.portfolio.iterrows():
         val = str(row["戰略屬性"]).strip()
-        # 如果資料庫裡的值(val)不在選單清單中，嘗試進行模糊匹配修復
         if val and val != "nan" and val not in asset_categories:
             if "進攻" in val or "⚔️" in val:
                 st.session_state.portfolio.at[i, "戰略屬性"] = asset_categories[0]
@@ -906,7 +918,7 @@ elif st.session_state.page == "portfolio":
             elif "防守" in val or "🛡️" in val:
                 st.session_state.portfolio.at[i, "戰略屬性"] = asset_categories[2]
             else:
-                st.session_state.portfolio.at[i, "戰略屬性"] = "" # 無法識別則留空
+                st.session_state.portfolio.at[i, "戰略屬性"] = ""
 
     # 顯示編輯器
     edited_df = st.data_editor(
@@ -961,7 +973,7 @@ elif st.session_state.page == "portfolio":
                                 
                                 ann_div = avg_annual * shares
                                 
-                                # 讀取順序：表格中的手動選擇 > 程式自動判斷
+                                # 分類讀取：表格手動選取優先
                                 category = row.get("戰略屬性")
                                 if not category or str(category).strip() == "" or str(category) == "nan":
                                     category = get_asset_category(code, data["name"])
@@ -982,7 +994,7 @@ elif st.session_state.page == "portfolio":
                 res_df["戰略屬性"] = pd.Categorical(res_df["戰略屬性"], categories=asset_categories, ordered=True)
                 res_df = res_df.sort_values(by=["戰略屬性", "持有價值"], ascending=[True, False])
                 
-                # 儀表板 HTML
+                # 市值回報率計算
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
                 ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
@@ -1029,14 +1041,13 @@ elif st.session_state.page == "portfolio":
                     fig1.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig1, use_container_width=True)
                 with col_pie2:
-                    # 為戰略配置指定固定顏色
                     color_map = {asset_categories[0]: "#ff4b4b", asset_categories[1]: "#f1c40f", asset_categories[2]: "#3498db"}
-                    fig2 = px.pie(cat_df, values='持有價值', names='戰略屬性', title="防守/進攻 戰略配置", hole=0.4,
+                    fig2 = px.pie(cat_df, values='持有價值', names='戰略屬性', title="防守/進攻 配置", hole=0.4,
                                  color='戰略屬性', color_discrete_map=color_map)
                     fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", legend=dict(orientation="h", y=-0.2))
                     st.plotly_chart(fig2, use_container_width=True)
                 with col_table:
-                    st.write("#### 詳細數據")
+                    st.write("#### 詳細數據清單")
                     st.dataframe(res_df, use_container_width=True, hide_index=True)
 
         st.divider()
