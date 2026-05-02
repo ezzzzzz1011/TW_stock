@@ -837,6 +837,7 @@ elif st.session_state.page == "portfolio":
     with st.expander("📥 匯入投資清單 (CSV)"):
         uploaded_file = st.file_uploader("選擇 CSV 檔案", type="csv")
         if uploaded_file:
+            # 強制將「代碼」欄位當作字串讀取，防止開頭的 0 被刪除
             import_df = pd.read_csv(uploaded_file, dtype={"代碼": str})
             if "代碼" in import_df.columns and "張數" in import_df.columns:
                 cols_to_keep = ["代碼", "名稱", "張數", "戰略屬性"] 
@@ -855,6 +856,7 @@ elif st.session_state.page == "portfolio":
             else:
                 st.error("CSV 格式錯誤！需包含『代碼』與『張數』兩個欄位。")
 
+    # 標題與自動帶入按鈕並排
     title_col, btn_col = st.columns([3, 1])
     with title_col:
         st.markdown("### 📝 編輯投資清單")
@@ -873,10 +875,11 @@ elif st.session_state.page == "portfolio":
                                 st.session_state.portfolio.at[i, "戰略屬性"] = get_asset_category(code, info["name"])
                 st.rerun()
 
-    # 確保資料欄位完整性
+    # 確保空資料時有必要的欄位
     if st.session_state.portfolio is None or len(st.session_state.portfolio) == 0:
         st.session_state.portfolio = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None, "戰略屬性": ""} for _ in range(20)])
     
+    # 舊用戶雲端資料相容性處理
     if "名稱" not in st.session_state.portfolio.columns:
         st.session_state.portfolio.insert(1, "名稱", "")
     if "戰略屬性" not in st.session_state.portfolio.columns:
@@ -889,7 +892,7 @@ elif st.session_state.page == "portfolio":
             "戰略屬性": st.column_config.SelectboxColumn(
                 "戰略屬性",
                 options=asset_categories,
-                help="手動選擇此股票的分類"
+                help="手動選擇或更改資產分類"
             )
         },
         num_rows="dynamic", 
@@ -926,18 +929,19 @@ elif st.session_state.page == "portfolio":
                             if data["success"]:
                                 m_val = data["price"] * shares
                                 
-                                # 配息計算
-                                d_list = data["raw_divs"]
+                                # --- 這裡更新為精準的配息計算邏輯 ---
+                                d1, d2, d3, d4 = data["raw_divs"][0], data["raw_divs"][1], data["raw_divs"][2], data["raw_divs"][3]
                                 if data['multiplier'] == 1:
-                                    avg_annual = d_list[0]
+                                    avg_annual = d1
                                 elif data['multiplier'] == 2:
-                                    avg_annual = d_list[0] + d_list[1]
+                                    avg_annual = d1 + d2
                                 elif data['multiplier'] == 4:
-                                    avg_annual = d_list[0] + d_list[1] + d_list[2] + d_list[3]
+                                    avg_annual = d1 + d2 + d3 + d4
                                 else:
-                                    avg_annual = (sum(d_list) / 4) * data["multiplier"]
+                                    avg_annual = (sum(data["raw_divs"]) / 4) * data["multiplier"]
                                 
                                 ann_div = avg_annual * shares
+                                # ---------------------------------
                                 
                                 # 👇 優先使用使用者在表格中選擇的屬性 👇
                                 user_cat = row.get("戰略屬性")
@@ -959,17 +963,23 @@ elif st.session_state.page == "portfolio":
             if results:
                 res_df = pd.DataFrame(results)
                 
-                # 排序邏輯
-                res_df["戰略屬性"] = pd.Categorical(res_df["戰略屬性"], categories=asset_categories, ordered=True)
-                res_df = res_df.sort_values(by=["戰略屬性", "持有價值"], ascending=[True, False])
+                # 👇 新增：完美的自訂排序邏輯 👇
+                # 1. 定義我們想要的順序：進攻 -> 現金流 -> 防守
+                custom_order = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
                 
-                # 計算報酬
+                # 2. 把戰略屬性轉換成分類資料，並套用上面的順序
+                res_df["戰略屬性"] = pd.Categorical(res_df["戰略屬性"], categories=custom_order, ordered=True)
+                
+                # 3. 執行排序：先排屬性(依照上面定義)，同屬性內再依「持有價值」由大排到小
+                res_df = res_df.sort_values(by=["戰略屬性", "持有價值"], ascending=[True, False])
+                # 👆 排序結束 👆
+                
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
+                
                 ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
                 circle_pct = min(abs(return_pct), 100)
                 
-                # 儀表板 HTML
                 dashboard_html = f"""
                 <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: #1e1e28; padding: 25px; border-radius: 15px; border: 1px solid #444; margin-bottom: 20px;">
                     <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_pct}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
@@ -991,6 +1001,9 @@ elif st.session_state.page == "portfolio":
                             <span style="color: #ccc; font-size: 18px;">總報酬：</span>
                             <span style="color: {ret_color}; font-size: 26px; font-weight: bold; font-family: 'Consolas';">{return_amt:+,.0f}</span>
                         </div>
+                        <div style="text-align: right; margin-top: 5px;">
+                            <span style="color: #888; font-size: 13px;">(無加上手續費用)</span>
+                        </div>
                     </div>
                 </div>
                 """
@@ -1002,18 +1015,29 @@ elif st.session_state.page == "portfolio":
                 m2.metric("組合平均殖利率", f"{avg_yield:.2f}%")
                 
                 st.markdown("### 🎯 戰略資產佈局")
+                
+                # 統計屬性比例
                 cat_df = res_df.groupby("戰略屬性", observed=True)["持有價值"].sum().reset_index()
                 
                 col_pie1, col_pie2, col_table = st.columns([1, 1, 1.5])
+                
                 with col_pie1:
-                    fig1 = px.pie(res_df, values='持有價值', names='名稱', title="個股佔比分佈", hole=0.3)
-                    fig1.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
+                    # 第一張圖：原本的個股佔比 (恢復原版樣式)
+                    fig1 = px.pie(res_df, values='持有價值', names='名稱', 
+                                 title="個股佔比分佈", hole=0.3,
+                                 color_discrete_sequence=px.colors.qualitative.Pastel)
+                    fig1.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
+                    fig1.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig1, use_container_width=True)
+                    
                 with col_pie2:
-                    fig2 = px.pie(cat_df, values='持有價值', names='戰略屬性', title="防守/進攻 戰略配置", hole=0.4,
-                                   color_discrete_map={asset_categories[0]: "#ff9999", asset_categories[1]: "#66b3ff", asset_categories[2]: "#99ff99"})
-                    fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", legend=dict(orientation="h", y=-0.2))
+                    # 第二張圖：新的「戰略屬性」佔比 (恢復原版樣式)
+                    fig2 = px.pie(cat_df, values='持有價值', names='戰略屬性', 
+                                 title="防守/進攻 戰略配置", hole=0.4,
+                                 color_discrete_sequence=["#ff9999", "#66b3ff", "#99ff99"])
+                    fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", legend=dict(orientation="h", y=-0.2))
                     st.plotly_chart(fig2, use_container_width=True)
+                    
                 with col_table:
                     st.write("#### 詳細數據")
                     st.dataframe(res_df, use_container_width=True, hide_index=True)
@@ -1024,15 +1048,18 @@ elif st.session_state.page == "portfolio":
         
         if st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary"):
             cal_df = generate_user_calendar()
+            
             if cal_df is not None and not cal_df.empty:
                 cal_df = cal_df.sort_values(by="預計發放日 (預估)")
                 st.markdown("#### 📥 預計入帳時間表")
                 st.dataframe(cal_df, use_container_width=True, hide_index=True)
+                
                 total_incoming = cal_df["預估入帳金額"].sum()
                 st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
+                st.caption("※ 註：發放日為系統根據台股慣例（除息後約28天）自動推算，實際請以各公司公告為準。")
+                st.caption("※ 註：最新的配息日可能會晚些時間抓取網站沒更新那麼快")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
-
 # ==============================================================
 # ⭐ 頁面：我的關注清單 (對齊雲端 gspread 邏輯 + 精緻卡片版)
 # ==============================================================
