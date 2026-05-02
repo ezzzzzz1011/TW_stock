@@ -816,44 +816,44 @@ elif st.session_state.page == "pk_tool":
                 st.error("查無資料，請確認代碼是否輸入正確。")
                 #------------------------------------------
 elif st.session_state.page == "portfolio":
-    # 🎨 強力視覺修正：確保下拉選單文字在深色背景下強制顯示為純白
+    # 🎨 極致對比優化：確保「點下去」選單文字絕對清晰
     st.markdown("""
         <style>
-        /* 1. 下拉選單主容器 */
+        /* 1. 選單容器：強制深黑底，不透明 */
         div[data-baseweb="popover"], 
         div[role="listbox"] {
-            background-color: #1A1C24 !important; 
-            opacity: 1 !important;              
-            box-shadow: 0px 8px 24px rgba(0,0,0,0.8) !important;
-            border: 1px solid #4B4B4B !important;
-        }
-
-        /* 2. 核心修正：強制所有選單內的文字、圖示、以及其容器均為純白 */
-        /* 使用 [role="option"] 鎖定每一個選項 */
-        div[role="option"] *, 
-        div[data-baseweb="popover"] li *,
-        div[data-baseweb="popover"] span {
-            color: #FFFFFF !important;            
+            background-color: #000000 !important; 
             opacity: 1 !important;
-            fill: #FFFFFF !important; /* 確保 icon 也是白的 */
-            font-weight: 500 !important;
+            border: 1px solid #FF4B4B !important; /* 加個紅邊框更明顯 */
         }
 
-        /* 3. 選取與懸停狀態：亮紅色背景，文字維持白色 */
-        div[role="option"]:hover,
-        div[aria-selected="true"] {
+        /* 2. 暴力覆蓋文字顏色：不管 Streamlit 預設什麼，選單內全部強制純白 */
+        div[data-baseweb="popover"] span,
+        div[data-baseweb="popover"] li,
+        div[role="option"],
+        div[role="option"] * {
+            color: #FFFFFF !important;
+            opacity: 1 !important;
+            -webkit-text-fill-color: #FFFFFF !important;
+            font-size: 16px !important;
+            font-weight: bold !important;
+        }
+
+        /* 3. 當滑鼠移上去 (Hover) 或 選中時：背景變亮紅，字變白 */
+        div[role="option"]:hover, 
+        div[role="option"][aria-selected="true"] {
             background-color: #FF4B4B !important;
         }
         
-        /* 確保滑鼠移上去時，文字不會變色 */
-        div[role="option"]:hover *,
-        div[aria-selected="true"] * {
+        div[role="option"]:hover *, 
+        div[role="option"][aria-selected="true"] * {
             color: #FFFFFF !important;
         }
 
-        /* 4. 防止表格格子文字被誤傷變白（僅在白色模式下有用） */
-        .stDataEditor [data-testid="stTable"] {
-            color: inherit;
+        /* 4. 修正白色表格中的「編輯中」文字顏色：確保編輯那一格不會變白字 */
+        /* 這樣在白色背景下輸入代碼時才看得到黑字 */
+        .stDataEditor [data-testid="stTable"] input {
+            color: #1F1F1F !important;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -922,7 +922,7 @@ elif st.session_state.page == "portfolio":
             "戰略屬性": st.column_config.SelectboxColumn(
                 "戰略屬性",
                 options=asset_categories,
-                help="重登會記憶您選擇的分類"
+                help="選擇該標的的資產配置屬性"
             )
         },
         num_rows="dynamic", 
@@ -1049,7 +1049,6 @@ elif st.session_state.page == "portfolio":
                 st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
-
 
 
 # ==============================================================
