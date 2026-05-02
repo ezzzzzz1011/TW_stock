@@ -816,41 +816,43 @@ elif st.session_state.page == "pk_tool":
                 st.error("查無資料，請確認代碼是否輸入正確。")
                 #------------------------------------------
 elif st.session_state.page == "portfolio":
-    # 🎨 視覺終極優化：解決選單透明度、文字隱身、以及黑白背景對比問題
+    # 🎨 強力視覺修正：確保下拉選單文字在深色背景下強制顯示為純白
     st.markdown("""
         <style>
-        /* 1. 下拉選單容器：完全不透明深色背景，確保不與後方表格重疊 */
+        /* 1. 下拉選單主容器 */
         div[data-baseweb="popover"], 
         div[role="listbox"] {
             background-color: #1A1C24 !important; 
             opacity: 1 !important;              
-            box-shadow: 0px 8px 24px rgba(0,0,0,0.5) !important;
+            box-shadow: 0px 8px 24px rgba(0,0,0,0.8) !important;
             border: 1px solid #4B4B4B !important;
         }
 
-        /* 2. 選單內的選項：強制維持白字，解決在白色模式下看不見字的問題 */
-        /* 我們只針對 popover 內的 span 與 li 進行改色 */
-        div[data-baseweb="popover"] li,
-        div[data-baseweb="popover"] span,
-        div[role="option"] span {
+        /* 2. 核心修正：強制所有選單內的文字、圖示、以及其容器均為純白 */
+        /* 使用 [role="option"] 鎖定每一個選項 */
+        div[role="option"] *, 
+        div[data-baseweb="popover"] li *,
+        div[data-baseweb="popover"] span {
             color: #FFFFFF !important;            
-            font-weight: 500 !important;
             opacity: 1 !important;
-            text-shadow: none !important; /* 移除陰影讓字體在深底更銳利 */
+            fill: #FFFFFF !important; /* 確保 icon 也是白的 */
+            font-weight: 500 !important;
         }
 
-        /* 3. 選取與懸停狀態：亮紅色背景，確保文字依然為白色 */
-        div[data-baseweb="popover"] li:hover,
+        /* 3. 選取與懸停狀態：亮紅色背景，文字維持白色 */
+        div[role="option"]:hover,
         div[aria-selected="true"] {
             background-color: #FF4B4B !important;
         }
         
-        div[aria-selected="true"] span {
+        /* 確保滑鼠移上去時，文字不會變色 */
+        div[role="option"]:hover *,
+        div[aria-selected="true"] * {
             color: #FFFFFF !important;
         }
 
-        /* 4. 修正表格編輯格：確保「非下拉狀態」的表格文字顏色正常 (不被強制轉白) */
-        .stDataEditor div[data-testid="stTable"] {
+        /* 4. 防止表格格子文字被誤傷變白（僅在白色模式下有用） */
+        .stDataEditor [data-testid="stTable"] {
             color: inherit;
         }
         </style>
@@ -1047,6 +1049,9 @@ elif st.session_state.page == "portfolio":
                 st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
+
+
+
 # ==============================================================
 # ⭐ 頁面：我的關注清單 (對齊雲端 gspread 邏輯 + 精緻卡片版)
 # ==============================================================
