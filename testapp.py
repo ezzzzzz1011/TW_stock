@@ -816,40 +816,45 @@ elif st.session_state.page == "pk_tool":
                 st.error("查無資料，請確認代碼是否輸入正確。")
                 #------------------------------------------
 elif st.session_state.page == "portfolio":
-    # 🎨 視覺強化：解決下拉選單在選中時看不清的問題 (針對 image_b1ad22.png 優化)
+    # 🎨 視覺強化：解決下拉選單透明重疊問題 (針對透明背景與層級優化)
     st.markdown("""
         <style>
-        /* 1. 下拉選單整體的樣式容器 */
-        div[data-baseweb="popover"] {
-            background-color: #262730 !important; /* 深灰色背景 */
-            border: 1px solid #444 !important;
-            border-radius: 8px !important;
+        /* 1. 強制讓下拉選單背景完全不透明 (不讓後方表格文字透出來) */
+        div[data-baseweb="popover"], 
+        div[role="listbox"] {
+            background-color: #0E1117 !important; /* 強制使用深黑色背景 */
+            opacity: 1 !important;              /* 強制不透明度為 100% */
+            box-shadow: 0px 4px 16px rgba(0,0,0,0.8) !important; /* 增加重陰影讓選單浮現 */
+            border: 1px solid #4B4B4B !important; /* 加強邊框辨識度 */
         }
 
-        /* 2. 強制選單內的文字為純白色，增加粗細並加入陰影提高對比度 */
-        div[data-baseweb="popover"] span, 
+        /* 2. 修正選單內的每一個選項，確保文字顏色與背景分離 */
         div[data-baseweb="popover"] li {
-            color: #FFFFFF !important; 
-            font-weight: 600 !important;
-            font-size: 14px !important;
-            text-shadow: 1px 1px 3px rgba(0,0,0,1) !important; /* 強力黑色陰影，確保字體浮現 */
+            background-color: #0E1117 !important; /* 選項底色也要強制不透明 */
+            color: #FFFFFF !important;            /* 文字純白 */
+            opacity: 1 !important;
+            padding: 10px !important;
         }
 
-        /* 3. 當滑鼠懸停或選中時的紅色背景 (維持你的配色) */
-        div[data-baseweb="popover"] li:hover {
-            background-color: #FF4B4B !important; 
-        }
-
-        /* 4. 修正表格編輯器內部字體對齊與顏色 */
-        .stDataEditor [data-testid="stTable"] {
+        /* 3. 當選中或懸停在選項時的顏色優化 */
+        div[data-baseweb="popover"] li:hover,
+        div[aria-selected="true"] {
+            background-color: #FF4B4B !important; /* 懸停時變紅色 */
             color: white !important;
+        }
+
+        /* 4. 文字辨識度加強：增加字體粗細與投影 */
+        div[data-baseweb="popover"] span {
+            color: #FFFFFF !important;
+            font-weight: 600 !important;
+            text-shadow: 1px 1px 2px rgba(0,0,0,1) !important;
         }
         </style>
     """, unsafe_allow_html=True)
 
     if st.button("⬅️ 返回工具箱"): go_to("home")
     
-    # 🏆 定義分類選項 (保持原始名稱與圖示)
+    # 🏆 定義分類選項
     asset_categories = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
 
     def get_asset_category(code, name):
@@ -898,7 +903,7 @@ elif st.session_state.page == "portfolio":
                                 st.session_state.portfolio.at[i, "戰略屬性"] = get_asset_category(code, info["name"])
                 st.rerun()
 
-    # --- 初始化與資料清洗 (解決重登後顯示空白問題) ---
+    # --- 初始化與資料清洗 ---
     if st.session_state.portfolio is None or len(st.session_state.portfolio) == 0:
         st.session_state.portfolio = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None, "戰略屬性": ""} for _ in range(20)])
     
@@ -907,7 +912,6 @@ elif st.session_state.page == "portfolio":
     if "戰略屬性" not in st.session_state.portfolio.columns:
         st.session_state.portfolio["戰略屬性"] = ""
 
-    # 強制清洗資料庫回傳的字串，確保與 Selectbox 選項一致
     for i, row in st.session_state.portfolio.iterrows():
         val = str(row["戰略屬性"]).strip()
         if val and val != "nan" and val not in asset_categories:
@@ -963,8 +967,6 @@ elif st.session_state.page == "portfolio":
                             data = get_safe_data_etf(code)
                             if data["success"]:
                                 m_val = data["price"] * shares
-                                
-                                # 精準配息計算
                                 d_list = data["raw_divs"]
                                 if data['multiplier'] == 1: avg_annual = d_list[0]
                                 elif data['multiplier'] == 2: avg_annual = d_list[0] + d_list[1]
@@ -972,8 +974,6 @@ elif st.session_state.page == "portfolio":
                                 else: avg_annual = (sum(d_list) / 4) * data["multiplier"]
                                 
                                 ann_div = avg_annual * shares
-                                
-                                # 分類讀取：表格手動選取優先
                                 category = row.get("戰略屬性")
                                 if not category or str(category).strip() == "" or str(category) == "nan":
                                     category = get_asset_category(code, data["name"])
@@ -989,12 +989,9 @@ elif st.session_state.page == "portfolio":
 
             if results:
                 res_df = pd.DataFrame(results)
-                
-                # 排序邏輯
                 res_df["戰略屬性"] = pd.Categorical(res_df["戰略屬性"], categories=asset_categories, ordered=True)
                 res_df = res_df.sort_values(by=["戰略屬性", "持有價值"], ascending=[True, False])
                 
-                # 市值回報率計算
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
                 ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
@@ -1038,7 +1035,6 @@ elif st.session_state.page == "portfolio":
                 with col_pie1:
                     fig1 = px.pie(res_df, values='持有價值', names='名稱', title="個股佔比分佈", hole=0.3, color_discrete_sequence=px.colors.qualitative.Pastel)
                     fig1.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
-                    fig1.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig1, use_container_width=True)
                 with col_pie2:
                     color_map = {asset_categories[0]: "#ff4b4b", asset_categories[1]: "#f1c40f", asset_categories[2]: "#3498db"}
@@ -1047,7 +1043,6 @@ elif st.session_state.page == "portfolio":
                     fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", legend=dict(orientation="h", y=-0.2))
                     st.plotly_chart(fig2, use_container_width=True)
                 with col_table:
-                    st.write("#### 詳細數據清單")
                     st.dataframe(res_df, use_container_width=True, hide_index=True)
 
         st.divider()
@@ -1056,10 +1051,8 @@ elif st.session_state.page == "portfolio":
             cal_df = generate_user_calendar()
             if cal_df is not None and not cal_df.empty:
                 cal_df = cal_df.sort_values(by="預計發放日 (預估)")
-                st.markdown("#### 📥 預計入帳時間表")
                 st.dataframe(cal_df, use_container_width=True, hide_index=True)
-                total_incoming = cal_df["預估入帳金額"].sum()
-                st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
+                st.success(f"💰 預計總入帳： **${cal_df['預估入帳金額'].sum():,.0f}** 元")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
 
