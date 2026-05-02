@@ -816,43 +816,49 @@ elif st.session_state.page == "pk_tool":
                 st.error("查無資料，請確認代碼是否輸入正確。")
                 #------------------------------------------
 elif st.session_state.page == "portfolio":
-    # 🎨 下拉選單視覺優化：確保黑白背景（與紅色選取條）下文字皆清晰
+    # 🎨 視覺終極優化：解決選單透明度、文字隱身、以及黑白背景對比問題
     st.markdown("""
         <style>
-        /* 1. 下拉選單容器：設定為不透明深黑，遮擋後方文字 */
+        /* 1. 下拉選單容器：完全不透明深色背景，確保不與後方表格重疊 */
         div[data-baseweb="popover"], 
         div[role="listbox"] {
-            background-color: #0E1117 !important; 
+            background-color: #1A1C24 !important; 
             opacity: 1 !important;              
-            box-shadow: 0px 8px 16px rgba(0,0,0,1) !important; /* 加強陰影讓選單立體化 */
-            border: 1px solid #333333 !important;
+            box-shadow: 0px 8px 24px rgba(0,0,0,0.5) !important;
+            border: 1px solid #4B4B4B !important;
         }
 
-        /* 2. 選單選項文字：使用純白與加粗，保證在各種背景下的可讀性 */
+        /* 2. 選單內的選項：強制維持白字，解決在白色模式下看不見字的問題 */
+        /* 我們只針對 popover 內的 span 與 li 進行改色 */
         div[data-baseweb="popover"] li,
-        div[data-baseweb="popover"] span {
-            color: #FFFFFF !important;            /* 純白色字體 */
-            font-weight: 500 !important;          /* 適度加粗，不至於太粗而糊掉 */
+        div[data-baseweb="popover"] span,
+        div[role="option"] span {
+            color: #FFFFFF !important;            
+            font-weight: 500 !important;
             opacity: 1 !important;
-            font-family: sans-serif !important;
+            text-shadow: none !important; /* 移除陰影讓字體在深底更銳利 */
         }
 
-        /* 3. 當選中或懸停時的紅色背景：確保這時候文字依然是白色且清晰 */
+        /* 3. 選取與懸停狀態：亮紅色背景，確保文字依然為白色 */
         div[data-baseweb="popover"] li:hover,
         div[aria-selected="true"] {
-            background-color: #FF4B4B !important; /* 維持你的亮紅色 */
+            background-color: #FF4B4B !important;
         }
         
-        /* 額外修正：移除可能干擾的陰影，讓字體更銳利 */
-        div[data-baseweb="popover"] span {
-            text-shadow: none !important;
+        div[aria-selected="true"] span {
+            color: #FFFFFF !important;
+        }
+
+        /* 4. 修正表格編輯格：確保「非下拉狀態」的表格文字顏色正常 (不被強制轉白) */
+        .stDataEditor div[data-testid="stTable"] {
+            color: inherit;
         }
         </style>
     """, unsafe_allow_html=True)
 
     if st.button("⬅️ 返回工具箱"): go_to("home")
     
-    # 定義分類選項 (維持原樣)
+    # 定義分類選項
     asset_categories = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
 
     def get_asset_category(code, name):
@@ -1041,7 +1047,6 @@ elif st.session_state.page == "portfolio":
                 st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
-
 # ==============================================================
 # ⭐ 頁面：我的關注清單 (對齊雲端 gspread 邏輯 + 精緻卡片版)
 # ==============================================================
