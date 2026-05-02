@@ -816,37 +816,27 @@ elif st.session_state.page == "pk_tool":
                 st.error("查無資料，請確認代碼是否輸入正確。")
 
 elif st.session_state.page == "portfolio":
-    # 🎨 新增 CSS 樣式：解決 image_b221a0.png 提到的下拉選單顏色不清楚問題
+    # 🎨 換一種方式：直接優化選項內容，並加上簡單的 CSS 強化對比
     st.markdown("""
         <style>
-        /* 1. 下拉選單彈出盒子的背景與邊框 */
-        div[data-baseweb="popover"] ul {
-            background-color: #1e1e28 !important; 
-            border: 1px solid #444 !important;
-        }
-        
-        /* 2. 選單中所有選項的預設文字顏色 */
+        /* 強制讓所有下拉選單的文字變成純白，並增加陰影 */
+        div[data-baseweb="popover"] span, 
         div[data-baseweb="popover"] li {
-            color: #ffffff !important;
-        }
-
-        /* 3. 滑鼠移過去或選中選項時的背景顏色與文字 */
-        div[data-baseweb="popover"] li:hover {
-            background-color: #444444 !important;
-            color: #ffffff !important;
-        }
-        
-        /* 4. 強制選單內的 span 標籤（文字內容）顯示為白色 */
-        div[data-baseweb="popover"] span {
             color: white !important;
+            font-weight: 500 !important;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8) !important;
         }
         </style>
     """, unsafe_allow_html=True)
 
     if st.button("⬅️ 返回工具箱"): go_to("home")
     
-    # 定義分類選項
-    asset_categories = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
+    # 💡 修改後的分類：縮短文字，增加標籤感
+    asset_categories = [
+        "🔴 進攻 (市值/成長)", 
+        "🟡 現金 (高股息)", 
+        "🔵 防守 (債券/避險)"
+    ]
 
     def get_asset_category(code, name):
         name_str = str(name)
@@ -864,7 +854,6 @@ elif st.session_state.page == "portfolio":
         if uploaded_file:
             import_df = pd.read_csv(uploaded_file, dtype={"代碼": str})
             if "代碼" in import_df.columns and "張數" in import_df.columns:
-                # 確保匯入時也保留戰略屬性欄位
                 cols_to_keep = ["代碼", "名稱", "張數", "戰略屬性"]
                 for col in cols_to_keep:
                     if col not in import_df.columns:
@@ -877,7 +866,6 @@ elif st.session_state.page == "portfolio":
                 st.session_state.portfolio = new_data
                 st.success("CSV 已載入編輯器，請檢查後點擊下方儲存。")
 
-    # 標題與按鈕
     title_col, btn_col = st.columns([3, 1])
     with title_col:
         st.markdown("### 📝 編輯投資清單")
@@ -889,14 +877,12 @@ elif st.session_state.page == "portfolio":
                     if code:
                         info = get_stock_info(code)
                         if info:
-                            # 只有在空白時才自動填入，避免覆蓋使用者的手動設定
                             if not str(row.get("名稱", "")).strip():
                                 st.session_state.portfolio.at[i, "名稱"] = info["name"]
                             if not str(row.get("戰略屬性", "")).strip():
                                 st.session_state.portfolio.at[i, "戰略屬性"] = get_asset_category(code, info["name"])
                 st.rerun()
 
-    # 初始化與相容性檢查
     if st.session_state.portfolio is None or len(st.session_state.portfolio) == 0:
         st.session_state.portfolio = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None, "戰略屬性": ""} for _ in range(20)])
     
@@ -905,21 +891,19 @@ elif st.session_state.page == "portfolio":
     if "戰略屬性" not in st.session_state.portfolio.columns:
         st.session_state.portfolio["戰略屬性"] = ""
 
-    # 顯示編輯器：讓使用者可以手動選擇戰略屬性
     edited_df = st.data_editor(
         st.session_state.portfolio, 
         column_config={
             "戰略屬性": st.column_config.SelectboxColumn(
                 "戰略屬性",
                 options=asset_categories,
-                help="重登會記憶您選擇的分類"
+                help="選擇分類以進行資產佔比分析"
             )
         },
         num_rows="dynamic", 
         use_container_width=True
     )
 
-    # 點擊此按鈕會將「戰略屬性」欄位永久存入資料庫
     if st.button("💾 儲存變更至資料庫", type="primary"):
         st.session_state.portfolio = edited_df
         if save_portfolio_to_cloud(st.session_state.current_user, edited_df):
@@ -963,7 +947,6 @@ elif st.session_state.page == "portfolio":
                                 
                                 ann_div = avg_annual * shares
                                 
-                                # 讀取順序：表格中的手動選擇 > 程式自動判斷
                                 category = row.get("戰略屬性")
                                 if not category or str(category).strip() == "":
                                     category = get_asset_category(code, data["name"])
@@ -980,12 +963,12 @@ elif st.session_state.page == "portfolio":
             if results:
                 res_df = pd.DataFrame(results)
                 
-                # 排序邏輯：依照自訂屬性排序
-                custom_order = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
+                # 排序邏輯調整為新的名稱
+                custom_order = ["🔴 進攻 (市值/成長)", "🟡 現金 (高股息)", "🔵 防守 (債券/避險)"]
                 res_df["戰略屬性"] = pd.Categorical(res_df["戰略屬性"], categories=custom_order, ordered=True)
                 res_df = res_df.sort_values(by=["戰略屬性", "持有價值"], ascending=[True, False])
                 
-                # 市值儀表板 HTML
+                # 市值儀表板
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
                 ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
@@ -1032,7 +1015,14 @@ elif st.session_state.page == "portfolio":
                     fig1.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig1, use_container_width=True)
                 with col_pie2:
-                    fig2 = px.pie(cat_df, values='持有價值', names='戰略屬性', title="防守/進攻 戰略配置", hole=0.4, color_discrete_sequence=["#ff9999", "#66b3ff", "#99ff99"])
+                    # 配合新的分類顏色
+                    fig2 = px.pie(cat_df, values='持有價值', names='戰略屬性', title="防守/進攻 配置", hole=0.4, 
+                                 color='戰略屬性',
+                                 color_discrete_map={
+                                     "🔴 進攻 (市值/成長)": "#ff4b4b",
+                                     "🟡 現金 (高股息)": "#f1c40f",
+                                     "🔵 防守 (債券/避險)": "#3498db"
+                                 })
                     fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", legend=dict(orientation="h", y=-0.2))
                     st.plotly_chart(fig2, use_container_width=True)
                 with col_table:
