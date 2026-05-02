@@ -816,6 +816,33 @@ elif st.session_state.page == "pk_tool":
                 st.error("查無資料，請確認代碼是否輸入正確。")
 
 elif st.session_state.page == "portfolio":
+    # 🎨 新增 CSS 樣式：解決 image_b221a0.png 提到的下拉選單顏色不清楚問題
+    st.markdown("""
+        <style>
+        /* 1. 下拉選單彈出盒子的背景與邊框 */
+        div[data-baseweb="popover"] ul {
+            background-color: #1e1e28 !important; 
+            border: 1px solid #444 !important;
+        }
+        
+        /* 2. 選單中所有選項的預設文字顏色 */
+        div[data-baseweb="popover"] li {
+            color: #ffffff !important;
+        }
+
+        /* 3. 滑鼠移過去或選中選項時的背景顏色與文字 */
+        div[data-baseweb="popover"] li:hover {
+            background-color: #444444 !important;
+            color: #ffffff !important;
+        }
+        
+        /* 4. 強制選單內的 span 標籤（文字內容）顯示為白色 */
+        div[data-baseweb="popover"] span {
+            color: white !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     if st.button("⬅️ 返回工具箱"): go_to("home")
     
     # 定義分類選項
@@ -869,7 +896,7 @@ elif st.session_state.page == "portfolio":
                                 st.session_state.portfolio.at[i, "戰略屬性"] = get_asset_category(code, info["name"])
                 st.rerun()
 
-    # 初始化與相容性檢查 (這是重登後能否抓到舊資料的關鍵)
+    # 初始化與相容性檢查
     if st.session_state.portfolio is None or len(st.session_state.portfolio) == 0:
         st.session_state.portfolio = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None, "戰略屬性": ""} for _ in range(20)])
     
@@ -958,7 +985,7 @@ elif st.session_state.page == "portfolio":
                 res_df["戰略屬性"] = pd.Categorical(res_df["戰略屬性"], categories=custom_order, ordered=True)
                 res_df = res_df.sort_values(by=["戰略屬性", "持有價值"], ascending=[True, False])
                 
-                # 市值儀表板 HTML (維持原樣)
+                # 市值儀表板 HTML
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
                 ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
