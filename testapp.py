@@ -1041,10 +1041,12 @@ elif st.session_state.page == "portfolio":
             cal_df = generate_user_calendar()
             if cal_df is not None and not cal_df.empty:
                 cal_df = cal_df.sort_values(by="預計發放日 (預估)")
-                st.markdown("#### 📥 預計入帳時間表")
                 st.dataframe(cal_df, use_container_width=True, hide_index=True)
+                
                 total_incoming = cal_df["預估入帳金額"].sum()
                 st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
+                # 新增的灰色小字免責聲明
+                st.caption("※ 以上計算以 28 天為基準週期預估，正確配息資料請以各上市櫃公司與股市公告為準。")
     else:
         st.info("請先在上方表格輸入股票代碼與持有張數。")
 
