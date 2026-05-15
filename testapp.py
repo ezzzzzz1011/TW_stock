@@ -863,7 +863,7 @@ if st.button("⬅️ 返回工具箱"): go_to("home")
     # --- 定義分類與邏輯函式 (確保這裡與上方 if 對齊) ---
     asset_categories = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
 
-def get_asset_category(code, name):
+    def get_asset_category(code, name):
         name_str = str(name)
         if "債" in name_str or "防守" in name_str:
             return asset_categories[2] 
