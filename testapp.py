@@ -858,9 +858,10 @@ elif st.session_state.page == "portfolio":
         </style>
     """, unsafe_allow_html=True)
 
-if st.button("⬅️ 返回工具箱"): go_to("home")
+if st.button("⬅️ 返回工具箱"): 
+        go_to("home")
     
-    # --- 定義分類與邏輯函式 (確保這裡與上方 if 對齊) ---
+    # --- 1. 定義分類與邏輯函式 ---
     asset_categories = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
 
     def get_asset_category(code, name):
@@ -874,7 +875,7 @@ if st.button("⬅️ 返回工具箱"): go_to("home")
 
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
     
-    # --- 1. CSV 匯入模組 ---
+    # --- 2. CSV 匯入模組 ---
     with st.expander("📥 匯入投資清單 (CSV)"):
         uploaded_file = st.file_uploader("選擇 CSV 檔案", type="csv")
         if uploaded_file:
@@ -892,7 +893,7 @@ if st.button("⬅️ 返回工具箱"): go_to("home")
                 st.session_state.portfolio = new_data
                 st.success("✅ CSV 已載入編輯器，請檢查後點擊下方儲存。")
 
-    # --- 2. 初始化與結構檢查 ---
+    # --- 3. 初始化與結構檢查 ---
     if st.session_state.get('portfolio') is None or len(st.session_state.portfolio) == 0:
         st.session_state.portfolio = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None, "戰略屬性": ""} for _ in range(20)])
     
@@ -903,7 +904,7 @@ if st.button("⬅️ 返回工具箱"): go_to("home")
     st.markdown("### 📝 編輯投資清單")
     st.caption("💡 提示：輸入「代碼」後，點擊下方的『🔄 自動帶入資訊』即可自動抓取名稱與分類。")
 
-    # --- 3. 資料編輯器核心 (Data Editor) ---
+    # --- 4. 資料編輯器核心 (Data Editor) ---
     edited_df = st.data_editor(
         st.session_state.portfolio, 
         column_config={
@@ -920,7 +921,7 @@ if st.button("⬅️ 返回工具箱"): go_to("home")
         key="portfolio_editor"
     )
 
-    # --- 4. 同步與儲存控制區 ---
+    # --- 5. 功能按鈕區 ---
     col_edit1, col_edit2 = st.columns(2)
     
     with col_edit1:
@@ -947,7 +948,7 @@ if st.button("⬅️ 返回工具箱"): go_to("home")
 
     st.divider()
     
-    # --- 5. 資產市值與配置分析 ---
+    # --- 6. 資產市值與配置分析 ---
     st.markdown("### 📊 資產市值與配置分析")
     
     col_cost1, col_cost2 = st.columns([1, 2])
