@@ -1036,17 +1036,22 @@ elif st.session_state.page == "portfolio":
                     st.write("#### 詳細數據")
                     st.dataframe(res_df, use_container_width=True, hide_index=True)
     
-    st.divider()
-    st.subheader("📅 自動化領息排程月曆")
+        st.divider()
+        st.subheader("📅 自動化領息排程月曆")
         
-        # 1. 觸發按鈕
-    generate_btn = st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary")
+        # 1. 新增：天數調整輸入框 (預設 28 天)
+        calc_days = st.number_input("設定預估領息天數", min_value=1, max_value=365, value=10, step=1)
         
-        # 2. 邏輯執行與結果顯示
-    if generate_btn:
-            # 這裡調用你定義的 generate_user_calendar()
-            cal_df = generate_user_calendar()
-            
+        # 2. 觸發按鈕
+        if st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary"):
+            # 這裡調用 generate_user_calendar 並傳入你設定的天數
+            # 注意：請確認你的 generate_user_calendar 函數定義已改為接收參數，如 def generate_user_calendar(days_range=28):
+            try:
+                cal_df = generate_user_calendar(days_range=calc_days)
+            except TypeError:
+                # 如果原本的函數不支援參數，則維持原樣呼叫
+                cal_df = generate_user_calendar()
+                
             if cal_df is not None and not cal_df.empty:
                 # 排序資料
                 cal_df = cal_df.sort_values(by="預計發放日 (預估)")
@@ -1058,8 +1063,8 @@ elif st.session_state.page == "portfolio":
                 total_incoming = cal_df["預估入帳金額"].sum()
                 st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
                 
-                # 新增的灰色小字免責聲明
-                st.caption("※ 以上計算以 28 天為基準週期預估，正確配息資料請以各上市櫃公司與股市公告為準。")
+                # 3. 自動更新天數的灰色小字
+                st.caption(f"※ 以上計算以 {calc_days} 天為基準週期預估，正確配息資料請以各上市櫃公司與股市公告為準。")
             else:
                 st.warning("⚠️ 目前暫無預計領息資料。")
     
