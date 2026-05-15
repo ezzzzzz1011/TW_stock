@@ -933,7 +933,7 @@ elif st.session_state.page == "portfolio":
 
     st.divider()
     
-    # --- 5. 圖表與計算分析 ---
+    # --- 5. 市值計算與戰略佈局 ---
     st.markdown("### 📊 資產市值與配置分析")
     total_cost_input = st.number_input("💵 請輸入總成本", min_value=0.0, value=0.0, step=10000.0)
 
@@ -985,99 +985,78 @@ elif st.session_state.page == "portfolio":
                 ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
                 circle_pct = min(abs(return_pct), 100)
                 
-                # 圓環儀表板
                 dashboard_html = f"""
                 <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: #1e1e28; padding: 25px; border-radius: 15px; border: 1px solid #444; margin-bottom: 20px;">
-                    <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_pct}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
+                    <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_pct}%, #2b2b36 0); display: flex; align-items: center; justify-content: center;">
                         <div style="position: absolute; width: 125px; height: 125px; background-color: #1e1e28; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
                             <span style="color: #aaa; font-size: 16px;">股票報酬</span>
                             <span style="color: {ret_color}; font-size: 22px; font-weight: bold;">{return_pct:+.2f}%</span>
                         </div>
                     </div>
-                    <div style="min-width: 280px; margin-top: 10px;">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 8px;">
-                            <span style="color: #ccc; font-size: 18px;">總成本：</span>
-                            <span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_cost_input:,.0f}</span>
+                    <div style="min-width: 280px;">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding: 8px 0;">
+                            <span style="color: #ccc; font-size: 18px;">總成本</span>
+                            <span style="color: #fff; font-size: 20px; font-weight: bold;">{total_cost_input:,.0f}</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 15px;">
-                            <span style="color: #ccc; font-size: 18px;">股票市值：</span>
-                            <span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_market_val:,.0f}</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #ccc; font-size: 18px;">總報酬：</span>
-                            <span style="color: {ret_color}; font-size: 26px; font-weight: bold; font-family: 'Consolas';">{return_amt:+,.0f}</span>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding: 8px 0;">
+                            <span style="color: #ccc; font-size: 18px;">股票市值</span>
+                            <span style="color: #fff; font-size: 20px; font-weight: bold;">{total_market_val:,.0f}</span>
                         </div>
                     </div>
                 </div>
                 """
                 st.markdown(dashboard_html, unsafe_allow_html=True)
                 
-                m1, m2 = st.columns(2)
-                m1.metric("預估年領股息", f"${total_annual_div:,.0f}")
-                avg_yield = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
-                m2.metric("組合平均殖利率", f"{avg_yield:.2f}%")
-                
-                st.markdown("### 🎯 戰略資產佈局")
-                cat_df = res_df.groupby("戰略屬性", observed=True)["持有價值"].sum().reset_index()
-                col_pie1, col_pie2, col_table = st.columns([1, 1, 1.5])
-                
+                col_pie1, col_pie2 = st.columns(2)
                 with col_pie1:
-                    # 改為顯示 名稱 + 百分比
-                    fig1 = px.pie(res_df, values='持有價值', names='名稱', title="個股配置 (名稱顯示)", hole=0.3, color_discrete_sequence=px.colors.qualitative.Pastel)
-                    fig1.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
+                    fig1 = px.pie(res_df, values='持有價值', names='名稱', title="個股配置 (名稱顯示)", hole=0.3)
                     fig1.update_traces(textposition='inside', textinfo='label+percent')
                     st.plotly_chart(fig1, use_container_width=True)
                 with col_pie2:
-                    fig2 = px.pie(cat_df, values='持有價值', names='戰略屬性', title="戰略佔比", hole=0.4, 
-                                 color_discrete_sequence=["#ff4b4b", "#f1c40f", "#3498db"])
-                    fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", legend=dict(orientation="h", y=-0.2))
+                    cat_summary = res_df.groupby("戰略屬性", observed=True)["持有價值"].sum().reset_index()
+                    fig2 = px.pie(cat_summary, values='持有價值', names='戰略屬性', title="戰略佔比", hole=0.4)
                     st.plotly_chart(fig2, use_container_width=True)
-                with col_table:
-                    st.write("#### 詳細數據")
-                    st.dataframe(res_df, use_container_width=True, hide_index=True)
-    
+
         st.divider()
         st.subheader("📅 自動化領息排程月曆")
-        
-        # 1. 讓使用者設定天數 (預設 28)
-        calc_days = st.number_input("設定預估領息天數", min_value=1, max_value=365, value=28, step=1)
-        
-        # 2. 觸發按鈕
+
+        # --- 核心邏輯：如果你要改天數，請改下面這行數字 ---
+        days_range_config = 28  # <--- 以後改程式碼改這裡即可
+        # ----------------------------------------------
+
         if st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary"):
-            # 取得原始月曆資料
+            from datetime import datetime, timedelta
+            
+            # 取得原始資料
             cal_df = generate_user_calendar()
             
             if cal_df is not None and not cal_df.empty:
-                # --- 關鍵修正：根據 calc_days 過濾資料 ---
-                # 確保日期格式正確
+                # 1. 確保日期格式並計算截止日
                 cal_df["預計發放日 (預估)"] = pd.to_datetime(cal_df["預計發放日 (預估)"])
+                cutoff_date = datetime.now() + timedelta(days=days_range_config)
                 
-                # 計算截止日期 (今天 + 使用者輸入的天數)
-                from datetime import datetime, timedelta
-                cutoff_date = datetime.now() + timedelta(days=calc_days)
-                
-                # 只保留在範圍內的資料
+                # 2. 進行過濾 (只保留天數內的資料)
                 filtered_df = cal_df[cal_df["預計發放日 (預估)"] <= cutoff_date].copy()
                 
                 if not filtered_df.empty:
-                    # 排序並格式化日期回字串顯示
+                    # 排序並轉回字串顯示
                     filtered_df = filtered_df.sort_values(by="預計發放日 (預估)")
                     display_df = filtered_df.copy()
                     display_df["預計發放日 (預估)"] = display_df["預計發放日 (預估)"].dt.strftime('%Y-%m-%d')
                     
-                    # 顯示表格
+                    # 3. 顯示結果
                     st.dataframe(display_df, use_container_width=True, hide_index=True)
                     
-                    # 重新計算「這波」的加總金額
+                    # 4. 計算加總 (只計算過濾後的天數總和)
                     total_incoming = filtered_df["預估入帳金額"].sum()
                     st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
                     
-                    # 灰色小字聲明自動帶入天數
-                    st.caption(f"※ 以上計算以 {calc_days} 天為基準週期預估，正確配息資料請以各上市櫃公司與股市公告為準。")
+                    # 5. 灰色小字自動連動
+                    st.caption(f"※ 以上計算以 {days_range_config} 天為基準週期預估，正確配息資料請以各上市櫃公司與股市公告為準。")
                 else:
-                    st.warning(f"⚠️ 未來 {calc_days} 天內沒有預計領息資料。")
-            else:
-                st.info("目前沒有可用的配息預估資料。")
+                    st.warning(f"⚠️ 未來 {days_range_config} 天內暫無預計領息資料。")
+    else:
+        st.info("請先在上方表格輸入股票代碼與持有張數。")
     
     # ==============================================================
     # 🌐 頁面：全球大盤與台指戰情室 (自動適應主題顏色版)
