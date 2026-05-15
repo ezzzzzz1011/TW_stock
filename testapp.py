@@ -861,7 +861,7 @@ elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): 
         go_to("home")
     
-    # --- 1. 定義標準順序與分類 ---
+    # --- 1. 標準定義 ---
     asset_categories = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
     COLUMNS_ORDER = ["代碼", "名稱", "張數", "戰略屬性"]
 
@@ -876,36 +876,24 @@ elif st.session_state.page == "portfolio":
 
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
     
-    # --- 2. 強化版資料讀取與初始化 (解決舊帳號相反問題) ---
+    # --- 2. 核心校準邏輯：修正舊帳號錯位 ---
     if st.session_state.get('portfolio') is not None:
-        df = st.session_state.portfolio
-        needs_fix = False
+        df = st.session_state.portfolio.copy()
+        # 確保所有標準欄位都存在
         for col in COLUMNS_ORDER:
             if col not in df.columns:
                 df[col] = None if col == "張數" else ""
-                needs_fix = True
-        # 如果欄位順序不對，強制重新排序
-        if needs_fix or list(df.columns[:4]) != COLUMNS_ORDER:
-            st.session_state.portfolio = df[COLUMNS_ORDER]
+        
+        # 關鍵：若張數裡面裝的是文字(名稱)，強制清除它，避免計算崩潰
+        df["張數"] = pd.to_numeric(df["張數"], errors='coerce')
+        st.session_state.portfolio = df[COLUMNS_ORDER]
 
     if st.session_state.get('portfolio') is None or len(st.session_state.portfolio) == 0:
         st.session_state.portfolio = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None, "戰略屬性": ""} for _ in range(20)])
 
-    # --- 3. CSV 匯入模組 ---
-    with st.expander("📥 匯入投資清單 (CSV)"):
-        uploaded_file = st.file_uploader("選擇 CSV 檔案", type="csv")
-        if uploaded_file:
-            import_df = pd.read_csv(uploaded_file, dtype={"代碼": str})
-            for col in COLUMNS_ORDER:
-                if col not in import_df.columns:
-                    import_df[col] = "" if col != "張數" else None
-            st.session_state.portfolio = import_df[COLUMNS_ORDER].copy()
-            st.success("✅ CSV 已載入編輯器")
-
     st.markdown("### 📝 編輯投資清單")
-    st.caption("💡 提示：輸入「代碼」後，點擊下方的『🔄 自動帶入資訊』即可。")
 
-    # --- 4. 資料編輯器 ---
+    # --- 3. 資料編輯器 ---
     edited_df = st.data_editor(
         st.session_state.portfolio[COLUMNS_ORDER], 
         column_config={
@@ -919,40 +907,43 @@ elif st.session_state.page == "portfolio":
         key="portfolio_editor"
     )
 
-    # --- 5. 功能按鈕區 ---
+    # --- 4. 按鈕邏輯 (精準填入指定格子) ---
     col_edit1, col_edit2 = st.columns(2)
     with col_edit1:
         if st.button("🔄 自動帶入資訊", use_container_width=True):
             temp_df = edited_df.copy()
-            with st.spinner("正在查詢股票名稱..."):
+            with st.spinner("正在精準對齊資料並查詢..."):
                 for i, row in temp_df.iterrows():
                     code = str(row["代碼"]).strip()
-                    if code:
-                        # 只要名字是空的或是舊資料格式不對，就重新查詢並直接填入格子
-                        if not str(row.get("名稱", "")).strip() or pd.isna(row.get("名稱")):
-                            info = get_stock_info(code)
-                            if info and info.get("name"):
-                                temp_df.at[i, "名稱"] = info["name"]
-                                if not str(row.get("戰略屬性", "")).strip() or pd.isna(row.get("戰略屬性")):
-                                    temp_df.at[i, "戰略屬性"] = get_asset_category(code, info["name"])
+                    if code and code != "nan":
+                        info = get_stock_info(code)
+                        if info and info.get("name"):
+                            # 直接對應欄位名稱，不管它在第幾欄
+                            temp_df.at[i, "名稱"] = info["name"]
+                            # 如果戰略屬性是空的，才自動填入
+                            if not str(row.get("戰略屬性", "")).strip() or pd.isna(row.get("戰略屬性")):
+                                temp_df.at[i, "戰略屬性"] = get_asset_category(code, info["name"])
+            
+            # 存回 session 之前，最後確保張數是乾淨的數字格式
+            temp_df["張數"] = pd.to_numeric(temp_df["張數"], errors='coerce')
             st.session_state.portfolio = temp_df[COLUMNS_ORDER]
             st.rerun()
 
     with col_edit2:
         if st.button("💾 儲存變更至資料庫", type="primary", use_container_width=True):
             save_df = edited_df[COLUMNS_ORDER].copy()
+            save_df["張數"] = pd.to_numeric(save_df["張數"], errors='coerce')
             st.session_state.portfolio = save_df
             if save_portfolio_to_cloud(st.session_state.current_user, save_df):
-                st.success("✅ 投資組合已同步至雲端")
+                st.success("✅ 雲端資料庫已完成格式校準並儲存")
 
     st.divider()
     
-    # --- 6. 核心分析儀表板 (已移除圓環 % 符號) ---
+    # --- 5. 市值分析與華麗卡片 (已移除 % 符號) ---
     st.markdown("### 📊 資產市值與配置分析")
-    col_cost1, col_cost2 = st.columns([1, 2])
-    with col_cost1:
-        total_cost_input = st.number_input("💵 請輸入總成本", min_value=0.0, value=0.0, step=10000.0)
+    total_cost_input = st.number_input("💵 請輸入總成本", min_value=0.0, value=0.0, step=10000.0)
 
+    # 預處理計算用的資料
     calc_prep = edited_df.copy()
     calc_prep["張數"] = pd.to_numeric(calc_prep["張數"], errors='coerce')
     valid_df = calc_prep.dropna(subset=["代碼", "張數"])
@@ -971,11 +962,11 @@ elif st.session_state.page == "portfolio":
                         data = get_safe_data_etf(code)
                         if data["success"]:
                             m_val = data["price"] * shares
-                            d_list = data["raw_divs"]
                             m = data['multiplier']
-                            avg_annual = sum(d_list[:m]) if len(d_list) >= m else (d_list[0]*m if d_list else 0)
+                            avg_annual = sum(data["raw_divs"][:m]) if len(data["raw_divs"]) >= m else (data["raw_divs"][0]*m if data["raw_divs"] else 0)
                             ann_div = avg_annual * shares
                             
+                            # 優先取用格子裡的戰略屬性，若空才自動判定
                             cat = row.get("戰略屬性")
                             if not cat or str(cat).strip() == "":
                                 cat = get_asset_category(code, data["name"])
@@ -991,68 +982,52 @@ elif st.session_state.page == "portfolio":
 
             if results:
                 res_df = pd.DataFrame(results)
-                res_df["戰略屬性"] = pd.Categorical(res_df["戰略屬性"], categories=asset_categories, ordered=True)
-                res_df = res_df.sort_values(by=["戰略屬性", "持有價值"], ascending=[True, False])
-                
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
                 ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
-                circle_deg = min(abs(return_pct), 100) # 用於背景比例
+                circle_fill = min(abs(return_pct), 100)
                 
-                # 下方的 background conic-gradient 已修正，中間文字不再顯示 %
+                # 中間文字現在只顯示：報酬金額（不含%）
                 dashboard_html = f"""
                 <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: #1e1e28; padding: 25px; border-radius: 15px; border: 1px solid #444; margin-bottom: 20px;">
-                    <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_deg}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
+                    <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_fill}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
                         <div style="position: absolute; width: 125px; height: 125px; background-color: #1e1e28; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                            <span style="color: #aaa; font-size: 16px;">股票報酬</span>
-                            <span style="color: {ret_color}; font-size: 22px; font-weight: bold;">{return_amt:+,.0f}</span>
+                            <span style="color: #aaa; font-size: 14px;">報酬總額</span>
+                            <span style="color: {ret_color}; font-size: 18px; font-weight: bold;">{return_amt:+,.0f}</span>
                         </div>
                     </div>
                     <div style="min-width: 280px; margin-top: 10px;">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 8px;">
-                            <span style="color: #ccc; font-size: 18px;">總成本：</span>
-                            <span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_cost_input:,.0f}</span>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding: 8px 0;">
+                            <span style="color: #ccc; font-size: 16px;">總成本</span>
+                            <span style="color: #fff; font-size: 18px; font-weight: bold; font-family: 'Consolas';">{total_cost_input:,.0f}</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 15px;">
-                            <span style="color: #ccc; font-size: 18px;">股票市值：</span>
-                            <span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_market_val:,.0f}</span>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding: 8px 0;">
+                            <span style="color: #ccc; font-size: 16px;">總市值</span>
+                            <span style="color: #fff; font-size: 18px; font-weight: bold; font-family: 'Consolas';">{total_market_val:,.0f}</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #ccc; font-size: 18px;">預估年利：</span>
-                            <span style="color: #4bcaff; font-size: 26px; font-weight: bold; font-family: 'Consolas';">{total_annual_div:,.0f}</span>
+                        <div style="display: flex; justify-content: space-between; padding: 8px 0;">
+                            <span style="color: #ccc; font-size: 16px;">預估年股息</span>
+                            <span style="color: #4bcaff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_annual_div:,.0f}</span>
                         </div>
                     </div>
                 </div>
                 """
                 st.markdown(dashboard_html, unsafe_allow_html=True)
                 
-                st.markdown("### 🎯 戰略資產佈局")
-                cat_df = res_df.groupby("戰略屬性", observed=True)["持有價值"].sum().reset_index()
-                cp1, cp2, ct = st.columns([1, 1, 1.5])
-                
-                with cp1:
-                    f1 = px.pie(res_df, values='持有價值', names='名稱', title="個股佔比", hole=0.3)
-                    f1.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
-                    st.plotly_chart(f1, use_container_width=True)
-                with cp2:
-                    f2 = px.pie(cat_df, values='持有價值', names='戰略屬性', title="配置佔比", hole=0.4, 
-                                color_discrete_sequence=["#ff4b4b", "#f1c40f", "#3498db"])
-                    f2.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", legend=dict(orientation="h", y=-0.2))
-                    st.plotly_chart(f2, use_container_width=True)
-                with ct:
-                    st.write("#### 詳細數據")
-                    st.dataframe(res_df, use_container_width=True, hide_index=True)
+                # 繪製圓餅圖
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.plotly_chart(px.pie(res_df, values='持有價值', names='名稱', hole=0.3, title="個股配置"), use_container_width=True)
+                with c2:
+                    st.plotly_chart(px.pie(res_df, values='持有價值', names='戰略屬性', hole=0.4, title="戰略佔比"), use_container_width=True)
 
         st.divider()
-        st.subheader("📅 自動化領息排程月曆")
-        if st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary"):
+        if st.button("🚀 生成領息月曆", use_container_width=True, type="primary"):
             cal_df = generate_user_calendar()
             if cal_df is not None and not cal_df.empty:
                 st.dataframe(cal_df.sort_values("預計發放日 (預估)"), use_container_width=True, hide_index=True)
-                total_in = cal_df["預估入帳金額"].sum()
-                st.success(f"💰 這一波預計總入帳： **${total_in:,.0f}** 元")
     else:
-        st.info("請在表格輸入代碼並點擊儲存。")
+        st.info("請在上方表格輸入資料，點擊「自動帶入資訊」並「儲存變更」來修正舊帳號格式。")
 
 # ==============================================================
 # ⭐ 頁面：我的關注清單 (對齊雲端 gspread 邏輯 + 精緻卡片版)
