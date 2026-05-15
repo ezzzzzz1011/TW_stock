@@ -861,7 +861,7 @@ elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): 
         go_to("home")
     
-    # --- 1. 標準定義與自動判定邏輯 ---
+    # --- 1. 標準定義 ---
     asset_categories = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
     COLUMNS_ORDER = ["代碼", "名稱", "張數", "戰略屬性"]
 
@@ -876,15 +876,12 @@ elif st.session_state.page == "portfolio":
 
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
     
-    # --- 2. 舊帳號資料保護與校準 ---
+    # --- 2. 資料校準與保護 ---
     if st.session_state.get('portfolio') is not None:
         df = st.session_state.portfolio.copy()
-        # 確保所有欄位都存在，避免舊資料缺欄位
         for col in COLUMNS_ORDER:
             if col not in df.columns:
                 df[col] = None if col == "張數" else ""
-        
-        # 修正：如果「張數」欄位被誤填了名字，強制轉為數字，轉不掉的變 None
         df["張數"] = pd.to_numeric(df["張數"], errors='coerce')
         st.session_state.portfolio = df[COLUMNS_ORDER]
 
@@ -893,7 +890,7 @@ elif st.session_state.page == "portfolio":
 
     st.markdown("### 📝 編輯投資清單")
 
-    # --- 3. 資料編輯器 (欄位順序固定) ---
+    # --- 3. 資料編輯器 ---
     edited_df = st.data_editor(
         st.session_state.portfolio[COLUMNS_ORDER], 
         column_config={
@@ -907,7 +904,7 @@ elif st.session_state.page == "portfolio":
         key="portfolio_editor"
     )
 
-    # --- 4. 功能按鈕 (精準填寫：名稱填入名稱格，不亂跑) ---
+    # --- 4. 功能按鈕 ---
     col_edit1, col_edit2 = st.columns(2)
     with col_edit1:
         if st.button("🔄 自動帶入資訊", use_container_width=True):
@@ -918,13 +915,9 @@ elif st.session_state.page == "portfolio":
                     if code and code != "nan":
                         info = get_stock_info(code)
                         if info and info.get("name"):
-                            # 【關鍵修正】強制將抓到的名字填入「名稱」這一格
                             temp_df.at[i, "名稱"] = info["name"]
-                            # 如果「戰略屬性」是空的，自動幫你選
                             if not str(row.get("戰略屬性", "")).strip() or pd.isna(row.get("戰略屬性")):
                                 temp_df.at[i, "戰略屬性"] = get_asset_category(code, info["name"])
-            
-            # 確保張數欄位乾淨
             temp_df["張數"] = pd.to_numeric(temp_df["張數"], errors='coerce')
             st.session_state.portfolio = temp_df[COLUMNS_ORDER]
             st.rerun()
@@ -935,11 +928,11 @@ elif st.session_state.page == "portfolio":
             save_df["張數"] = pd.to_numeric(save_df["張數"], errors='coerce')
             st.session_state.portfolio = save_df
             if save_portfolio_to_cloud(st.session_state.current_user, save_df):
-                st.success("✅ 資料庫欄位已重新校準並儲存")
+                st.success("✅ 資料庫已儲存")
 
     st.divider()
     
-    # --- 5. 圓環圖示卡片 (已徹底移除 %) ---
+    # --- 5. 圖表分析 (核心修正：將 % 改為名稱) ---
     st.markdown("### 📊 資產市值與配置分析")
     total_cost_input = st.number_input("💵 請輸入總成本", min_value=0.0, value=0.0, step=10000.0)
 
@@ -953,7 +946,7 @@ elif st.session_state.page == "portfolio":
             results = []
             total_market_val = 0
             total_annual_div = 0
-            with st.spinner("同步市場最新價格中..."):
+            with st.spinner("同步市場價格中..."):
                 for index, row in valid_df.iterrows():
                     try:
                         code = str(row["代碼"]).strip().upper()
@@ -982,7 +975,6 @@ elif st.session_state.page == "portfolio":
                 ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
                 circle_fill = min(abs(return_pct), 100)
                 
-                # HTML Dashboard: 圓環中間只顯示報酬金額，移除 %
                 dashboard_html = f"""
                 <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: #1e1e28; padding: 25px; border-radius: 15px; border: 1px solid #444; margin-bottom: 20px;">
                     <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_fill}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
@@ -1011,17 +1003,21 @@ elif st.session_state.page == "portfolio":
                 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.plotly_chart(px.pie(res_df, values='持有價值', names='名稱', hole=0.3, title="個股配置"), use_container_width=True)
+                    # 【核心修正】將個股配置圖的標籤設為股票「名稱」
+                    fig_stock = px.pie(res_df, values='持有價值', names='名稱', hole=0.3, title="個股配置")
+                    fig_stock.update_traces(textinfo='label', textposition='inside') # 強制顯示標籤名稱在圓餅內
+                    st.plotly_chart(fig_stock, use_container_width=True)
                 with c2:
-                    st.plotly_chart(px.pie(res_df, values='持有價值', names='戰略屬性', hole=0.4, title="戰略佔比"), use_container_width=True)
+                    # 戰略配置也同步優化顯示標籤
+                    fig_strat = px.pie(res_df, values='持有價值', names='戰略屬性', hole=0.4, title="戰略佔比")
+                    fig_strat.update_traces(textinfo='label+percent', textposition='inside')
+                    st.plotly_chart(fig_strat, use_container_width=True)
 
         st.divider()
         if st.button("🚀 生成領息月曆", use_container_width=True, type="primary"):
             cal_df = generate_user_calendar()
             if cal_df is not None and not cal_df.empty:
                 st.dataframe(cal_df.sort_values("預計發放日 (預估)"), use_container_width=True, hide_index=True)
-    else:
-        st.info("請輸入代碼與張數，點擊「自動帶入資訊」後存檔。")
 
     # ==============================================================
     # 🌐 頁面：全球大盤與台指戰情室 (自動適應主題顏色版)
