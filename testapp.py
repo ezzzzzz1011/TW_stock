@@ -861,8 +861,10 @@ elif st.session_state.page == "portfolio":
     if st.button("⬅️ 返回工具箱"): 
         go_to("home")
     
-    # --- 1. 定義分類與邏輯函式 ---
+    # --- 1. 定義常數與邏輯函式 ---
     asset_categories = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
+    # 強制欄位順序，避免名稱與張數顛倒
+    COLUMNS_ORDER = ["代碼", "名稱", "張數", "戰略屬性"]
 
     def get_asset_category(code, name):
         name_str = str(name)
@@ -875,38 +877,40 @@ elif st.session_state.page == "portfolio":
 
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
     
-    # --- 2. CSV 匯入模組 ---
+    # --- 2. 初始化與結構檢查 ---
+    if st.session_state.get('portfolio') is None or not isinstance(st.session_state.portfolio, pd.DataFrame):
+        st.session_state.portfolio = pd.DataFrame(columns=COLUMNS_ORDER)
+    
+    # 確保所有標準欄位都存在
+    for col in COLUMNS_ORDER:
+        if col not in st.session_state.portfolio.columns:
+            st.session_state.portfolio[col] = None if col == "張數" else ""
+    
+    # 強制排序欄位，確保資料一致性
+    st.session_state.portfolio = st.session_state.portfolio[COLUMNS_ORDER]
+
+    if len(st.session_state.portfolio) == 0:
+        st.session_state.portfolio = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None, "戰略屬性": ""} for _ in range(20)])
+
+    # --- 3. CSV 匯入模組 ---
     with st.expander("📥 匯入投資清單 (CSV)"):
         uploaded_file = st.file_uploader("選擇 CSV 檔案", type="csv")
         if uploaded_file:
             import_df = pd.read_csv(uploaded_file, dtype={"代碼": str})
-            if "代碼" in import_df.columns and "張數" in import_df.columns:
-                cols_to_keep = ["代碼", "名稱", "張數", "戰略屬性"]
-                for col in cols_to_keep:
-                    if col not in import_df.columns:
-                        import_df[col] = "" if col != "張數" else None
-                
-                new_data = import_df[cols_to_keep].copy()
-                if len(new_data) < 20:
-                    padding = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None, "戰略屬性": ""} for _ in range(20 - len(new_data))])
-                    new_data = pd.concat([new_data, padding], ignore_index=True)
-                st.session_state.portfolio = new_data
-                st.success("✅ CSV 已載入編輯器，請檢查後點擊下方儲存。")
-
-    # --- 3. 初始化與結構檢查 ---
-    if st.session_state.get('portfolio') is None or len(st.session_state.portfolio) == 0:
-        st.session_state.portfolio = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None, "戰略屬性": ""} for _ in range(20)])
-    
-    for col in ["名稱", "戰略屬性"]:
-        if col not in st.session_state.portfolio.columns:
-            st.session_state.portfolio[col] = ""
+            # 補齊匯入檔案缺少的欄位
+            for col in COLUMNS_ORDER:
+                if col not in import_df.columns:
+                    import_df[col] = "" if col != "張數" else None
+            st.session_state.portfolio = import_df[COLUMNS_ORDER].copy()
+            st.success("✅ CSV 已載入編輯器，請檢查後點擊下方儲存。")
 
     st.markdown("### 📝 編輯投資清單")
     st.caption("💡 提示：輸入「代碼」後，點擊下方的『🔄 自動帶入資訊』即可自動抓取名稱與分類。")
 
     # --- 4. 資料編輯器核心 (Data Editor) ---
+    # 使用 [COLUMNS_ORDER] 確保顯示順序
     edited_df = st.data_editor(
-        st.session_state.portfolio, 
+        st.session_state.portfolio[COLUMNS_ORDER], 
         column_config={
             "戰略屬性": st.column_config.SelectboxColumn(
                 "戰略屬性",
@@ -914,6 +918,7 @@ elif st.session_state.page == "portfolio":
                 help="選擇該標的的資產配置屬性"
             ),
             "代碼": st.column_config.TextColumn("代碼"),
+            "名稱": st.column_config.TextColumn("名稱"),
             "張數": st.column_config.NumberColumn("張數", format="%.3f")
         },
         num_rows="dynamic", 
@@ -926,24 +931,27 @@ elif st.session_state.page == "portfolio":
     
     with col_edit1:
         if st.button("🔄 自動帶入資訊", use_container_width=True):
-            st.session_state.portfolio = edited_df
+            # 先將當前編輯器內容寫回 session
+            temp_df = edited_df.copy()
             with st.spinner("正在查詢最新股票名稱與屬性..."):
-                for i, row in st.session_state.portfolio.iterrows():
+                for i, row in temp_df.iterrows():
                     code = str(row["代碼"]).strip()
                     if code:
+                        # 如果名稱或屬性空白，則查詢並補入
                         if not str(row.get("名稱", "")).strip() or not str(row.get("戰略屬性", "")).strip():
                             info = get_stock_info(code)
                             if info and info.get("name"):
                                 if not str(row.get("名稱", "")).strip():
-                                    st.session_state.portfolio.at[i, "名稱"] = info["name"]
+                                    temp_df.at[i, "名稱"] = info["name"]
                                 if not str(row.get("戰略屬性", "")).strip():
-                                    st.session_state.portfolio.at[i, "戰略屬性"] = get_asset_category(code, info["name"])
+                                    temp_df.at[i, "戰略屬性"] = get_asset_category(code, info["name"])
+            st.session_state.portfolio = temp_df[COLUMNS_ORDER]
             st.rerun()
 
     with col_edit2:
         if st.button("💾 儲存變更至資料庫", type="primary", use_container_width=True):
-            st.session_state.portfolio = edited_df
-            if save_portfolio_to_cloud(st.session_state.current_user, edited_df):
+            st.session_state.portfolio = edited_df[COLUMNS_ORDER]
+            if save_portfolio_to_cloud(st.session_state.current_user, st.session_state.portfolio):
                 st.success("✅ 投資組合已同步至雲端")
 
     st.divider()
@@ -955,7 +963,10 @@ elif st.session_state.page == "portfolio":
     with col_cost1:
         total_cost_input = st.number_input("💵 請輸入總成本", min_value=0.0, value=0.0, step=10000.0)
 
-    valid_df = edited_df.dropna(subset=["代碼", "張數"])
+    # 確保張數為數值類型並篩選有效列
+    calc_prep = edited_df.copy()
+    calc_prep["張數"] = pd.to_numeric(calc_prep["張數"], errors='coerce')
+    valid_df = calc_prep.dropna(subset=["代碼", "張數"])
     valid_df = valid_df[valid_df["代碼"].astype(str).str.strip() != ""]
     
     if not valid_df.empty:
@@ -974,8 +985,9 @@ elif st.session_state.page == "portfolio":
                                 m_val = data["price"] * shares
                                 d_list = data["raw_divs"]
                                 
+                                # 計算年化股息
                                 if data['multiplier'] == 1: avg_annual = d_list[0]
-                                elif data['multiplier'] == 2: avg_annual = d_list[0] + d_list[1]
+                                elif data['multiplier'] == 2: avg_annual = sum(d_list[:2])
                                 elif data['multiplier'] == 4: avg_annual = sum(d_list[:4])
                                 else: avg_annual = (sum(d_list) / 4) * data["multiplier"]
                                 
