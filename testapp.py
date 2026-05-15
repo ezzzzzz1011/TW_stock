@@ -865,7 +865,7 @@ elif st.session_state.page == "portfolio":
     generate_btn = st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary")
         
         # 2. 邏輯執行與結果顯示
-        if generate_btn:
+    if generate_btn:
             # 這裡調用你定義的 generate_user_calendar()
             cal_df = generate_user_calendar()
             
