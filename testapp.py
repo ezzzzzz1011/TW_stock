@@ -1021,7 +1021,7 @@ elif st.session_state.page == "portfolio":
         st.subheader("📅 自動化領息排程月曆")
 
         # --- 核心邏輯：如果你要改天數，請改下面這行數字 ---
-        days_range_config = 28  # <--- 以後改程式碼改這裡即可
+        days_range_config = 20  # <--- 以後改程式碼改這裡即可
         # ----------------------------------------------
 
         if st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary"):
