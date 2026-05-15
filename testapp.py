@@ -859,7 +859,7 @@ elif st.session_state.page == "portfolio":
     """, unsafe_allow_html=True)
 
     st.divider()
-        st.subheader("📅 自動化領息排程月曆")
+    st.subheader("📅 自動化領息排程月曆")
         
         # 1. 觸發按鈕
         generate_btn = st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary")
