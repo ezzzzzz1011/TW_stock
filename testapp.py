@@ -876,7 +876,7 @@ elif st.session_state.page == "portfolio":
 
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
     
-    # --- 2. 強化版資料讀取與初始化 ---
+    # --- 2. 強化版資料讀取與初始化 (解決舊帳號相反問題) ---
     if st.session_state.get('portfolio') is not None:
         df = st.session_state.portfolio
         needs_fix = False
@@ -884,6 +884,7 @@ elif st.session_state.page == "portfolio":
             if col not in df.columns:
                 df[col] = None if col == "張數" else ""
                 needs_fix = True
+        # 如果欄位順序不對，強制重新排序
         if needs_fix or list(df.columns[:4]) != COLUMNS_ORDER:
             st.session_state.portfolio = df[COLUMNS_ORDER]
 
@@ -927,6 +928,7 @@ elif st.session_state.page == "portfolio":
                 for i, row in temp_df.iterrows():
                     code = str(row["代碼"]).strip()
                     if code:
+                        # 只要名字是空的或是舊資料格式不對，就重新查詢並直接填入格子
                         if not str(row.get("名稱", "")).strip() or pd.isna(row.get("名稱")):
                             info = get_stock_info(code)
                             if info and info.get("name"):
@@ -945,7 +947,7 @@ elif st.session_state.page == "portfolio":
 
     st.divider()
     
-    # --- 6. 核心分析儀表板 (原程式圖示與邏輯) ---
+    # --- 6. 核心分析儀表板 (已移除圓環 % 符號) ---
     st.markdown("### 📊 資產市值與配置分析")
     col_cost1, col_cost2 = st.columns([1, 2])
     with col_cost1:
@@ -970,7 +972,6 @@ elif st.session_state.page == "portfolio":
                         if data["success"]:
                             m_val = data["price"] * shares
                             d_list = data["raw_divs"]
-                            # 計算年化股息
                             m = data['multiplier']
                             avg_annual = sum(d_list[:m]) if len(d_list) >= m else (d_list[0]*m if d_list else 0)
                             ann_div = avg_annual * shares
@@ -993,18 +994,18 @@ elif st.session_state.page == "portfolio":
                 res_df["戰略屬性"] = pd.Categorical(res_df["戰略屬性"], categories=asset_categories, ordered=True)
                 res_df = res_df.sort_values(by=["戰略屬性", "持有價值"], ascending=[True, False])
                 
-                # 計算報酬率與 HTML 圖示顏色
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
                 ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
-                circle_pct = min(abs(return_pct), 100)
+                circle_deg = min(abs(return_pct), 100) # 用於背景比例
                 
+                # 下方的 background conic-gradient 已修正，中間文字不再顯示 %
                 dashboard_html = f"""
                 <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: #1e1e28; padding: 25px; border-radius: 15px; border: 1px solid #444; margin-bottom: 20px;">
-                    <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_pct}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
+                    <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_deg}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
                         <div style="position: absolute; width: 125px; height: 125px; background-color: #1e1e28; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
                             <span style="color: #aaa; font-size: 16px;">股票報酬</span>
-                            <span style="color: {ret_color}; font-size: 22px; font-weight: bold;">{return_pct:+.2f}%</span>
+                            <span style="color: {ret_color}; font-size: 22px; font-weight: bold;">{return_amt:+,.0f}</span>
                         </div>
                     </div>
                     <div style="min-width: 280px; margin-top: 10px;">
@@ -1017,18 +1018,13 @@ elif st.session_state.page == "portfolio":
                             <span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_market_val:,.0f}</span>
                         </div>
                         <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #ccc; font-size: 18px;">總報酬：</span>
-                            <span style="color: {ret_color}; font-size: 26px; font-weight: bold; font-family: 'Consolas';">{return_amt:+,.0f}</span>
+                            <span style="color: #ccc; font-size: 18px;">預估年利：</span>
+                            <span style="color: #4bcaff; font-size: 26px; font-weight: bold; font-family: 'Consolas';">{total_annual_div:,.0f}</span>
                         </div>
                     </div>
                 </div>
                 """
                 st.markdown(dashboard_html, unsafe_allow_html=True)
-                
-                m1, m2 = st.columns(2)
-                m1.metric("預估年領股息", f"${total_annual_div:,.0f}")
-                avg_yield = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
-                m2.metric("組合平均殖利率", f"{avg_yield:.2f}%")
                 
                 st.markdown("### 🎯 戰略資產佈局")
                 cat_df = res_df.groupby("戰略屬性", observed=True)["持有價值"].sum().reset_index()
@@ -1056,7 +1052,7 @@ elif st.session_state.page == "portfolio":
                 total_in = cal_df["預估入帳金額"].sum()
                 st.success(f"💰 這一波預計總入帳： **${total_in:,.0f}** 元")
     else:
-        st.info("請在上方表格輸入資料並點擊儲存。")
+        st.info("請在表格輸入代碼並點擊儲存。")
 
 # ==============================================================
 # ⭐ 頁面：我的關注清單 (對齊雲端 gspread 邏輯 + 精緻卡片版)
