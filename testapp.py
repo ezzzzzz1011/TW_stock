@@ -896,9 +896,11 @@ if st.button("⬅️ 返回工具箱"): go_to("home")
     if st.session_state.get('portfolio') is None or len(st.session_state.portfolio) == 0:
         st.session_state.portfolio = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None, "戰略屬性": ""} for _ in range(20)])
     
-    for col in ["名稱", "戰略屬性"]:
-        if col not in st.session_state.portfolio.columns:
-            st.session_state.portfolio[col] = ""
+    # 確保欄位順序與內容正確
+    if "名稱" not in st.session_state.portfolio.columns:
+        st.session_state.portfolio.insert(1, "名稱", "")
+    if "戰略屬性" not in st.session_state.portfolio.columns:
+        st.session_state.portfolio["戰略屬性"] = ""
 
     st.markdown("### 📝 編輯投資清單")
     st.caption("💡 提示：輸入「代碼」後，點擊下方的『🔄 自動帶入資訊』即可自動抓取名稱與分類。")
@@ -920,12 +922,12 @@ if st.button("⬅️ 返回工具箱"): go_to("home")
         key="portfolio_editor"
     )
 
-    # --- 4. 同步與儲存控制區 ---
+    # --- 4. 按鈕功能區 (同步與儲存) ---
     col_edit1, col_edit2 = st.columns(2)
     
     with col_edit1:
         if st.button("🔄 自動帶入資訊", use_container_width=True):
-            # 重要：先同步目前表格中的內容
+            # 關鍵修正：先同步目前畫面的內容到 session_state
             st.session_state.portfolio = edited_df
             with st.spinner("正在查詢最新股票名稱與屬性..."):
                 for i, row in st.session_state.portfolio.iterrows():
@@ -955,6 +957,7 @@ if st.button("⬅️ 返回工具箱"): go_to("home")
     with col_cost1:
         total_cost_input = st.number_input("💵 請輸入總成本", min_value=0.0, value=0.0, step=10000.0)
 
+    # 篩選有效數據進行計算
     valid_df = edited_df.dropna(subset=["代碼", "張數"])
     valid_df = valid_df[valid_df["代碼"].astype(str).str.strip() != ""]
     
@@ -974,6 +977,7 @@ if st.button("⬅️ 返回工具箱"): go_to("home")
                                 m_val = data["price"] * shares
                                 d_list = data["raw_divs"]
                                 
+                                # 判斷配息倍率計算年化股息
                                 if data['multiplier'] == 1: avg_annual = d_list[0]
                                 elif data['multiplier'] == 2: avg_annual = d_list[0] + d_list[1]
                                 elif data['multiplier'] == 4: avg_annual = sum(d_list[:4])
@@ -990,13 +994,15 @@ if st.button("⬅️ 返回工具箱"): go_to("home")
                                 })
                                 total_market_val += m_val
                                 total_annual_div += ann_div
-                    except: continue
+                    except:
+                        continue
 
             if results:
                 res_df = pd.DataFrame(results)
                 res_df["戰略屬性"] = pd.Categorical(res_df["戰略屬性"], categories=asset_categories, ordered=True)
                 res_df = res_df.sort_values(by=["戰略屬性", "持有價值"], ascending=[True, False])
                 
+                # 計算報酬率與顯示 HTML 儀表板
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
                 ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
@@ -1054,6 +1060,7 @@ if st.button("⬅️ 返回工具箱"): go_to("home")
         st.divider()
         st.subheader("📅 自動化領息排程月曆")
         if st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary"):
+            # 假設你有定義好的 generate_user_calendar 函式
             cal_df = generate_user_calendar()
             if cal_df is not None and not cal_df.empty:
                 cal_df = cal_df.sort_values(by="預計發放日 (預估)")
