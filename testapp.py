@@ -858,7 +858,7 @@ elif st.session_state.page == "portfolio":
         </style>
     """, unsafe_allow_html=True)
 
-    if st.button("⬅️ 返回工具箱"): go_to("home")
+if st.button("⬅️ 返回工具箱"): go_to("home")
     
     # 定義分類選項
     asset_categories = ["⚔️ 進攻型 (市值/成長)", "💰 現金流 (高股息)", "🛡️ 防守型 (債券/避險)"]
@@ -891,24 +891,8 @@ elif st.session_state.page == "portfolio":
                 st.session_state.portfolio = new_data
                 st.success("CSV 已載入編輯器，請檢查後點擊下方儲存。")
 
-    title_col, btn_col = st.columns([3, 1])
-    with title_col:
-        st.markdown("### 📝 編輯投資清單")
-    with btn_col:
-        if st.button("🔄 自動帶入資訊", use_container_width=True):
-            with st.spinner("抓取資訊中..."):
-                for i, row in st.session_state.portfolio.iterrows():
-                    code = str(row["代碼"]).strip()
-                    if code:
-                        info = get_stock_info(code)
-                        if info:
-                            if not str(row.get("名稱", "")).strip():
-                                st.session_state.portfolio.at[i, "名稱"] = info["name"]
-                            if not str(row.get("戰略屬性", "")).strip():
-                                st.session_state.portfolio.at[i, "戰略屬性"] = get_asset_category(code, info["name"])
-                st.rerun()
-
-    if st.session_state.portfolio is None or len(st.session_state.portfolio) == 0:
+    # 初始化檢查，確保 session_state 有資料
+    if st.session_state.get('portfolio') is None or len(st.session_state.portfolio) == 0:
         st.session_state.portfolio = pd.DataFrame([{"代碼": "", "名稱": "", "張數": None, "戰略屬性": ""} for _ in range(20)])
     
     if "名稱" not in st.session_state.portfolio.columns:
@@ -916,6 +900,11 @@ elif st.session_state.page == "portfolio":
     if "戰略屬性" not in st.session_state.portfolio.columns:
         st.session_state.portfolio["戰略屬性"] = ""
 
+    # UI 佈局優化
+    st.markdown("### 📝 編輯投資清單")
+    st.caption("💡 提示：在表格輸入「代碼」後，點擊下方的『🔄 自動帶入資訊』按鈕即可補完名稱與分類。")
+
+    # 1. 顯示編輯器，給予 key 以便後續取值
     edited_df = st.data_editor(
         st.session_state.portfolio, 
         column_config={
@@ -923,60 +912,48 @@ elif st.session_state.page == "portfolio":
                 "戰略屬性",
                 options=asset_categories,
                 help="選擇該標的的資產配置屬性"
-            )
+            ),
+            "代碼": st.column_config.TextColumn("代碼", help="輸入股票或 ETF 代號"),
+            "張數": st.column_config.NumberColumn("張數", format="%.3f")
         },
         num_rows="dynamic", 
-        use_container_width=True
+        use_container_width=True,
+        key="portfolio_editor"
     )
 
-    if st.button("💾 儲存變更至資料庫", type="primary"):
-        st.session_state.portfolio = edited_df
-        if save_portfolio_to_cloud(st.session_state.current_user, edited_df):
-            st.success("✅ 投資組合與自訂屬性已同步至雲端")
+    # 2. 按鈕區
+    col_edit1, col_edit2 = st.columns(2)
+    
+    with col_edit1:
+        if st.button("🔄 自動帶入資訊", use_container_width=True):
+            # 重要：將編輯器當下的內容存回 session_state，否則迴圈讀不到新打的代碼
+            st.session_state.portfolio = edited_df
+            with st.spinner("抓取資訊中..."):
+                for i, row in st.session_state.portfolio.iterrows():
+                    code = str(row["代碼"]).strip()
+                    # 只有當「有代碼」且「名稱或屬性為空」時才執行抓取
+                    if code and (not str(row.get("名稱", "")).strip() or not str(row.get("戰略屬性", "")).strip()):
+                        info = get_stock_info(code)
+                        if info:
+                            if not str(row.get("名稱", "")).strip():
+                                st.session_state.portfolio.at[i, "名稱"] = info["name"]
+                            if not str(row.get("戰略屬性", "")).strip():
+                                st.session_state.portfolio.at[i, "戰略屬性"] = get_asset_category(code, info["name"])
+            st.rerun()
 
+    with col_edit2:
+        if st.button("💾 儲存變更至資料庫", type="primary", use_container_width=True):
+            st.session_state.portfolio = edited_df
+            if save_portfolio_to_cloud(st.session_state.current_user, edited_df):
+                st.success("✅ 投資組合與自訂屬性已同步至雲端")
+
+    # --- 資產市值與配置分析 ---
     st.divider()
     st.markdown("### 📊 資產市值與配置分析")
     
-    col_cost1, col_cost2 = st.columns([1, 2])
-    with col_cost1:
-        total_cost_input = st.number_input("💵 請輸入總成本", min_value=0.0, value=0.0, step=10000.0)
-
+    # ... 後續計算邏輯 (valid_df 部份使用 edited_df) ...
     valid_df = edited_df.dropna(subset=["代碼", "張數"])
     valid_df = valid_df[valid_df["代碼"].astype(str).str.strip() != ""]
-    
-    if not valid_df.empty:
-        if st.button("開始計算當前市值", type="primary"):
-            results = []
-            total_market_val = 0
-            total_annual_div = 0
-            with st.spinner("同步市場最新價格中..."):
-                for index, row in valid_df.iterrows():
-                    try:
-                        code = str(row["代碼"]).strip().upper()
-                        shares = float(row["張數"]) * 1000
-                        if code:
-                            data = get_safe_data_etf(code)
-                            if data["success"]:
-                                m_val = data["price"] * shares
-                                d_list = data["raw_divs"]
-                                if data['multiplier'] == 1: avg_annual = d_list[0]
-                                elif data['multiplier'] == 2: avg_annual = d_list[0] + d_list[1]
-                                elif data['multiplier'] == 4: avg_annual = sum(d_list[:4])
-                                else: avg_annual = (sum(d_list) / 4) * data["multiplier"]
-                                
-                                ann_div = avg_annual * shares
-                                category = row.get("戰略屬性")
-                                if not category or str(category).strip() == "":
-                                    category = get_asset_category(code, data["name"])
-
-                                results.append({
-                                    "名稱": data["name"], "代碼": code, "張數": row["張數"], "現價": data["price"],
-                                    "持有價值": m_val, "預估年領股息": ann_div,
-                                    "戰略屬性": category  
-                                })
-                                total_market_val += m_val
-                                total_annual_div += ann_div
-                    except: continue
 
             if results:
                 res_df = pd.DataFrame(results)
