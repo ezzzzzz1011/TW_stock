@@ -1039,34 +1039,45 @@ elif st.session_state.page == "portfolio":
         st.divider()
         st.subheader("📅 自動化領息排程月曆")
         
-        # 1. 新增：天數調整輸入框 (預設 28 天)
-        calc_days = st.number_input("設定預估領息天數", min_value=1, max_value=365, value=10, step=1)
+        # 1. 讓使用者設定天數 (預設 28)
+        calc_days = st.number_input("設定預估領息天數", min_value=1, max_value=365, value=28, step=1)
         
         # 2. 觸發按鈕
         if st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary"):
-            # 這裡調用 generate_user_calendar 並傳入你設定的天數
-            # 注意：請確認你的 generate_user_calendar 函數定義已改為接收參數，如 def generate_user_calendar(days_range=28):
-            try:
-                cal_df = generate_user_calendar(days_range=calc_days)
-            except TypeError:
-                # 如果原本的函數不支援參數，則維持原樣呼叫
-                cal_df = generate_user_calendar()
-                
+            # 取得原始月曆資料
+            cal_df = generate_user_calendar()
+            
             if cal_df is not None and not cal_df.empty:
-                # 排序資料
-                cal_df = cal_df.sort_values(by="預計發放日 (預估)")
+                # --- 關鍵修正：根據 calc_days 過濾資料 ---
+                # 確保日期格式正確
+                cal_df["預計發放日 (預估)"] = pd.to_datetime(cal_df["預計發放日 (預估)"])
                 
-                # 顯示表格
-                st.dataframe(cal_df, use_container_width=True, hide_index=True)
+                # 計算截止日期 (今天 + 使用者輸入的天數)
+                from datetime import datetime, timedelta
+                cutoff_date = datetime.now() + timedelta(days=calc_days)
                 
-                # 計算與顯示總入帳金額
-                total_incoming = cal_df["預估入帳金額"].sum()
-                st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
+                # 只保留在範圍內的資料
+                filtered_df = cal_df[cal_df["預計發放日 (預估)"] <= cutoff_date].copy()
                 
-                # 3. 自動更新天數的灰色小字
-                st.caption(f"※ 以上計算以 {calc_days} 天為基準週期預估，正確配息資料請以各上市櫃公司與股市公告為準。")
+                if not filtered_df.empty:
+                    # 排序並格式化日期回字串顯示
+                    filtered_df = filtered_df.sort_values(by="預計發放日 (預估)")
+                    display_df = filtered_df.copy()
+                    display_df["預計發放日 (預估)"] = display_df["預計發放日 (預估)"].dt.strftime('%Y-%m-%d')
+                    
+                    # 顯示表格
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
+                    
+                    # 重新計算「這波」的加總金額
+                    total_incoming = filtered_df["預估入帳金額"].sum()
+                    st.success(f"💰 這一波領息預計總入帳： **${total_incoming:,.0f}** 元")
+                    
+                    # 灰色小字聲明自動帶入天數
+                    st.caption(f"※ 以上計算以 {calc_days} 天為基準週期預估，正確配息資料請以各上市櫃公司與股市公告為準。")
+                else:
+                    st.warning(f"⚠️ 未來 {calc_days} 天內沒有預計領息資料。")
             else:
-                st.warning("⚠️ 目前暫無預計領息資料。")
+                st.info("目前沒有可用的配息預估資料。")
     
     # ==============================================================
     # 🌐 頁面：全球大盤與台指戰情室 (自動適應主題顏色版)
