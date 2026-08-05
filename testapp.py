@@ -1026,12 +1026,12 @@ elif st.session_state.page == "portfolio":
                     fig1 = px.pie(res_df, values='持有價值', names='名稱', title="個股配置 (名稱顯示)", hole=0.3, color_discrete_sequence=px.colors.qualitative.Pastel)
                     fig1.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
                     fig1.update_traces(textposition='inside', textinfo='label+percent')
-                    st.plotly_chart(fig1, use_container_width=True)
+                    st.plotly_chart(fig1, use_container_width=True, key="portfolio_pie_individual")
                 with col_pie2:
                     fig2 = px.pie(cat_df, values='持有價值', names='戰略屬性', title="戰略佔比", hole=0.4, 
                                  color_discrete_sequence=["#ff4b4b", "#f1c40f", "#3498db"])
                     fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", legend=dict(orientation="h", y=-0.2))
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig2, use_container_width=True, key="portfolio_pie_category")
                 with col_table:
                     st.write("#### 詳細數據")
                     st.dataframe(res_df, use_container_width=True, hide_index=True)
