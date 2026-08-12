@@ -154,6 +154,23 @@ st.markdown(f"""
     div[data-testid="stDataEditor"], div[data-testid="stTable"] {{
         background-color: {SECONDARY_BG} !important;
     }}
+
+    /* 一般按鈕 (含登入頁的主題切換按鈕) 跟著主題變色，避免黑底黑字/白底白字 */
+    .stButton > button {{
+        background-color: {SECONDARY_BG} !important;
+        color: {TEXT_COLOR} !important;
+        border: 1px solid {BORDER_COLOR} !important;
+    }}
+    .stButton > button:hover {{
+        border-color: #ff4b4b !important;
+        color: #ff4b4b !important;
+    }}
+    /* primary 類型按鈕 (如「確認登入」) 維持紅色底、白字，不受主題影響 */
+    .stButton > button[kind="primary"] {{
+        background-color: #ff4b4b !important;
+        color: #FFFFFF !important;
+        border: none !important;
+    }}
     </style>
 """, unsafe_allow_html=True)
 
