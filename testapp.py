@@ -92,6 +92,71 @@ if 'page' not in st.session_state:
 if 'data' not in st.session_state: 
     st.session_state.data = None
 
+# --- 🌗 主題切換狀態初始化 (新增) ---
+if 'theme' not in st.session_state:
+    st.session_state.theme = "dark"  # 預設深色，可改成 "light"
+
+def toggle_theme():
+    st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+
+# --- 🌗 依目前主題決定顏色數值 (新增) ---
+if st.session_state.theme == "dark":
+    APP_BG = "#0e1117"
+    SECONDARY_BG = "#1e1e28"
+    TEXT_COLOR = "#FAFAFA"
+    BORDER_COLOR = "rgba(255,255,255,0.15)"
+else:
+    APP_BG = "#FFFFFF"
+    SECONDARY_BG = "#F0F2F6"
+    TEXT_COLOR = "#1f1f1f"
+    BORDER_COLOR = "rgba(0,0,0,0.15)"
+
+# --- 🌗 全域主題 CSS：覆寫 Streamlit 主題變數與原生元件 (新增) ---
+st.markdown(f"""
+    <style>
+    :root {{
+        --background-color: {APP_BG};
+        --secondary-background-color: {SECONDARY_BG};
+        --text-color: {TEXT_COLOR};
+    }}
+
+    .stApp,
+    div[data-testid="stAppViewContainer"],
+    div[data-testid="stHeader"] {{
+        background-color: {APP_BG} !important;
+        color: {TEXT_COLOR} !important;
+    }}
+
+    section[data-testid="stSidebar"] {{
+        background-color: {SECONDARY_BG} !important;
+    }}
+
+    /* 讓一般文字、標題、caption 都跟著變色 */
+    p, span, label, h1, h2, h3, h4, h5, h6,
+    div[data-testid="stMarkdownContainer"] {{
+        color: {TEXT_COLOR} !important;
+    }}
+
+    /* 輸入框、數字框、下拉選單的外框與文字 */
+    .stTextInput input, .stNumberInput input, .stTextArea textarea {{
+        background-color: {SECONDARY_BG} !important;
+        color: {TEXT_COLOR} !important;
+        border: 1px solid {BORDER_COLOR} !important;
+    }}
+
+    div[data-baseweb="select"] > div {{
+        background-color: {SECONDARY_BG} !important;
+        color: {TEXT_COLOR} !important;
+        border-color: {BORDER_COLOR} !important;
+    }}
+
+    /* 表格 / 資料編輯器背景跟著變 */
+    div[data-testid="stDataEditor"], div[data-testid="stTable"] {{
+        background-color: {SECONDARY_BG} !important;
+    }}
+    </style>
+""", unsafe_allow_html=True)
+
 # --- 登入介面邏輯 ---
 def login_ui():
     st.markdown("""
@@ -100,6 +165,14 @@ def login_ui():
             <p style="color: #666; margin-top: 8px; margin-bottom: 0; font-size: 14px;">Ez開發 - 投資助手系統</p>
         </div>
     """, unsafe_allow_html=True)
+
+    # 🌗 登入頁也放一個主題切換按鈕，方便還沒登入的人先切換
+    col_theme1, col_theme2, col_theme3 = st.columns([1, 1.2, 1])
+    with col_theme2:
+        btn_label = "☀️ 切換淺色模式" if st.session_state.theme == "dark" else "🌙 切換深色模式"
+        if st.button(btn_label, use_container_width=True, key="login_theme_toggle"):
+            toggle_theme()
+            st.rerun()
 
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
@@ -456,6 +529,14 @@ with st.sidebar:
     # --- 👇 新增這一行，讓按鈕直接出現在側邊欄 ---
     if st.button("📝 股利報稅", use_container_width=True): go_to("tax_calc")
     # ------------------------------------------
+
+    st.markdown("""<hr style="margin: 10px 0; border-color: #444;">""", unsafe_allow_html=True)
+
+    # --- 🌗 主題切換按鈕 (新增) ---
+    theme_btn_label = "☀️ 切換淺色模式" if st.session_state.theme == "dark" else "🌙 切換深色模式"
+    if st.button(theme_btn_label, use_container_width=True):
+        toggle_theme()
+        st.rerun()
 
     st.markdown("""<hr style="margin: 10px 0; border-color: #444;">""", unsafe_allow_html=True)
     
