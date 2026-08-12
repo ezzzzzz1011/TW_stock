@@ -155,6 +155,24 @@ st.markdown(f"""
         background-color: {SECONDARY_BG} !important;
     }}
 
+    /* st.dataframe 表格：背景與文字跟著主題變 */
+    div[data-testid="stDataFrame"] {{
+        background-color: {SECONDARY_BG} !important;
+    }}
+    div[data-testid="stDataFrame"] * {{
+        color: {TEXT_COLOR} !important;
+    }}
+
+    /* st.metric 卡片文字跟著主題變 */
+    div[data-testid="stMetric"] {{
+        background-color: {SECONDARY_BG} !important;
+        border-radius: 10px;
+        padding: 10px 15px;
+    }}
+    div[data-testid="stMetricLabel"], div[data-testid="stMetricValue"] {{
+        color: {TEXT_COLOR} !important;
+    }}
+
     /* 一般按鈕 (含登入頁的主題切換按鈕) 跟著主題變色，避免黑底黑字/白底白字 */
     .stButton > button {{
         background-color: {SECONDARY_BG} !important;
@@ -1080,29 +1098,30 @@ elif st.session_state.page == "portfolio":
                 
                 return_amt = total_market_val - total_cost_input
                 return_pct = (return_amt / total_cost_input * 100) if total_cost_input > 0 else 0
-                ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else "#ffffff"
+                ret_color = "#ff4b4b" if return_amt > 0 else "#00ff00" if return_amt < 0 else TEXT_COLOR
                 circle_pct = min(abs(return_pct), 100)
+                track_color = "#2b2b36" if st.session_state.theme == "dark" else "#e2e5ea"
                 
-                # 圓環與數據儀表板
+                # 圓環與數據儀表板 (跟隨深色/淺色主題)
                 dashboard_html = f"""
-                <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: #1e1e28; padding: 25px; border-radius: 15px; border: 1px solid #444; margin-bottom: 20px;">
-                    <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_pct}%, #2b2b36 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
-                        <div style="position: absolute; width: 125px; height: 125px; background-color: #1e1e28; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                            <span style="color: #aaa; font-size: 16px;">股票報酬</span>
+                <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; background-color: {SECONDARY_BG}; padding: 25px; border-radius: 15px; border: 1px solid {BORDER_COLOR}; margin-bottom: 20px;">
+                    <div style="position: relative; width: 160px; height: 160px; border-radius: 50%; background: conic-gradient({ret_color} {circle_pct}%, {track_color} 0); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,0,0,0.3);">
+                        <div style="position: absolute; width: 125px; height: 125px; background-color: {SECONDARY_BG}; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                            <span style="color: {TEXT_COLOR}; opacity: 0.7; font-size: 16px;">股票報酬</span>
                             <span style="color: {ret_color}; font-size: 22px; font-weight: bold;">{return_pct:+.2f}%</span>
                         </div>
                     </div>
                     <div style="min-width: 280px; margin-top: 10px;">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 8px;">
-                            <span style="color: #ccc; font-size: 18px;">總成本：</span>
-                            <span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_cost_input:,.0f}</span>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid {BORDER_COLOR}; padding-bottom: 8px; margin-bottom: 8px;">
+                            <span style="color: {TEXT_COLOR}; opacity: 0.8; font-size: 18px;">總成本：</span>
+                            <span style="color: {TEXT_COLOR}; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_cost_input:,.0f}</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 15px;">
-                            <span style="color: #ccc; font-size: 18px;">股票市值：</span>
-                            <span style="color: #fff; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_market_val:,.0f}</span>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid {BORDER_COLOR}; padding-bottom: 8px; margin-bottom: 15px;">
+                            <span style="color: {TEXT_COLOR}; opacity: 0.8; font-size: 18px;">股票市值：</span>
+                            <span style="color: {TEXT_COLOR}; font-size: 22px; font-weight: bold; font-family: 'Consolas';">{total_market_val:,.0f}</span>
                         </div>
                         <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #ccc; font-size: 18px;">總報酬：</span>
+                            <span style="color: {TEXT_COLOR}; opacity: 0.8; font-size: 18px;">總報酬：</span>
                             <span style="color: {ret_color}; font-size: 26px; font-weight: bold; font-family: 'Consolas';">{return_amt:+,.0f}</span>
                         </div>
                     </div>
@@ -1122,13 +1141,13 @@ elif st.session_state.page == "portfolio":
                 
                 with col_pie1:
                     fig1 = px.pie(res_df, values='持有價值', names='名稱', title="個股配置 (名稱顯示)", hole=0.3, color_discrete_sequence=px.colors.qualitative.Pastel)
-                    fig1.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
+                    fig1.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color=TEXT_COLOR, showlegend=False)
                     fig1.update_traces(textposition='inside', textinfo='label+percent')
                     st.plotly_chart(fig1, use_container_width=True, key="portfolio_pie_individual")
                 with col_pie2:
                     fig2 = px.pie(cat_df, values='持有價值', names='戰略屬性', title="戰略佔比", hole=0.4, 
                                  color_discrete_sequence=["#ff4b4b", "#f1c40f", "#3498db"])
-                    fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", legend=dict(orientation="h", y=-0.2))
+                    fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color=TEXT_COLOR, legend=dict(orientation="h", y=-0.2))
                     st.plotly_chart(fig2, use_container_width=True, key="portfolio_pie_category")
                 with col_table:
                     st.write("#### 詳細數據")
