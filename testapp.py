@@ -31,7 +31,12 @@ from google.oauth2.service_account import Credentials
 # =============================================================
 # 1. 全域設定與常數
 # =============================================================
-st.set_page_config(page_title="台股個股/ETF查詢", page_icon="🔍", layout="wide")
+st.set_page_config(
+    page_title="台股個股/ETF查詢",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # --- API 金鑰 ---------------------------------------------------------------
@@ -377,6 +382,27 @@ def inject_css():
         .tax-table .muted {{
             opacity: 0.45;
         }}
+
+        .dash-card {{
+            background-color: {SECONDARY_BG};
+            border: 1px solid {BORDER_COLOR};
+            border-radius: 14px;
+            padding: 16px 18px;
+            height: 100%;
+        }}
+        .dash-label {{ font-size: 0.85rem; opacity: 0.65; }}
+        .dash-value {{ font-size: 1.7rem; font-weight: bold; font-family: 'Consolas', monospace; }}
+
+        /* 手機版：字級與卡片高度自動縮放，避免五欄卡片擠成一團 */
+        @media (max-width: 640px) {{
+            .metric-val {{ font-size: 2.4rem; }}
+            .highlight-val {{ font-size: 1.8rem; }}
+            .feature-card {{ height: auto; min-height: 110px; padding: 16px 10px; }}
+            .feature-title {{ font-size: 1.2rem; }}
+            .feature-desc {{ font-size: 0.9rem; }}
+            .styled-table, .tax-table {{ font-size: 0.85rem; }}
+            .dash-value {{ font-size: 1.35rem; }}
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -572,10 +598,15 @@ def login_ui():
         tab_login, tab_reg = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
 
         with tab_login:
-            u_id = st.text_input("帳號名稱", key="l_user", placeholder="請輸入帳號")
-            u_pw = st.text_input("存取密碼", type="password", key="l_pw", placeholder="請輸入密碼")
+            # 包成 form，在密碼欄按 Enter 就能直接登入
+            with st.form("login_form"):
+                u_id = st.text_input("帳號名稱", key="l_user", placeholder="請輸入帳號")
+                u_pw = st.text_input("存取密碼", type="password", key="l_pw", placeholder="請輸入密碼")
+                login_submitted = st.form_submit_button(
+                    "確認登入", use_container_width=True, type="primary"
+                )
 
-            if st.button("確認登入", use_container_width=True, type="primary"):
+            if login_submitted:
                 if user_db.get(u_id.strip()) == u_pw:
                     st.session_state.logged_in = True
                     st.session_state.current_user = u_id.strip()
@@ -588,11 +619,13 @@ def login_ui():
 
         with tab_reg:
             st.info("註冊資料將儲存於雲端，重啟系統不會遺失。")
-            new_u = st.text_input("設定帳號", key="r_user").strip()
-            new_p = st.text_input("設定密碼", type="password", key="r_pw")
-            confirm_p = st.text_input("確認密碼", type="password", key="r_confirm")
+            with st.form("register_form"):
+                new_u = st.text_input("設定帳號", key="r_user").strip()
+                new_p = st.text_input("設定密碼", type="password", key="r_pw")
+                confirm_p = st.text_input("確認密碼", type="password", key="r_confirm")
+                reg_submitted = st.form_submit_button("提交註冊", use_container_width=True)
 
-            if st.button("提交註冊", use_container_width=True):
+            if reg_submitted:
                 if new_u in user_db:
                     st.warning("⚠️ 帳號已存在")
                 elif new_p != confirm_p:
@@ -1000,22 +1033,121 @@ def generate_user_calendar():
     return result if not result.empty else None
 
 
+MARKET_TICKERS = [
+    ("S&P 500", "^GSPC"),
+    ("道瓊工業", "^DJI"),
+    ("納斯達克", "^IXIC"),
+    ("費城半導體", "^SOX"),
+    ("美10年債", "^TNX"),
+    ("台股加權", "^TWII"),
+    ("台指期 / 近全", "WTX=F"),
+    ("原油期貨", "CL=F"),
+    ("美元/台幣", "TWD=X"),
+]
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_market_data(ticker):
+    try:
+        fast = yf.Ticker(ticker).fast_info
+        current_p = float(fast["last_price"])
+        prev_p = float(fast["previous_close"])
+        # ^TNX 在部分 yfinance 版本回傳 42.5 (需 /10)，部分回傳 4.25，這裡自動判斷。
+        if ticker == "^TNX" and current_p > 20:
+            current_p /= 10
+            prev_p /= 10
+        change = current_p - prev_p
+        pct = (change / prev_p) * 100 if prev_p else 0
+        return current_p, change, pct
+    except Exception as e:
+        print(f"[market] {ticker}: {e}")
+        return None, None, None
+
+
+def format_market_value(ticker_code, p, c):
+    if ticker_code == "^TNX":
+        return f"{p:.3f}%", f"{c:+.3f}"
+    if ticker_code == "WTX=F":
+        return f"{p:,.0f}", f"{c:+.0f}"
+    return f"{p:,.2f}", f"{c:+.2f}"
+
+
+def draw_compact_metric(label, ticker_code):
+    p, c, pct = get_market_data(ticker_code)
+    if p is None:
+        st.markdown(
+            f"<div style='text-align:center; opacity:0.5; padding:12px 0;'>{label}<br>暫無資料</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    color = UP_COLOR if c >= 0 else DOWN_COLOR
+    arrow = "▲" if c >= 0 else "▼"
+    val_str, c_str = format_market_value(ticker_code, p, c)
+
+    st.markdown(
+        f"""
+        <div style="text-align:center; padding:2px 0;">
+            <div style="font-size:0.85rem; opacity:0.6; margin-bottom:2px;">{label}</div>
+            <div style="font-size:1.6rem; font-weight:bold; margin-bottom:8px;
+                        color:{TEXT_COLOR};">{val_str}</div>
+            <div style="display:inline-block; background:{color}22; color:{color};
+                        padding:2px 10px; border-radius:12px; font-size:0.8rem; font-weight:500;">
+                {arrow} 日漲跌 {c_str} ({pct:+.2f}%)
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def greeting():
+    hour = datetime.now(tw_tz).hour
+    if hour < 6:
+        return "夜深了"
+    if hour < 12:
+        return "早安"
+    if hour < 18:
+        return "午安"
+    return "晚安"
+
+
 def go_to(page_name):
     st.session_state.page = page_name
     st.rerun()
 
 
+def back_button(label="⬅️ 返回工具箱", target="home", key=None):
+    """返回鍵放在窄欄位裡，不再橫跨整個畫面。"""
+    col, _ = st.columns([1, 5])
+    with col:
+        if st.button(label, key=key or f"back_{target}", use_container_width=True):
+            go_to(target)
+
+
 # =============================================================
 # 7. 側邊欄
 # =============================================================
+page = st.session_state.page
+TOOLBOX_PAGES = {"home", "stock_query", "etf_query", "pk_tool", "portfolio", "market_index"}
+
 with st.sidebar:
     st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
-    if st.button("⭐ 我的關注清單", use_container_width=True):
-        go_to("watchlist")
-    if st.button("🚀 台股查詢", use_container_width=True):
-        go_to("home")
-    if st.button("📝 股利報稅", use_container_width=True):
-        go_to("tax_calc")
+
+    nav_items = [
+        ("⭐ 我的關注清單", "watchlist", {"watchlist"}),
+        ("🚀 台股查詢", "home", TOOLBOX_PAGES),
+        ("📝 股利報稅", "tax_calc", {"tax_calc"}),
+    ]
+    for label, target, active_pages in nav_items:
+        is_active = page in active_pages
+        if st.button(
+            label,
+            use_container_width=True,
+            type="primary" if is_active else "secondary",
+            key=f"nav_{target}",
+        ):
+            go_to(target)
 
     st.markdown(f"<hr style='margin:10px 0; border-color:{BORDER_COLOR};'>", unsafe_allow_html=True)
 
@@ -1029,6 +1161,10 @@ with st.sidebar:
     if st.button("🚪 登出系統", use_container_width=True):
         for k in ("logged_in", "current_user", "portfolio", "watchlist", "data"):
             st.session_state[k] = False if k == "logged_in" else None
+        # 一併清掉殘留的元件狀態，避免下一位使用者看到上一位的資料
+        for k in ("etf_symbol_input", "portfolio_editor"):
+            st.session_state.pop(k, None)
+        st.session_state.page = "welcome"
         st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -1038,16 +1174,65 @@ with st.sidebar:
 # =============================================================
 # 8. 各功能頁面
 # =============================================================
-page = st.session_state.page
-
 # ------------------------------------------------------------------
 # 首頁
 # ------------------------------------------------------------------
 if page == "welcome":
-    st.markdown(
-        "<br><br><br><h3 style='text-align:center; opacity:0.6;'>👈 請從左側選單選擇功能</h3>",
-        unsafe_allow_html=True,
-    )
+    user = st.session_state.current_user
+    st.markdown(f"## {greeting()}，{user} 👋")
+    st.caption(datetime.now(tw_tz).strftime("台北時間 %Y-%m-%d %H:%M"))
+    st.divider()
+
+    st.markdown("#### 🌐 市場快照")
+    snapshot = [("台股加權", "^TWII"), ("S&P 500", "^GSPC"), ("美元/台幣", "TWD=X")]
+    for col, (label, ticker) in zip(st.columns(3), snapshot):
+        with col:
+            with st.container(border=True):
+                draw_compact_metric(label, ticker)
+
+    st.markdown("#### ⭐ 關注清單")
+    if st.session_state.watchlist is None:
+        st.session_state.watchlist = load_watchlist_from_cloud(user)
+
+    preview = st.session_state.watchlist[:5]
+    if not preview:
+        st.caption("還沒有關注任何標的，可以先到左側「我的關注清單」加入幾檔。")
+    else:
+        with st.spinner("讀取關注清單報價..."):
+            quotes = fetch_many(preview, get_stock_info)
+        for col, code in zip(st.columns(len(preview)), preview):
+            info = quotes.get(code)
+            with col:
+                if info:
+                    color = UP_COLOR if info["change"] >= 0 else DOWN_COLOR
+                    body = (
+                        f"<div class='dash-value' style='color:{color};'>{info['price']:.2f}</div>"
+                        f"<div style='color:{color}; font-size:0.85rem;'>"
+                        f"{info['change']:+.2f} ({info['pct']:+.2f}%)</div>"
+                    )
+                    label_text = f"{code}　{info['name']}"
+                else:
+                    body = "<div class='dash-value' style='opacity:0.4;'>－</div>"
+                    label_text = code
+                st.markdown(
+                    f"<div class='dash-card'><div class='dash-label'>{label_text}</div>{body}</div>",
+                    unsafe_allow_html=True,
+                )
+        if len(st.session_state.watchlist) > len(preview):
+            st.caption(f"僅顯示前 {len(preview)} 檔，共 {len(st.session_state.watchlist)} 檔。")
+
+    st.divider()
+    st.markdown("#### 🚀 快速前往")
+    shortcuts = [
+        ("📈 個股分析", "stock_query"),
+        ("📊 ETF 分析", "etf_query"),
+        ("💼 我的資產", "portfolio"),
+        ("📝 股利報稅", "tax_calc"),
+    ]
+    for col, (label, target) in zip(st.columns(4), shortcuts):
+        with col:
+            if st.button(label, use_container_width=True, key=f"quick_{target}"):
+                go_to(target)
 
 # ------------------------------------------------------------------
 # 工具箱
@@ -1079,8 +1264,7 @@ elif page == "home":
 # 關注清單
 # ------------------------------------------------------------------
 elif page == "watchlist":
-    if st.button("⬅️ 返回工具箱"):
-        go_to("home")
+    back_button()
 
     st.title("⭐ 我的關注清單")
 
@@ -1122,14 +1306,14 @@ elif page == "watchlist":
         with st.spinner("同步最新報價中..."):
             quotes = fetch_many(st.session_state.watchlist, get_stock_info)
 
-        header = st.columns([2, 3, 2, 2, 1])
-        for col, text in zip(header, ["代碼", "名稱", "現價", "漲跌", ""]):
+        header = st.columns([2, 3, 2, 2, 1, 1])
+        for col, text in zip(header, ["代碼", "名稱", "現價", "漲跌", "", ""]):
             col.markdown(f"**{text}**")
 
         removed = None
         for code in st.session_state.watchlist:
             info = quotes.get(code)
-            c1, c2, c3, c4, c5 = st.columns([2, 3, 2, 2, 1])
+            c1, c2, c3, c4, c5, c6 = st.columns([2, 3, 2, 2, 1, 1])
             c1.write(code)
             if info:
                 color = UP_COLOR if info["change"] >= 0 else DOWN_COLOR
@@ -1146,7 +1330,12 @@ elif page == "watchlist":
                 c2.write("－")
                 c3.write("查無報價")
                 c4.write("－")
-            if c5.button("🗑️", key=f"del_{code}", help=f"移除 {code}"):
+            if c5.button("📈", key=f"ana_{code}", help=f"以 ETF 分析檢視 {code}"):
+                st.session_state.etf_symbol_input = code
+                with st.spinner(f"分析 {code} 中..."):
+                    st.session_state.data = get_safe_data_etf(code)
+                go_to("etf_query")
+            if c6.button("🗑️", key=f"del_{code}", help=f"移除 {code}"):
                 removed = code
 
         if removed:
@@ -1154,14 +1343,16 @@ elif page == "watchlist":
             save_watchlist_to_cloud(st.session_state.current_user, st.session_state.watchlist)
             st.rerun()
 
-        st.caption(f"共 {len(st.session_state.watchlist)} 檔｜報價快取 60 秒，可按「更新報價」強制重抓。")
+        st.caption(
+            f"共 {len(st.session_state.watchlist)} 檔｜📈 進入 ETF 分析、🗑️ 移除｜"
+            "報價快取 60 秒，可按「更新報價」強制重抓。"
+        )
 
 # ------------------------------------------------------------------
 # 個股分析
 # ------------------------------------------------------------------
 elif page == "stock_query":
-    if st.button("⬅️ 返回工具箱"):
-        go_to("home")
+    back_button()
 
     st.title("🔍 台股自動估價系統 (個股)")
     main_col, side_col = st.columns([8, 4])
@@ -1244,8 +1435,7 @@ elif page == "stock_query":
 # ETF 分析
 # ------------------------------------------------------------------
 elif page == "etf_query":
-    if st.button("⬅️ 返回工具箱"):
-        go_to("home")
+    back_button()
 
     st.title("📈 ETF 專用")
     main_col, side_col = st.columns([8, 4])
@@ -1256,18 +1446,28 @@ elif page == "etf_query":
             "(最新配息日要等到入資料庫才能抓到)</span>",
             unsafe_allow_html=True,
         )
-        input_c1, input_c2 = st.columns([3, 1])
-        with input_c1:
-            symbol_input = clean_code(st.text_input("ETF 代號", placeholder="例如: 00919"))
-        with input_c2:
-            st.write("")
-            st.write("")
-            if st.button("開始計算", type="primary"):
-                if symbol_input:
-                    with st.spinner("抓取數據中..."):
-                        st.session_state.data = get_safe_data_etf(symbol_input)
-                else:
-                    st.warning("請先輸入 ETF 代號。")
+        if "etf_symbol_input" not in st.session_state:
+            st.session_state.etf_symbol_input = ""
+
+        # 包成 form，在代號欄按 Enter 就會直接查詢
+        with st.form("etf_query_form"):
+            input_c1, input_c2 = st.columns([3, 1])
+            with input_c1:
+                st.text_input("ETF 代號", key="etf_symbol_input", placeholder="例如: 00919")
+            with input_c2:
+                st.write("")
+                st.write("")
+                etf_submitted = st.form_submit_button(
+                    "開始計算", type="primary", use_container_width=True
+                )
+
+        if etf_submitted:
+            symbol_input = clean_code(st.session_state.etf_symbol_input)
+            if symbol_input:
+                with st.spinner("抓取數據中..."):
+                    st.session_state.data = get_safe_data_etf(symbol_input)
+            else:
+                st.warning("請先輸入 ETF 代號。")
 
         if st.session_state.data:
             if not st.session_state.data.get("success"):
@@ -1459,8 +1659,7 @@ elif page == "etf_query":
 # ETF 對比
 # ------------------------------------------------------------------
 elif page == "pk_tool":
-    if st.button("⬅️ 返回工具箱"):
-        go_to("home")
+    back_button()
 
     st.title("⚔️ ETF 對比工具")
 
@@ -1525,8 +1724,7 @@ elif page == "pk_tool":
 # 我的資產
 # ------------------------------------------------------------------
 elif page == "portfolio":
-    if st.button("⬅️ 返回工具箱"):
-        go_to("home")
+    back_button()
 
     st.title(f"💼 {st.session_state.current_user} 的投資組合")
 
@@ -1724,7 +1922,18 @@ elif page == "portfolio":
 
                 with col_table:
                     st.write("#### 詳細數據")
-                    st.dataframe(res_df, use_container_width=True, hide_index=True)
+                    st.dataframe(
+                        res_df.style.format(
+                            {
+                                "張數": "{:,.3f}",
+                                "現價": "{:,.2f}",
+                                "持有價值": "{:,.0f}",
+                                "預估年領股息": "{:,.0f}",
+                            }
+                        ),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
         st.divider()
         st.subheader("📅 自動化領息排程月曆")
@@ -1760,8 +1969,7 @@ elif page == "portfolio":
 # 大盤指數
 # ------------------------------------------------------------------
 elif page == "market_index":
-    if st.button("⬅️ 返回工具箱"):
-        go_to("home")
+    back_button()
 
     st.markdown(
         """
@@ -1776,66 +1984,12 @@ elif page == "market_index":
     )
     st.divider()
 
-    @st.cache_data(ttl=300, show_spinner=False)
-    def get_market_data(ticker):
-        try:
-            fast = yf.Ticker(ticker).fast_info
-            current_p = float(fast["last_price"])
-            prev_p = float(fast["previous_close"])
-            # ^TNX 在部分 yfinance 版本回傳 42.5 (需 /10)，部分回傳 4.25。
-            # 這裡自動判斷，避免寫死換算導致顯示成 0.42%。
-            if ticker == "^TNX" and current_p > 20:
-                current_p /= 10
-                prev_p /= 10
-            change = current_p - prev_p
-            pct = (change / prev_p) * 100 if prev_p else 0
-            return current_p, change, pct
-        except Exception as e:
-            print(f"[market] {ticker}: {e}")
-            return None, None, None
-
-    def draw_compact_metric(label, ticker_code):
-        p, c, pct = get_market_data(ticker_code)
-        if p is None:
-            st.write("資料載入中 / 暫無資料")
-            return
-
-        color = UP_COLOR if c >= 0 else DOWN_COLOR
-        arrow = "▲" if c >= 0 else "▼"
-
-        if ticker_code == "^TNX":
-            val_str, c_str = f"{p:.3f}%", f"{c:+.3f}"
-        elif ticker_code == "WTX=F":
-            val_str, c_str = f"{p:,.0f}", f"{c:+.0f}"
-        else:
-            val_str, c_str = f"{p:,.2f}", f"{c:+.2f}"
-
-        st.markdown(
-            f"""
-            <div style="text-align:center; padding:2px 0;">
-                <div style="font-size:0.85rem; opacity:0.6; margin-bottom:2px;">{label}</div>
-                <div style="font-size:1.6rem; font-weight:bold; margin-bottom:8px;
-                            color:{TEXT_COLOR};">{val_str}</div>
-                <div style="display:inline-block; background:{color}22; color:{color};
-                            padding:2px 10px; border-radius:12px; font-size:0.8rem; font-weight:500;">
-                    {arrow} 日漲跌 {c_str} ({pct:+.2f}%)
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    MARKET_TICKERS = [
-        ("S&P 500", "^GSPC"),
-        ("道瓊工業", "^DJI"),
-        ("納斯達克", "^IXIC"),
-        ("費城半導體", "^SOX"),
-        ("美10年債", "^TNX"),
-        ("台股加權", "^TWII"),
-        ("台指期 / 近全", "WTX=F"),
-        ("原油期貨", "CL=F"),
-        ("美元/台幣", "TWD=X"),
-    ]
+    _, col_refresh = st.columns([4, 1])
+    with col_refresh:
+        if st.button("🔄 重新整理", use_container_width=True):
+            get_market_data.clear()
+            st.rerun()
+    st.caption(f"最後更新：{datetime.now(tw_tz).strftime('%Y-%m-%d %H:%M')}（資料快取 5 分鐘）")
 
     for row_start in range(0, len(MARKET_TICKERS), 3):
         for col, (label, ticker) in zip(st.columns(3), MARKET_TICKERS[row_start:row_start + 3]):
@@ -1849,8 +2003,7 @@ elif page == "market_index":
 # 股利報稅與綜合所得稅試算
 # ------------------------------------------------------------------
 elif page == "tax_calc":
-    if st.button("⬅️ 返回工具箱"):
-        go_to("home")
+    back_button()
 
     st.title("📝 股利報稅與綜合所得稅試算")
 
