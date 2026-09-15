@@ -1,11 +1,11 @@
-streamlit==1.50.0
-pandas
+streamlit>=1.36
+pandas>=2.0
+numpy>=1.24
+plotly>=5.18
+yfinance>=0.2.40
 pytz
-plotly
-gspread
-google-auth
-google-auth-oauthlib
 requests
-fugle-marketdata
-yfinance
-starlette<1.0
+gspread>=6.0
+google-auth>=2.28
+fugle-marketdata>=1.0
+lxml            # pandas.read_html 解析 HiStock 表格用
