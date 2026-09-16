@@ -3,6 +3,8 @@
 資料一律透過 data_api 取得，這裡只負責呈現。
 """
 
+import base64
+import json
 from datetime import datetime
 
 import pandas as pd
@@ -109,6 +111,26 @@ def draw_turnover_card():
     )
 
 # ===================== 登入頁 =====================
+def describe_finmind_token():
+    """
+    解出 FinMind token 裡的身分資訊，用來確認 Secrets 放的是哪一把。
+    只顯示 user_id 與 token_version，不顯示 token 本身。
+    """
+    if not FINMIND_TOKEN:
+        return "未設定"
+    try:
+        payload = FINMIND_TOKEN.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        info = json.loads(base64.urlsafe_b64decode(payload))
+    except Exception:
+        return "⚠️ 格式損毀，解不出內容（這把一定會被拒絕）"
+
+    user = info.get("user_id") or info.get("usersid") or "?"
+    version = info.get("token_version")
+    version_txt = "未知（舊格式）" if version is None else str(version)
+    return f"user_id={user}，token_version={version_txt}"
+
+
 def login_ui():
     common.apply_palette(globals())   # 登入頁也要先取得主題顏色
     st.markdown(
@@ -229,8 +251,11 @@ def render():
 
         with st.expander("資料來源診斷", expanded=False):
             st.caption(f"程式版本：{APP_VERSION}")
-            st.caption(f"FinMind token：{FINMIND_TOKEN_SOURCE}"
-                   f"　|　Fugle token：{FUGLE_TOKEN_SOURCE}")
+            st.caption(
+                f"FinMind token：{FINMIND_TOKEN_SOURCE}"
+                f"　|　Fugle token：{FUGLE_TOKEN_SOURCE}"
+            )
+            st.caption(f"FinMind 身分：{describe_finmind_token()}")
             if st.button("測試 FinMind 連線", use_container_width=True, key="diag_finmind"):
                 try:
                     res = requests.get(
