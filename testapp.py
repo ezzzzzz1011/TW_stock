@@ -1414,7 +1414,10 @@ with st.sidebar:
         for k in ("logged_in", "current_user", "portfolio", "watchlist", "data"):
             st.session_state[k] = False if k == "logged_in" else None
         # 一併清掉殘留的元件狀態，避免下一位使用者看到上一位的資料
-        for k in ("etf_symbol_input", "portfolio_editor", "eps_input", "pe_input", "eps_detail"):
+        for k in (
+            "etf_symbol_input", "portfolio_editor",
+            "eps_input", "pe_input", "eps_detail", "eps_pending",
+        ):
             st.session_state.pop(k, None)
         st.session_state.page = "welcome"
         st.rerun()
@@ -1616,6 +1619,11 @@ elif page == "stock_query":
         st.session_state.setdefault("pe_input", 15.0)
         st.session_state.setdefault("eps_detail", None)
 
+        # Streamlit 不允許在元件建立後才改它的 session_state，
+        # 所以自動帶入的值先暫存，於下一輪在元件建立「之前」套用。
+        if st.session_state.get("eps_pending") is not None:
+            st.session_state.eps_input = st.session_state.pop("eps_pending")
+
         col_eps, col_pe = st.columns(2)
         with col_eps:
             eps = st.number_input("該股 EPS (近4季累積)", min_value=0.01, step=0.1, key="eps_input")
@@ -1640,7 +1648,7 @@ elif page == "stock_query":
                             "本益比法不適用，請改用其他估價方式。"
                         )
                     else:
-                        st.session_state.eps_input = float(result["ttm_eps"])
+                        st.session_state.eps_pending = float(result["ttm_eps"])
                         st.session_state.eps_detail = result
                         st.rerun()
 
