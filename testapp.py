@@ -40,7 +40,7 @@ st.set_page_config(
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / hide-hints-v12"
+APP_VERSION = "2026-09-16 / market-v13"
 
 # --- API 金鑰 ---------------------------------------------------------------
 # 建議改放 .streamlit/secrets.toml，例如：
@@ -1543,16 +1543,29 @@ def generate_user_calendar():
     return result if not result.empty else None
 
 
-MARKET_TICKERS = [
-    ("S&P 500", "^GSPC"),
-    ("道瓊工業", "^DJI"),
-    ("納斯達克", "^IXIC"),
-    ("費城半導體", "^SOX"),
-    ("美10年債", "^TNX"),
-    ("台股加權", "^TWII"),
-    ("台指期 / 近全", "WTX=F"),
-    ("原油期貨", "CL=F"),
-    ("美元/台幣", "TWD=X"),
+# 分組顯示。台指期 WTX=F / TWF=F 在 Yahoo 長期抓不到，備援會退回加權指數
+# 導致兩格數字完全一樣，因此拿掉。
+MARKET_GROUPS = [
+    ("台股", [("台股加權", "^TWII"), ("櫃買指數", "^TWOII")]),
+    (
+        "美股（前一交易日收盤）",
+        [
+            ("S&P 500", "^GSPC"),
+            ("道瓊工業", "^DJI"),
+            ("納斯達克", "^IXIC"),
+            ("費城半導體", "^SOX"),
+            ("VIX 恐慌指數", "^VIX"),
+        ],
+    ),
+    (
+        "匯率與原物料",
+        [
+            ("美元/台幣", "TWD=X"),
+            ("美10年債", "^TNX"),
+            ("原油期貨", "CL=F"),
+            ("黃金", "GC=F"),
+        ],
+    ),
 ]
 
 
@@ -1608,8 +1621,8 @@ def get_market_data(ticker):
 def format_market_value(ticker_code, p, c):
     if ticker_code == "^TNX":
         return f"{p:.3f}%", f"{c:+.3f}"
-    if ticker_code == "WTX=F":
-        return f"{p:,.0f}", f"{c:+.0f}" if abs(c) >= 1 else f"{c:+.2f}"
+    if ticker_code == "TWD=X":
+        return f"{p:,.3f}", f"{c:+.3f}"
     return f"{p:,.2f}", f"{c:+.2f}"
 
 
@@ -1640,6 +1653,80 @@ def draw_compact_metric(label, ticker_code):
         """,
         unsafe_allow_html=True,
     )
+
+
+TWSE_INSTITUTIONAL_URL = "https://openapi.twse.com.tw/v1/fund/BFI82U"
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_institutional_flow():
+    """
+    證交所三大法人買賣金額（免驗證）。
+    回傳 {"date": 日期, "外資": 億元, "投信": 億元, "自營商": 億元, "合計": 億元}
+    """
+    try:
+        rows = requests.get(TWSE_INSTITUTIONAL_URL, timeout=HTTP_TIMEOUT).json()
+    except Exception as e:
+        print(f"[institutional] {e}")
+        return None
+    if not rows:
+        return None
+
+    buckets = {"外資": 0.0, "投信": 0.0, "自營商": 0.0}
+    total = 0.0
+    date_str = ""
+
+    for row in rows:
+        name = str(
+            _pick_field(row, "Name", "單位名稱", "name") or ""
+        ).strip()
+        raw_diff = _pick_field(row, "DifferenceAmount", "買賣差額", "差額")
+        date_str = date_str or str(_pick_field(row, "Date", "日期") or "")
+        try:
+            diff = float(str(raw_diff).replace(",", ""))
+        except (TypeError, ValueError):
+            continue
+
+        if "合計" in name or "總計" in name:
+            total = diff
+            continue
+        # 「外資自營商」同時含外資與自營商，優先歸到外資
+        if "外資" in name or "陸資" in name:
+            buckets["外資"] += diff
+        elif "投信" in name:
+            buckets["投信"] += diff
+        elif "自營" in name:
+            buckets["自營商"] += diff
+
+    if not any(buckets.values()) and not total:
+        return None
+
+    if not total:
+        total = sum(buckets.values())
+
+    # 原始單位是元，換算成億元
+    result = {k: v / 1e8 for k, v in buckets.items()}
+    result["合計"] = total / 1e8
+    if len(date_str) == 8:
+        date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+    result["date"] = date_str
+    return result
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_index_history(ticker, period="1y"):
+    """指數歷史收盤，給走勢圖用。"""
+    try:
+        hist = yf.Ticker(ticker).history(period=period)
+        closes = hist["Close"].dropna()
+        if len(closes) < 30:
+            return pd.DataFrame(columns=["date", "close"])
+        out = pd.DataFrame({"date": pd.Series(closes.index), "close": closes.to_numpy()})
+        out["date"] = _normalize_dates(out["date"])
+        return out.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+    except Exception as e:
+        print(f"[index_history] {ticker}: {e}")
+        return pd.DataFrame(columns=["date", "close"])
 
 
 def greeting():
@@ -2723,27 +2810,90 @@ elif page == "portfolio":
 elif page == "market_index":
     back_button()
 
-    st.markdown("### 大盤指數")
-    st.divider()
-
-    _, col_refresh = st.columns([4, 1])
+    col_head, col_refresh = st.columns([4, 1])
+    with col_head:
+        st.markdown("### 大盤指數")
     with col_refresh:
         if st.button("重新整理", use_container_width=True):
             get_market_data.clear()
+            fetch_institutional_flow.clear()
+            fetch_index_history.clear()
             st.rerun()
     st.caption(f"最後更新：{datetime.now(tw_tz).strftime('%Y-%m-%d %H:%M')}")
+    st.divider()
 
-    for row_start in range(0, len(MARKET_TICKERS), 3):
-        for col, (label, ticker) in zip(st.columns(3), MARKET_TICKERS[row_start:row_start + 3]):
+    for group_name, tickers in MARKET_GROUPS:
+        st.markdown(f"##### {group_name}")
+        for row_start in range(0, len(tickers), 3):
+            chunk = tickers[row_start : row_start + 3]
+            cols = st.columns(3)
+            for col, (label, ticker) in zip(cols, chunk):
+                with col:
+                    with st.container(border=True):
+                        draw_compact_metric(label, ticker)
+        st.write("")
+
+    # ---------- 三大法人買賣超 ----------
+    st.markdown("##### 三大法人買賣超")
+    flow = fetch_institutional_flow()
+
+    if not flow:
+        st.caption("暫時取不到證交所法人資料。")
+    else:
+        f_cols = st.columns(4)
+        for col, key in zip(f_cols, ("外資", "投信", "自營商", "合計")):
+            value = flow.get(key, 0.0)
+            color = UP_COLOR if value >= 0 else DOWN_COLOR
+            arrow = "買超" if value >= 0 else "賣超"
             with col:
                 with st.container(border=True):
-                    draw_compact_metric(label, ticker)
+                    st.markdown(
+                        f"""
+                        <div style="text-align:center; padding:2px 0;">
+                            <div style="font-size:0.85rem; opacity:0.6; margin-bottom:2px;">{key}</div>
+                            <div style="font-size:1.6rem; font-weight:bold; color:{color};">
+                                {value:+,.1f}
+                            </div>
+                            <div style="font-size:0.8rem; opacity:0.6;">{arrow} 億元</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+        if flow.get("date"):
+            st.caption(f"資料日期：{flow['date']}（證交所每日收盤後更新）")
 
+    # ---------- 加權指數走勢 ----------
+    st.divider()
+    st.markdown("##### 台股加權指數走勢")
 
+    trend_period = st.selectbox(
+        "區間", ["1mo", "6mo", "1y", "5y"], index=2,
+        format_func=lambda p: {"1mo": "近一月", "6mo": "近半年", "1y": "近一年", "5y": "近五年"}[p],
+    )
+    twii = fetch_index_history("^TWII", trend_period)
 
-# ------------------------------------------------------------------
-# 股利報稅與綜合所得稅試算
-# ------------------------------------------------------------------
+    if twii.empty:
+        st.caption("暫時取不到加權指數歷史資料。")
+    else:
+        fig_twii = px.area(twii, x="date", y="close")
+        fig_twii.update_traces(line_color=UP_COLOR, fillcolor="rgba(255,75,75,0.12)")
+        fig_twii.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font_color=TEXT_COLOR,
+            xaxis_title="",
+            yaxis_title="",
+            margin=dict(t=10, b=10),
+            height=300,
+        )
+        st.plotly_chart(fig_twii, use_container_width=True, key="twii_trend")
+
+        first, last = float(twii["close"].iloc[0]), float(twii["close"].iloc[-1])
+        change_pct = (last / first - 1) * 100 if first else 0
+        t1, t2, t3 = st.columns(3)
+        t1.metric("區間漲跌", f"{change_pct:+.2f}%")
+        t2.metric("區間最高", f"{twii['close'].max():,.0f}")
+        t3.metric("區間最低", f"{twii['close'].min():,.0f}")
 elif page == "tax_calc":
     back_button()
 
