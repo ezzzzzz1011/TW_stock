@@ -40,7 +40,7 @@ st.set_page_config(
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / stock-auto-v7"
+APP_VERSION = "2026-09-16 / trim-ui-v8"
 
 # --- API 金鑰 ---------------------------------------------------------------
 # 建議改放 .streamlit/secrets.toml，例如：
@@ -1769,7 +1769,7 @@ if page == "welcome":
 
     preview = st.session_state.watchlist[:5]
     if not preview:
-        st.caption("還沒有關注任何標的，可以先到左側「我的關注清單」加入幾檔。")
+        st.caption("還沒有關注任何標的。")
     else:
         with st.spinner("讀取關注清單報價..."):
             quotes = fetch_many(preview, get_stock_info)
@@ -1916,10 +1916,7 @@ elif page == "watchlist":
             save_watchlist_to_cloud(st.session_state.current_user, st.session_state.watchlist)
             st.rerun()
 
-        st.caption(
-            f"共 {len(st.session_state.watchlist)} 檔｜📈 進入 ETF 分析、🗑️ 移除｜"
-            "報價快取 60 秒，可按「更新報價」強制重抓。"
-        )
+        st.caption(f"共 {len(st.session_state.watchlist)} 檔")
 
 # ------------------------------------------------------------------
 # 個股分析
@@ -1999,7 +1996,6 @@ elif page == "stock_query":
 
                 if not band.get("success"):
                     st.warning(f"⚠️ 無法自動估價：{band.get('msg', '原因不明')}")
-                    st.info("可以展開下方的「自訂本益比試算」手動輸入 EPS 與本益比。")
                 else:
                     for msg in band["warnings"]:
                         st.warning(f"⚠️ {msg}")
@@ -2116,16 +2112,12 @@ elif page == "stock_query":
                     st.plotly_chart(fig, use_container_width=True, key="pe_river")
 
                     st.caption(
-                        f"近 {band['years']} 年、{band['sample_days']} 個交易日。"
-                        "河道由 EPS 乘上各倍數而成，會隨獲利成長上移；"
-                        "股價貼近下緣代表相對便宜。此方法只適用獲利穩定或穩定成長的公司。"
+                        f"近 {band['years']} 年 · {band['sample_days']} 個交易日"
                     )
 
                 # ---------- 進階：手動試算 ----------
                 st.divider()
                 with st.expander("⚙️ 自訂本益比試算", expanded=not band.get("success")):
-                    st.caption("想自己假設條件時使用，例如「若市場只願意給 20 倍，股價會是多少」。")
-
                     default_eps = float(band["current_eps"]) if band.get("success") else 10.0
                     default_pe = float(round(band["pe_mid"], 1)) if band.get("success") else 15.0
 
@@ -2152,20 +2144,9 @@ elif page == "stock_query":
 
     with side_col:
         st.write("### 📖 說明")
-        st.caption("1. 輸入股票代碼即可，系統會自動抓取近四季 EPS。")
-        st.caption("2. 便宜／合理／昂貴價來自該股「自己的」歷史本益比分布。")
-        st.caption("3. 取樣年數可切換 3／5／10 年。")
+        st.caption("輸入代碼即可，系統自動抓取近四季 EPS 與歷史本益比。")
         st.divider()
-        st.info(
-            "為什麼不用固定 15 倍？\n\n"
-            "每檔股票市場願意給的本益比天差地遠，"
-            "台積電長年在 20～30 倍，傳產可能只有 10 倍。"
-            "用同一個數字套所有股票沒有意義。"
-        )
-        st.warning(
-            "⚠️ 本益比法不適用景氣循環股（航運、鋼鐵、記憶體）、"
-            "獲利不穩或虧損的公司。系統偵測到時會主動提醒。"
-        )
+        st.warning("⚠️ 不適用景氣循環股（航運、鋼鐵、記憶體）與獲利不穩的公司。")
 elif page == "etf_query":
     back_button()
 
@@ -2173,11 +2154,7 @@ elif page == "etf_query":
     main_col, side_col = st.columns([8, 4])
 
     with main_col:
-        st.markdown(
-            "### 🔍 查詢設定 <span style='font-size:1rem; opacity:0.6; font-weight:normal;'>"
-            "(最新配息日要等到入資料庫才能抓到)</span>",
-            unsafe_allow_html=True,
-        )
+        st.markdown("### 🔍 查詢設定")
         if "etf_symbol_input" not in st.session_state:
             st.session_state.etf_symbol_input = ""
 
@@ -2324,10 +2301,7 @@ elif page == "etf_query":
                     """,
                     unsafe_allow_html=True,
                 )
-                st.caption(
-                    f"※ 二代健保補充保費以費率 {NHI_RATE:.2%}、單次給付達 {NHI_THRESHOLD:,} 元起扣計算，"
-                    "費率與門檻若有調整請修改程式上方常數。"
-                )
+                st.caption(f"※ 二代健保：費率 {NHI_RATE:.2%}，單次給付達 {NHI_THRESHOLD:,} 元起扣")
 
                 st.divider()
                 st.subheader("🔮 存股未來財富試算")
@@ -2382,10 +2356,7 @@ elif page == "etf_query":
 
     with side_col:
         st.write("### 📖 說明")
-        st.caption("1. 輸入代號後點擊開始計算。")
-        st.caption("2. 手動輸入配息即可試算。")
-        st.divider()
-        st.success("系統正常運行中")
+        st.caption("輸入代號後點擊開始計算，配息欄位可手動修改。")
 
 # ------------------------------------------------------------------
 # ETF 對比
@@ -2692,10 +2663,7 @@ elif page == "portfolio":
                     st.success(
                         f"💰 這一波領息預計總入帳： **${filtered['預估入帳金額'].sum():,.0f}** 元"
                     )
-                    st.caption(
-                        f"※ 除息日以歷史配息頻率往未來推估，發放日再加 {DIV_PAY_LAG_DAYS} 天；"
-                        "標示「推估」者尚未公告，正確資料請以各上市櫃公司與股市公告為準。"
-                    )
+                    st.caption(f"※ 發放日以除息日加 {DIV_PAY_LAG_DAYS} 天推估，實際日期請以公告為準。")
 
 # ------------------------------------------------------------------
 # 大盤指數
@@ -2703,17 +2671,7 @@ elif page == "portfolio":
 elif page == "market_index":
     back_button()
 
-    st.markdown(
-        """
-        <h3 style='margin-top:10px; margin-bottom:0px;'>
-            大盤指數
-            <span style='font-size:0.75rem; opacity:0.6; font-weight:normal; margin-left:10px;'>
-                (有些數值會有些許誤差)
-            </span>
-        </h3>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown("### 🌐 大盤指數")
     st.divider()
 
     _, col_refresh = st.columns([4, 1])
@@ -2721,7 +2679,7 @@ elif page == "market_index":
         if st.button("🔄 重新整理", use_container_width=True):
             get_market_data.clear()
             st.rerun()
-    st.caption(f"最後更新：{datetime.now(tw_tz).strftime('%Y-%m-%d %H:%M')}（資料快取 5 分鐘）")
+    st.caption(f"最後更新：{datetime.now(tw_tz).strftime('%Y-%m-%d %H:%M')}")
 
     for row_start in range(0, len(MARKET_TICKERS), 3):
         for col, (label, ticker) in zip(st.columns(3), MARKET_TICKERS[row_start:row_start + 3]):
@@ -2729,10 +2687,7 @@ elif page == "market_index":
                 with st.container(border=True):
                     draw_compact_metric(label, ticker)
 
-    st.caption(
-        "※ 台指期在 Yahoo 的資料時有時無，系統會依序改試 TWF=F 與加權指數；"
-        "若仍顯示暫無資料，代表三個來源當下都沒有報價。"
-    )
+
 
 # ------------------------------------------------------------------
 # 股利報稅與綜合所得稅試算
@@ -2803,7 +2758,7 @@ elif page == "tax_calc":
 
         st.divider()
         st.markdown("#### 🌟 第三部分：特別扣除額")
-        st.caption("以下按「人數」計算的項目，請直接輸入符合資格的【人數】，系統會自動乘上對應額度。")
+        st.caption("以下請輸入符合資格的【人數】，系統自動乘上對應額度。")
         c4, c5, c6 = st.columns(3)
         with c4:
             saving_deduction = st.number_input(
@@ -2988,7 +2943,6 @@ elif page == "tax_calc":
         col_chart_a, col_result_a = st.columns([1.2, 1])
         with col_chart_a:
             st.markdown(f"### 📊 {tax_year}年度綜合所得稅級距表")
-            st.caption("根據您輸入的資料，系統會自動對應下表計算：")
             st.table(tax_table_data)
 
         with col_result_a:
@@ -3075,7 +3029,6 @@ elif page == "tax_calc":
         col_chart_b, col_result_b = st.columns([1.2, 1])
         with col_chart_b:
             st.markdown(f"### 📊 {tax_year}年度綜合所得稅級距表")
-            st.caption("根據您輸入的資料，系統會自動對應下表計算：")
             st.table(tax_table_data)
 
         with col_result_b:
