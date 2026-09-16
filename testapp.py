@@ -39,6 +39,9 @@ st.set_page_config(
 )
 tw_tz = pytz.timezone("Asia/Taipei")
 
+# 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
+APP_VERSION = "2026-09-16 / pe-river-v3"
+
 # --- API 金鑰 ---------------------------------------------------------------
 # 建議改放 .streamlit/secrets.toml，例如：
 #   FUGLE_TOKEN = st.secrets["fugle"]["token"]
@@ -1141,22 +1144,33 @@ def fetch_price_history(symbol, years=5):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def analyze_pe_band(symbol, years=5):
-    """算出該股歷史本益比分布與對應的三段價位。"""
+    """
+    算出該股歷史本益比分布與對應的三段價位。
+    注意：所有回傳路徑都必須帶 symbol，畫面是靠它判斷要不要顯示，
+    漏掉的話失敗訊息會被靜靜吞掉，看起來就像「按了沒反應」。
+    """
+    code = clean_code(symbol)
+
+    def fail(msg):
+        return {"success": False, "symbol": code, "msg": msg}
+
     quarters, error = fetch_quarterly_financials(symbol)
     if len(quarters) < 5:
-        detail = f"（{error}）" if error else ""
-        return {
-            "success": False,
-            "msg": f"季度財報不足（需至少 5 季才能滾出近四季序列）{detail}",
-        }
+        detail = f"：{error}" if error else ""
+        return fail(
+            f"只取得 {len(quarters)} 季財報，需至少 5 季才能滾出近四季序列{detail}"
+        )
 
     points = build_ttm_eps_series(quarters)
     if not points:
-        return {"success": False, "msg": "無法建立近四季 EPS 序列。"}
+        return fail("無法建立近四季 EPS 序列（財報日期格式異常）。")
 
     prices = fetch_price_history(symbol, years)
     if prices.empty:
-        return {"success": False, "msg": "查無歷史股價，無法計算歷史本益比。"}
+        return fail(
+            f"查無 {code} 的歷史股價（yfinance 的 .TW 與 .TWO 都抓不到），"
+            "無法計算歷史本益比。"
+        )
 
     eps_df = pd.DataFrame(points, columns=["date", "eps"])
     eps_df["date"] = _normalize_dates(eps_df["date"])
@@ -1169,14 +1183,14 @@ def analyze_pe_band(symbol, years=5):
     try:
         merged = pd.merge_asof(prices, eps_df, on="date", direction="backward").dropna()
     except Exception as e:
-        print(f"[pe_band] merge 失敗 {symbol}: {e}")
-        return {"success": False, "msg": f"歷史資料對齊失敗：{e}"}
+        print(f"[pe_band] merge 失敗 {code}: {e}")
+        return fail(f"歷史資料對齊失敗：{e}")
     merged = merged[merged["eps"] > 0].copy()
     if len(merged) < 120:
-        return {
-            "success": False,
-            "msg": "可用的歷史本益比樣本太少（可能近年曾虧損或上市未滿一年）。",
-        }
+        return fail(
+            f"可用的歷史本益比樣本只有 {len(merged)} 筆（需至少 120 筆）。"
+            "可能近年曾虧損、上市未滿一年，或財報與股價期間重疊不足。"
+        )
 
     merged["pe"] = merged["close"] / merged["eps"]
     # 去掉極端離群值，避免財報空窗期的失真把區間拉爛
@@ -1207,7 +1221,7 @@ def analyze_pe_band(symbol, years=5):
 
     return {
         "success": True,
-        "symbol": clean_code(symbol),
+        "symbol": code,
         "pe_low": pe_low,
         "pe_mid": pe_mid,
         "pe_high": pe_high,
@@ -1659,6 +1673,7 @@ with st.sidebar:
     st.markdown("<br>", unsafe_allow_html=True)
 
     with st.expander("🔧 資料來源診斷", expanded=False):
+        st.caption(f"程式版本：{APP_VERSION}")
         st.caption(f"FinMind token 來源：{FINMIND_TOKEN_SOURCE}")
         if st.button("測試 FinMind 連線", use_container_width=True, key="diag_finmind"):
             try:
@@ -2050,13 +2065,24 @@ elif page == "stock_query":
                     st.write("")
                     if st.button("📈 分析歷史本益比區間", use_container_width=True, type="primary"):
                         with st.spinner("計算歷史本益比中..."):
-                            st.session_state.pe_band = analyze_pe_band(stock_code, band_years)
+                            try:
+                                st.session_state.pe_band = analyze_pe_band(
+                                    stock_code, band_years
+                                )
+                            except Exception as e:
+                                st.session_state.pe_band = {
+                                    "success": False,
+                                    "symbol": clean_code(stock_code),
+                                    "msg": f"分析過程發生錯誤：{e}",
+                                }
                         st.rerun()
 
                 band = st.session_state.get("pe_band")
-                if band and band.get("symbol") == clean_code(stock_code):
-                    if not band["success"]:
-                        st.warning(f"⚠️ {band['msg']}")
+                if band and band.get("symbol") != clean_code(stock_code):
+                    st.caption("（上次分析的是別檔股票，請重新點一次上方按鈕。）")
+                elif band:
+                    if not band.get("success"):
+                        st.warning(f"⚠️ {band.get('msg', '分析失敗，原因不明。')}")
                     else:
                         for msg in band["warnings"]:
                             st.warning(f"⚠️ {msg}")
