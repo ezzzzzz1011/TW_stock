@@ -40,7 +40,7 @@ st.set_page_config(
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / pe-river-v5"
+APP_VERSION = "2026-09-16 / pe-river-v6"
 
 # --- API 金鑰 ---------------------------------------------------------------
 # 建議改放 .streamlit/secrets.toml，例如：
@@ -487,21 +487,37 @@ def ensure_worksheet(spreadsheet, title, header, rows="1000", cols="4"):
         return ws, True
 
 
-try:
+@st.cache_resource(show_spinner=False)
+def init_workbook():
+    """
+    開啟試算表並取得各工作表，整個流程只做一次。
+    這段原本寫在模組層級，Streamlit 每次 rerun 都會重跑，等於每點一下就打
+    Google API 四次；Sheets 的讀取上限是每分鐘 60 次／使用者，很容易觸發 429。
+    """
     conn = init_connection()
     sh = conn.open("streamlit_db")
 
-    user_sheet, users_created = ensure_worksheet(
+    users, created = ensure_worksheet(
         sh, "users", ["username", "password"], rows="500", cols="2"
     )
-    if users_created:
-        user_sheet.append_row(["admin", "8888"])
+    if created:
+        users.append_row(["admin", "8888"])
 
-    portfolio_sheet, _ = ensure_worksheet(sh, "portfolios", ["username", "data_json"], cols="2")
-    watchlist_sheet, _ = ensure_worksheet(sh, "watchlist", ["username", "codes"], cols="2")
+    portfolios, _ = ensure_worksheet(sh, "portfolios", ["username", "data_json"], cols="2")
+    watchlist, _ = ensure_worksheet(sh, "watchlist", ["username", "codes"], cols="2")
+    return sh, users, portfolios, watchlist
 
+
+try:
+    sh, user_sheet, portfolio_sheet, watchlist_sheet = init_workbook()
 except Exception as e:
-    st.error(f"❌ 雲端資料庫連線失敗：{e}")
+    msg = str(e)
+    st.error(f"❌ 雲端資料庫連線失敗：{msg}")
+    if "429" in msg or "Quota exceeded" in msg:
+        st.info(
+            "這是 Google Sheets 的每分鐘讀取上限（60 次／使用者）。"
+            "請等約一分鐘後重新整理頁面即可恢復。"
+        )
     st.stop()
 
 
@@ -859,8 +875,12 @@ def _normalize_date(raw):
         return None
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
 def fetch_dividend_history_super(symbol):
+    return _fetch_dividend_history_super(symbol, FINMIND_TOKEN)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _fetch_dividend_history_super(symbol, token):
     """三引擎備援抓配息歷史，去重後由新到舊排序。快取一天。"""
     code = clean_code(symbol)
     if not code:
@@ -889,8 +909,13 @@ def fetch_dividend_history_super(symbol):
     )
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
 def fetch_quarterly_financials(symbol):
+    """把 token 一起當成快取鍵，token 換掉時舊的失敗結果才不會被沿用。"""
+    return _fetch_quarterly_financials(symbol, FINMIND_TOKEN)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _fetch_quarterly_financials(symbol, token):
     """
     抓綜合損益表的單季 EPS 與稅後淨利，由新到舊排序。快取一天。
     回傳 (資料列表, 錯誤訊息)；成功時錯誤訊息為 None。
@@ -907,7 +932,7 @@ def fetch_quarterly_financials(symbol):
                 "dataset": "TaiwanStockFinancialStatements",
                 "data_id": code,
                 "start_date": start,
-                "token": FINMIND_TOKEN,
+                "token": token,
             },
             timeout=HTTP_TIMEOUT,
         )
@@ -1714,6 +1739,10 @@ with st.sidebar:
                     st.error(f"❌ {payload.get('msg') or '無回傳訊息'}")
             except Exception as e:
                 st.error(f"❌ {e}")
+
+        if st.button("🧹 清除資料快取", use_container_width=True, key="diag_clear"):
+            st.cache_data.clear()
+            st.success("已清除，請重新查詢一次。")
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.caption("⚠️ 本系統數據僅供參考，不構成投資建議，投資人請審慎評估風險並自負盈虧。")
