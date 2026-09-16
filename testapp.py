@@ -16,9 +16,11 @@ import streamlit as st
 import common          # noqa: F401  (import 時即完成 set_page_config)
 import pages
 
-common.inject_css()
-
 # --- Session 狀態 ---
+# 這些必須每次 rerun 都檢查。模組只會 import 一次，把初始化寫在 common.py
+# 的模組層級，新開的 session 就不會被初始化到。
+common.init_theme()
+
 for _key, _default in [
     ("logged_in", False),
     ("current_user", None),
@@ -29,6 +31,8 @@ for _key, _default in [
 ]:
     if _key not in st.session_state:
         st.session_state[_key] = _default
+
+common.inject_css()
 
 # --- 未登入就停在登入頁 ---
 if not st.session_state.logged_in:
