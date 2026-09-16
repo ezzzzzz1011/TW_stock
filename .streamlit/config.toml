@@ -1,0 +1,11 @@
+# 讓 Streamlit 預設就用深色底，避免載入瞬間閃一下白畫面
+# 放在專案根目錄的 .streamlit/config.toml
+[theme]
+base = "dark"
+primaryColor = "#ff4b4b"
+backgroundColor = "#0e1117"
+secondaryBackgroundColor = "#1e1e28"
+textColor = "#FAFAFA"
+
+[client]
+toolbarMode = "minimal"
