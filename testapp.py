@@ -52,6 +52,7 @@ FEE_RATE = 0.001425          # 券商手續費率
 NHI_RATE = 0.0211            # 二代健保補充保費費率
 NHI_THRESHOLD = 20_000       # 單次給付起扣門檻
 DIV_PAY_LAG_DAYS = 28        # 除息日 → 發放日的推估天數
+FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 HTTP_TIMEOUT = 5
 MAX_WORKERS = 8              # 批次查詢的並行數
 
@@ -716,7 +717,7 @@ def _finmind_dividends(code):
     """引擎 1：FinMind。網域為 api.finmindtrade.com，路徑含 /api。"""
     try:
         res = requests.get(
-            "https://api.finmindtrade.com/api/v4/data",
+            FINMIND_URL,
             params={
                 "dataset": "TaiwanStockDividend",
                 "data_id": code,
@@ -869,6 +870,114 @@ def fetch_dividend_history_super(symbol):
         key=lambda x: x["date"],
         reverse=True,
     )
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_quarterly_financials(symbol):
+    """抓綜合損益表的單季 EPS 與稅後淨利，由新到舊排序。快取一天。"""
+    code = clean_code(symbol)
+    if not code:
+        return []
+
+    start = (datetime.now() - timedelta(days=900)).strftime("%Y-%m-%d")
+    try:
+        res = requests.get(
+            FINMIND_URL,
+            params={
+                "dataset": "TaiwanStockFinancialStatements",
+                "data_id": code,
+                "start_date": start,
+                "token": FINMIND_TOKEN,
+            },
+            timeout=HTTP_TIMEOUT,
+        )
+        payload = res.json()
+    except Exception as e:
+        print(f"[financials] {code}: {e}")
+        return []
+
+    if payload.get("msg") != "success" or not payload.get("data"):
+        return []
+
+    by_date = {}
+    for item in payload["data"]:
+        kind = item.get("type")
+        if kind not in ("EPS", "IncomeAfterTaxes"):
+            continue
+        date = str(item.get("date"))[:10]
+        try:
+            by_date.setdefault(date, {})[kind] = float(item.get("value"))
+        except (TypeError, ValueError):
+            continue
+
+    rows = [
+        {"date": d, "eps": v.get("EPS"), "net_income": v.get("IncomeAfterTaxes")}
+        for d, v in by_date.items()
+        if v.get("EPS") is not None
+    ]
+    return sorted(rows, key=lambda x: x["date"], reverse=True)
+
+
+def quarter_label(date_str):
+    """2025-09-30 -> 2025Q3"""
+    try:
+        year, month, _ = date_str.split("-")
+        return f"{year}Q{(int(month) - 1) // 3 + 1}"
+    except Exception:
+        return date_str
+
+
+def get_ttm_eps(symbol):
+    """
+    計算近四季 EPS。
+
+    重點：不能直接把四季 EPS 相加。公司配股／增資後，新財報會把舊季 EPS 追溯
+    調整，但 API 給的舊季數值仍是當初的原始值，直接相加會高估。
+    依 FinMind 官方建議，改用「四季稅後淨利加總 ÷ 同一個加權平均股數」。
+    """
+    rows = fetch_quarterly_financials(symbol)
+    if not rows:
+        return {
+            "success": False,
+            "msg": "查無財報資料。ETF、部分 KY 股與興櫃股票沒有 EPS，請手動輸入。",
+        }
+
+    quarters = rows[:4]
+    if len(quarters) < 4:
+        return {
+            "success": False,
+            "msg": f"只取得 {len(quarters)} 季財報（最新一季可能尚未公布），不足四季無法計算。",
+            "quarters": quarters,
+        }
+
+    naive_sum = sum(q["eps"] for q in quarters)
+    latest = quarters[0]
+
+    # 用最新一季反推加權平均股數（已是追溯調整後的股數）
+    shares = None
+    if latest.get("net_income") and abs(latest["eps"]) > 0.01:
+        candidate = latest["net_income"] / latest["eps"]
+        if candidate > 0:
+            shares = candidate
+
+    if shares and all(q.get("net_income") is not None for q in quarters):
+        ttm_eps = sum(q["net_income"] for q in quarters) / shares
+        method = "以四季稅後淨利還原（已處理配股追溯調整）"
+    else:
+        ttm_eps = naive_sum
+        method = "查無稅後淨利，改以四季 EPS 直接加總"
+
+    gap = abs(ttm_eps - naive_sum)
+    return {
+        "success": True,
+        "symbol": clean_code(symbol),
+        "ttm_eps": round(ttm_eps, 2),
+        "naive_sum": round(naive_sum, 2),
+        "adjusted": gap > max(0.02, abs(naive_sum) * 0.01),
+        "method": method,
+        "quarters": quarters,
+        "period": f"{quarter_label(quarters[-1]['date'])} ~ {quarter_label(quarters[0]['date'])}",
+    }
 
 
 def infer_frequency(data_list):
@@ -1067,29 +1176,60 @@ MARKET_TICKERS = [
 ]
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def get_market_data(ticker):
+# 有些代碼在 Yahoo 上資料時有時無（台指期尤其嚴重），依序往下試。
+MARKET_TICKER_FALLBACKS = {
+    "WTX=F": ["WTX=F", "TWF=F", "^TWII"],
+}
+
+
+def _fetch_quote(ticker):
+    """先用 fast_info，失敗再退回近五日收盤價。回傳 (現價, 漲跌) 或 (None, None)。"""
     try:
         fast = yf.Ticker(ticker).fast_info
         current_p = float(fast["last_price"])
         prev_p = float(fast["previous_close"])
+        if current_p > 0 and prev_p > 0:
+            return current_p, prev_p
+    except Exception as e:
+        print(f"[market:fast] {ticker}: {e}")
+
+    try:
+        hist = yf.Ticker(ticker).history(period="5d")
+        closes = hist["Close"].dropna()
+        if len(closes) >= 2:
+            return float(closes.iloc[-1]), float(closes.iloc[-2])
+    except Exception as e:
+        print(f"[market:hist] {ticker}: {e}")
+
+    return None, None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_market_data(ticker):
+    for candidate in MARKET_TICKER_FALLBACKS.get(ticker, [ticker]):
+        current_p, prev_p = _fetch_quote(candidate)
+        if current_p is None:
+            continue
+
         # ^TNX 在部分 yfinance 版本回傳 42.5 (需 /10)，部分回傳 4.25，這裡自動判斷。
         if ticker == "^TNX" and current_p > 20:
             current_p /= 10
             prev_p /= 10
+
         change = current_p - prev_p
         pct = (change / prev_p) * 100 if prev_p else 0
+        if candidate != ticker:
+            print(f"[market] {ticker} 無資料，改用 {candidate}")
         return current_p, change, pct
-    except Exception as e:
-        print(f"[market] {ticker}: {e}")
-        return None, None, None
+
+    return None, None, None
 
 
 def format_market_value(ticker_code, p, c):
     if ticker_code == "^TNX":
         return f"{p:.3f}%", f"{c:+.3f}"
     if ticker_code == "WTX=F":
-        return f"{p:,.0f}", f"{c:+.0f}"
+        return f"{p:,.0f}", f"{c:+.0f}" if abs(c) >= 1 else f"{c:+.2f}"
     return f"{p:,.2f}", f"{c:+.2f}"
 
 
@@ -1183,7 +1323,7 @@ with st.sidebar:
         for k in ("logged_in", "current_user", "portfolio", "watchlist", "data"):
             st.session_state[k] = False if k == "logged_in" else None
         # 一併清掉殘留的元件狀態，避免下一位使用者看到上一位的資料
-        for k in ("etf_symbol_input", "portfolio_editor"):
+        for k in ("etf_symbol_input", "portfolio_editor", "eps_input", "pe_input", "eps_detail"):
             st.session_state.pop(k, None)
         st.session_state.page = "welcome"
         st.rerun()
@@ -1381,11 +1521,64 @@ elif page == "stock_query":
     with main_col:
         stock_code = st.text_input("請輸入台股代碼 (例如: 2330)")
 
+        st.session_state.setdefault("eps_input", 10.0)
+        st.session_state.setdefault("pe_input", 15.0)
+        st.session_state.setdefault("eps_detail", None)
+
         col_eps, col_pe = st.columns(2)
         with col_eps:
-            eps = st.number_input("輸入該股 EPS (4季累積)", min_value=0.01, step=0.1, value=10.0)
+            eps = st.number_input("該股 EPS (近4季累積)", min_value=0.01, step=0.1, key="eps_input")
         with col_pe:
-            pe_target = st.number_input("自訂參考本益比 (PE)", value=15.0, step=0.1)
+            pe_target = st.number_input("自訂參考本益比 (PE)", step=0.1, key="pe_input")
+
+        col_auto, _ = st.columns([2, 3])
+        with col_auto:
+            if st.button("🔄 自動帶入近四季 EPS", use_container_width=True):
+                if not stock_code:
+                    st.warning("請先輸入股票代碼。")
+                else:
+                    with st.spinner("讀取財報中..."):
+                        result = get_ttm_eps(stock_code)
+                    if not result["success"]:
+                        st.session_state.eps_detail = None
+                        st.warning(f"⚠️ {result['msg']}")
+                    elif result["ttm_eps"] <= 0:
+                        st.session_state.eps_detail = result
+                        st.warning(
+                            f"⚠️ 近四季 EPS 為 {result['ttm_eps']:.2f}（虧損），"
+                            "本益比法不適用，請改用其他估價方式。"
+                        )
+                    else:
+                        st.session_state.eps_input = float(result["ttm_eps"])
+                        st.session_state.eps_detail = result
+                        st.rerun()
+
+        detail = st.session_state.eps_detail
+        if detail and detail.get("symbol") == clean_code(stock_code):
+            with st.expander(f"📄 財報明細（{detail['period']}）", expanded=False):
+                st.caption(detail["method"])
+                q_df = pd.DataFrame(
+                    [
+                        {
+                            "季別": quarter_label(q["date"]),
+                            "財報日期": q["date"],
+                            "單季 EPS": round(q["eps"], 2),
+                            "稅後淨利 (千元)": (
+                                f"{q['net_income']:,.0f}" if q.get("net_income") is not None else "－"
+                            ),
+                        }
+                        for q in detail["quarters"]
+                    ]
+                )
+                st.dataframe(q_df, use_container_width=True, hide_index=True)
+
+                if detail["adjusted"]:
+                    st.info(
+                        f"ℹ️ 此檔期間內有配股／增資。四季 EPS 直接相加為 "
+                        f"**{detail['naive_sum']:.2f}**，還原加權平均股數後為 "
+                        f"**{detail['ttm_eps']:.2f}**，系統採用後者。"
+                    )
+                st.caption("※ 數值若與券商 App 有出入，以公開資訊觀測站財報為準，可手動修改上方欄位。")
 
         st.divider()
 
@@ -2018,7 +2211,10 @@ elif page == "market_index":
                 with st.container(border=True):
                     draw_compact_metric(label, ticker)
 
-    st.caption("※ 台指期代碼在 yfinance 偶有變動，若 WTX=F 抓不到可改試 TWF=F。")
+    st.caption(
+        "※ 台指期在 Yahoo 的資料時有時無，系統會依序改試 TWF=F 與加權指數；"
+        "若仍顯示暫無資料，代表三個來源當下都沒有報價。"
+    )
 
 # ------------------------------------------------------------------
 # 股利報稅與綜合所得稅試算
