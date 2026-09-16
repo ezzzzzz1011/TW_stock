@@ -44,13 +44,12 @@ tw_tz = pytz.timezone("Asia/Taipei")
 #   FUGLE_TOKEN = st.secrets["fugle"]["token"]
 FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
 # FinMind token（帳號 ezzzz，永久期限）。
-# 這串是照網頁畫面填入的，若簽章段有一個字元讀錯就會驗證失敗，
-# 請對照 finmindtrade.com 會員頁再確認一次。
+# 這串已由使用者直接提供並核對過。
 # 也可以改放 Secrets，設定後會自動覆寫下面的預設值，不必改程式碼：
 #   [finmind]
 #   token = "你的token"
 _FINMIND_TOKEN_FALLBACK = (
-    "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiZXp6enoiLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSIsInRva2VuX3ZlcnNpb24iOjB9.pssoltruEUZW9pmCPkF1n6Ec12oWHyBLFyrSlH1vO9Y"
+    "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiZXp6enoiLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSIsInRva2VuX3ZlcnNpb24iOjB9.pssoItruEUZW9pmCPkF1n6Ec12oWHyBLFyrSlH1vO9Y"
 )
 try:
     _secret_token = st.secrets.get("finmind", {}).get("token")
@@ -2844,4 +2843,3 @@ else:
     st.warning("找不到這個頁面，請從左側選單重新選擇。")
     if st.button("回到首頁"):
         go_to("welcome")
-    
