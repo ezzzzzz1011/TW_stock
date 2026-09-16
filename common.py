@@ -23,7 +23,7 @@ def setup_page():
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / layout-fix-v23"
+APP_VERSION = "2026-09-16 / token-check-v24"
 
 FEE_RATE = 0.001425          # 券商手續費率
 NHI_RATE = 0.0211            # 二代健保補充保費費率
