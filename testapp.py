@@ -40,7 +40,7 @@ st.set_page_config(
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / pe-river-v3"
+APP_VERSION = "2026-09-16 / pe-river-v5"
 
 # --- API 金鑰 ---------------------------------------------------------------
 # 建議改放 .streamlit/secrets.toml，例如：
@@ -52,7 +52,7 @@ FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjY
 #   [finmind]
 #   token = "你的token"
 _FINMIND_TOKEN_FALLBACK = (
-    "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiZXp6enoiLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSIsInRva2VuX3ZlcnNpb24iOjB9.pssoItruEUZW9pmCPkF1n6Ec12oWHyBLFyrSlH1vO9Y"
+    "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiZXp6enoiLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSIsInRva2VuX3ZlcnNpb24iOjF9.-gtBtgcSm3zEgFfrjD1dy83HWlObeLssgyxH_q9b8Fc"
 )
 try:
     _secret_token = st.secrets.get("finmind", {}).get("token")
@@ -1611,6 +1611,26 @@ def greeting():
     return "晚安"
 
 
+def bottom_columns(spec):
+    """
+    回傳底部對齊的欄位。
+    有標籤的元件（selectbox）比沒標籤的（button）高一截，直接並排會一高一低。
+    新版 Streamlit 支援 vertical_alignment，舊版則退回手動墊高。
+    """
+    try:
+        return st.columns(spec, vertical_alignment="bottom"), False
+    except TypeError:
+        return st.columns(spec), True
+
+
+def label_spacer():
+    """模擬一行標籤的高度，讓沒有標籤的元件跟旁邊對齊。"""
+    st.markdown(
+        "<div style='height:1.6rem; margin-bottom:0.25rem;'></div>",
+        unsafe_allow_html=True,
+    )
+
+
 def go_to(page_name):
     st.session_state.page = page_name
     st.rerun()
@@ -2002,11 +2022,10 @@ elif page == "stock_query":
             else:
                 current_price = info["price"]
 
-                col_title, col_btn = st.columns([3, 1])
+                (col_title, col_btn), _ = bottom_columns([3, 1])
                 with col_title:
                     st.markdown(f"## {info['name']}")
                 with col_btn:
-                    st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                     st.link_button(
                         "🌐 找公司官網",
                         f"https://www.google.com/search?q={info['name']}+公司官網",
@@ -2058,11 +2077,12 @@ elif page == "stock_query":
                     "「自己的」歷史本益比分布，推算便宜／合理／昂貴價。"
                 )
 
-                col_band, col_years = st.columns([2, 1])
+                (col_band, col_years), need_spacer = bottom_columns([2, 1])
                 with col_years:
                     band_years = st.selectbox("取樣年數", [3, 5, 10], index=1)
                 with col_band:
-                    st.write("")
+                    if need_spacer:
+                        label_spacer()
                     if st.button("📈 分析歷史本益比區間", use_container_width=True, type="primary"):
                         with st.spinner("計算歷史本益比中..."):
                             try:
@@ -2192,12 +2212,12 @@ elif page == "etf_query":
 
         # 包成 form，在代號欄按 Enter 就會直接查詢
         with st.form("etf_query_form"):
-            input_c1, input_c2 = st.columns([3, 1])
+            (input_c1, input_c2), need_spacer = bottom_columns([3, 1])
             with input_c1:
                 st.text_input("ETF 代號", key="etf_symbol_input", placeholder="例如: 00919")
             with input_c2:
-                st.write("")
-                st.write("")
+                if need_spacer:
+                    label_spacer()
                 etf_submitted = st.form_submit_button(
                     "開始計算", type="primary", use_container_width=True
                 )
