@@ -127,7 +127,7 @@ def login_ui():
 
     _, col_theme, _ = st.columns([1, 1.2, 1])
     with col_theme:
-        btn_label = "切換淺色模式" if st.session_state.theme == "dark" else "切換深色模式"
+        btn_label = "切換淺色模式" if common.current_theme() == "dark" else "切換深色模式"
         if st.button(btn_label, use_container_width=True, key="login_theme_toggle"):
             toggle_theme()
             st.rerun()
@@ -209,7 +209,7 @@ def render():
 
         st.markdown(f"<hr style='margin:10px 0; border-color:{BORDER_COLOR};'>", unsafe_allow_html=True)
 
-        theme_btn_label = "切換淺色模式" if st.session_state.theme == "dark" else "切換深色模式"
+        theme_btn_label = "切換淺色模式" if common.current_theme() == "dark" else "切換深色模式"
         if st.button(theme_btn_label, use_container_width=True):
             toggle_theme()
             st.rerun()
