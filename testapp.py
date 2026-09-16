@@ -40,7 +40,7 @@ st.set_page_config(
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / market-v17"
+APP_VERSION = "2026-09-16 / market-v18"
 
 # --- API 金鑰 ---------------------------------------------------------------
 # 建議改放 .streamlit/secrets.toml，例如：
@@ -1546,7 +1546,7 @@ def generate_user_calendar():
 # 分組顯示。台指期 WTX=F / TWF=F 在 Yahoo 長期抓不到，備援會退回加權指數
 # 導致兩格數字完全一樣，因此拿掉。
 MARKET_GROUPS = [
-    ("台股", [("台股加權", "^TWII"), ("櫃買指數", "^TWOII")]),
+    ("台股", [("台股加權", "^TWII")]),
     (
         "美股（前一交易日收盤）",
         [
@@ -1570,44 +1570,83 @@ MARKET_GROUPS = [
 
 
 # 有些代碼在 Yahoo 上資料時有時無（台指期尤其嚴重），依序往下試。
-MARKET_TICKER_FALLBACKS = {
-    # 櫃買指數在 Yahoo 的代碼不太一致，依序試
-    "^TWOII": ["^TWOII", "^OTCI", "^TWO"],
-}
+# yfinance 打的是美國 Yahoo Finance API，台灣的櫃買指數只存在於 Yahoo 奇摩股市，
+# 國際版沒有這檔資料，所以拿不到；台股區改以「成交金額」呈現市場熱度。
+MARKET_TICKER_FALLBACKS = {}
 
-# 櫃買中心官方 OpenAPI（免驗證），Yahoo 全掛時的最後備援
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_tpex_index():
-    """從櫃買中心取得櫃買指數現值與漲跌。"""
-    for url in (
-        "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_index",
-        "https://www.tpex.org.tw/openapi/v1/index_summary",
-    ):
-        try:
-            rows = requests.get(url, headers=UA_HEADER, timeout=HTTP_TIMEOUT).json()
-        except Exception as e:
-            print(f"[tpex_index] {url}: {e}")
-            continue
 
-        if isinstance(rows, dict):
-            rows = [rows]
-        for row in rows or []:
-            close = _pick_field(row, "ClosingIndex", "收盤指數", "Close", "IndexClose")
-            change = _pick_field(row, "Change", "漲跌", "UpDown")
+TWSE_FMTQIK_URLS = [
+    "https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK?date={d}&response=json",
+    "https://www.twse.com.tw/exchangeReport/FMTQIK?date={d}&response=json",
+]
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_market_turnover():
+    """
+    證交所每日市場成交資訊（與三大法人同一組端點，已驗證可用）。
+    回傳 (今日成交金額億元, 較前一日變化億元, 變化百分比, 日期)。
+    """
+    today = datetime.now(tw_tz).date()
+    first_of_month = today.replace(day=1)
+    candidates = [today, first_of_month - timedelta(days=1)]   # 本月，月初時補上月
+
+    for day_obj in candidates:
+        day = day_obj.strftime("%Y%m%d")
+        for template in TWSE_FMTQIK_URLS:
             try:
-                close_f = float(str(close).replace(",", ""))
-                change_f = float(str(change).replace(",", "").replace("+", ""))
-            except (TypeError, ValueError):
+                res = requests.get(
+                    template.format(d=day), headers=UA_HEADER, timeout=HTTP_TIMEOUT
+                )
+                if res.status_code != 200:
+                    continue
+                payload = res.json()
+            except Exception as e:
+                print(f"[turnover] {day}: {e}")
                 continue
-            if close_f > 0:
-                prev = close_f - change_f
-                pct = (change_f / prev * 100) if prev else 0
-                return close_f, change_f, pct
-    return None, None, None
+
+            if not isinstance(payload, dict) or payload.get("stat") != "OK":
+                continue
+
+            fields = [str(f) for f in (payload.get("fields") or [])]
+            rows = payload.get("data") or []
+            if len(rows) < 1:
+                continue
+            try:
+                amt_idx = next(i for i, f in enumerate(fields) if "成交金額" in f)
+                date_idx = next(i for i, f in enumerate(fields) if "日期" in f)
+            except StopIteration:
+                continue
+
+            def to_num(row):
+                try:
+                    return float(str(row[amt_idx]).replace(",", ""))
+                except (TypeError, ValueError, IndexError):
+                    return None
+
+            values = [(r, to_num(r)) for r in rows]
+            values = [(r, v) for r, v in values if v is not None]
+            if not values:
+                continue
+
+            last_row, last_val = values[-1]
+            prev_val = values[-2][1] if len(values) >= 2 else None
+
+            amount = last_val / 1e8                      # 元 -> 億元
+            if prev_val:
+                change = (last_val - prev_val) / 1e8
+                pct = (last_val / prev_val - 1) * 100
+            else:
+                change, pct = 0.0, 0.0
+
+            date_txt = str(last_row[date_idx]) if date_idx < len(last_row) else ""
+            return amount, change, pct, date_txt
+
+    return None, None, None, ""
 
 
 def _fetch_quote(ticker):
-    """先用 fast_info，失敗再退回近五日收盤價。回傳 (現價, 漲跌) 或 (None, None)。"""
+    """先用 fast_info，失敗再退回近五日收盤價。回傳 (現價, 前收) 或 (None, None)。"""
     try:
         fast = yf.Ticker(ticker).fast_info
         current_p = float(fast["last_price"])
@@ -1645,10 +1684,6 @@ def get_market_data(ticker):
         if candidate != ticker:
             print(f"[market] {ticker} 無資料，改用 {candidate}")
         return current_p, change, pct
-
-    # Yahoo 全掛時，櫃買指數改走櫃買中心官方 API
-    if ticker == "^TWOII":
-        return fetch_tpex_index()
 
     return None, None, None
 
@@ -1818,6 +1853,37 @@ def fetch_index_history(ticker, period="1y"):
     except Exception as e:
         print(f"[index_history] {ticker}: {e}")
         return pd.DataFrame(columns=["date", "close"])
+
+
+def draw_turnover_card():
+    """成交金額卡片，樣式與其他指數卡一致。"""
+    amount, change, pct, date_txt = fetch_market_turnover()
+    if amount is None:
+        st.markdown(
+            "<div style='text-align:center; opacity:0.5; padding:12px 0;'>"
+            "成交金額<br>暫無資料</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    color = UP_COLOR if change >= 0 else DOWN_COLOR
+    arrow = "▲" if change >= 0 else "▼"
+    st.markdown(
+        f"""
+        <div style="text-align:center; padding:2px 0;">
+            <div style="font-size:0.85rem; opacity:0.6; margin-bottom:2px;">
+                成交金額（億元）
+            </div>
+            <div style="font-size:1.6rem; font-weight:bold; margin-bottom:8px;
+                        color:{TEXT_COLOR};">{amount:,.0f}</div>
+            <div style="display:inline-block; background:{color}22; color:{color};
+                        padding:2px 10px; border-radius:12px; font-size:0.8rem; font-weight:500;">
+                {arrow} 較前日 {change:+,.0f} ({pct:+.1f}%)
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def greeting():
@@ -2909,12 +2975,25 @@ elif page == "market_index":
             get_market_data.clear()
             fetch_institutional_flow.clear()
             fetch_index_history.clear()
+            fetch_market_turnover.clear()
             st.rerun()
     st.caption(f"最後更新：{datetime.now(tw_tz).strftime('%Y-%m-%d %H:%M')}")
     st.divider()
 
     for group_name, tickers in MARKET_GROUPS:
         st.markdown(f"##### {group_name}")
+
+        if group_name == "台股":
+            tw_cols = st.columns(2)
+            with tw_cols[0]:
+                with st.container(border=True):
+                    draw_compact_metric("台股加權", "^TWII")
+            with tw_cols[1]:
+                with st.container(border=True):
+                    draw_turnover_card()
+            st.write("")
+            continue
+
         for row_start in range(0, len(tickers), 3):
             chunk = tickers[row_start : row_start + 3]
             cols = st.columns(3)
@@ -2955,27 +3034,15 @@ elif page == "market_index":
 
     # ---------- 加權指數走勢 ----------
     st.divider()
-    st.markdown("##### 指數走勢")
+    st.markdown("##### 台股加權指數走勢")
 
-    (col_idx, col_period), _ = bottom_columns([1, 1])
-    with col_idx:
-        trend_index = st.selectbox("指數", ["台股加權", "櫃買指數"])
-    with col_period:
-        trend_period = st.selectbox(
-            "區間", ["1mo", "6mo", "1y", "5y"], index=2,
-            format_func=lambda p: {
-                "1mo": "近一月", "6mo": "近半年", "1y": "近一年", "5y": "近五年"
-            }[p],
-        )
-
-    if trend_index == "台股加權":
-        twii = fetch_index_history("^TWII", trend_period)
-    else:
-        twii = pd.DataFrame(columns=["date", "close"])
-        for code in MARKET_TICKER_FALLBACKS["^TWOII"]:
-            twii = fetch_index_history(code, trend_period)
-            if not twii.empty:
-                break
+    trend_period = st.selectbox(
+        "區間", ["1mo", "6mo", "1y", "5y"], index=2,
+        format_func=lambda p: {
+            "1mo": "近一月", "6mo": "近半年", "1y": "近一年", "5y": "近五年"
+        }[p],
+    )
+    twii = fetch_index_history("^TWII", trend_period)
 
     if twii.empty:
         st.caption("暫時取不到加權指數歷史資料。")
