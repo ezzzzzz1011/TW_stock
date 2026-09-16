@@ -40,7 +40,7 @@ st.set_page_config(
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / trim-ui-v8"
+APP_VERSION = "2026-09-16 / pe-5band-v9"
 
 # --- API 金鑰 ---------------------------------------------------------------
 # 建議改放 .streamlit/secrets.toml，例如：
@@ -1088,7 +1088,14 @@ def fetch_twse_latest_quarter_eps(symbol):
 #    4. 合理價 = 該倍數 × 目前近四季 EPS
 #  固定用 15 倍去套所有股票是沒有依據的，這才是正確做法。
 # =============================================================
-PE_LOW_PCT, PE_MID_PCT, PE_HIGH_PCT = 0.20, 0.50, 0.80
+# 五等分位階：對應河流圖的五條河道
+PE_BANDS = [
+    ("極便宜", 0.10),
+    ("便宜", 0.30),
+    ("合理", 0.50),
+    ("昂貴", 0.70),
+    ("極昂貴", 0.90),
+]
 EPS_UNSTABLE_CV = 0.35          # 近四季 EPS 變異係數超過此值視為獲利不穩
 
 
@@ -1222,11 +1229,18 @@ def analyze_pe_band(symbol, years=5):
     upper_cut = merged["pe"].quantile(0.995)
     merged = merged[(merged["pe"] > 0) & (merged["pe"] <= upper_cut)]
 
-    pe_low = float(merged["pe"].quantile(PE_LOW_PCT))
-    pe_mid = float(merged["pe"].quantile(PE_MID_PCT))
-    pe_high = float(merged["pe"].quantile(PE_HIGH_PCT))
+    current_eps_tmp = float(eps_df["eps"].iloc[-1])
+    levels = [
+        {
+            "label": label,
+            "pct": int(pct * 100),
+            "pe": float(merged["pe"].quantile(pct)),
+            "price": float(merged["pe"].quantile(pct)) * current_eps_tmp,
+        }
+        for label, pct in PE_BANDS
+    ]
 
-    current_eps = float(eps_df["eps"].iloc[-1])
+    current_eps = current_eps_tmp
     current_price = float(prices["close"].iloc[-1])
     current_pe = current_price / current_eps if current_eps > 0 else 0
     percentile = float((merged["pe"] < current_pe).mean() * 100)
@@ -1247,16 +1261,13 @@ def analyze_pe_band(symbol, years=5):
     return {
         "success": True,
         "symbol": code,
-        "pe_low": pe_low,
-        "pe_mid": pe_mid,
-        "pe_high": pe_high,
+        "levels": levels,
+        "pe_fair": levels[2]["pe"],
+        "price_fair": levels[2]["price"],
         "current_pe": current_pe,
         "current_eps": current_eps,
         "current_price": current_price,
         "percentile": percentile,
-        "price_low": pe_low * current_eps,
-        "price_mid": pe_mid * current_eps,
-        "price_high": pe_high * current_eps,
         "sample_days": len(merged),
         "years": years,
         "warnings": warnings,
@@ -1656,6 +1667,19 @@ def label_spacer():
     )
 
 
+def judge_pe_level(price, levels):
+    """依五等分位階判斷目前股價落在哪一段。"""
+    if price <= levels[0]["price"]:
+        return "💎 極便宜", DOWN_COLOR
+    if price <= levels[1]["price"]:
+        return "✅ 便宜", DOWN_COLOR
+    if price <= levels[3]["price"]:
+        return "🟡 合理", "#ffbc4b"
+    if price <= levels[4]["price"]:
+        return "⚠️ 昂貴", UP_COLOR
+    return "❌ 極昂貴", UP_COLOR
+
+
 def go_to(page_name):
     st.session_state.page = page_name
     st.rerun()
@@ -2001,37 +2025,55 @@ elif page == "stock_query":
                         st.warning(f"⚠️ {msg}")
 
                     eps_now = band["current_eps"]
-                    p_cheap, p_fair, p_high = (
-                        band["price_low"], band["price_mid"], band["price_high"]
-                    )
-
-                    if current_price <= p_cheap:
-                        rec, rec_color = "💎 便宜買入", DOWN_COLOR
-                    elif current_price <= p_high:
-                        rec, rec_color = "✅ 合理持有", "#ffbc4b"
-                    else:
-                        rec, rec_color = "❌ 昂貴不建議", UP_COLOR
+                    levels = band["levels"]
+                    price_fair = band["price_fair"]
+                    rec, rec_color = judge_pe_level(current_price, levels)
 
                     st.markdown(
-                        f"<div class='calc-box'>系統建議："
-                        f"<b style='color:{rec_color};'>{rec}</b>"
-                        f"　<span style='opacity:0.7; font-size:0.9rem;'>"
-                        f"（歷史位階 {band['percentile']:.0f}%，數字越低代表相對越便宜）</span></div>",
+                        f"""
+                        <div class='calc-box' style='display:flex; flex-wrap:wrap;
+                             align-items:center; justify-content:space-between; gap:12px;'>
+                            <div>
+                                <div style='opacity:0.7; font-size:0.9rem;'>系統判讀</div>
+                                <div style='font-size:1.8rem; font-weight:bold; color:{rec_color};'>{rec}</div>
+                                <div style='opacity:0.6; font-size:0.85rem;'>
+                                    歷史位階 {band['percentile']:.0f}%（越低越便宜）
+                                </div>
+                            </div>
+                            <div style='text-align:right;'>
+                                <div style='opacity:0.7; font-size:0.9rem;'>
+                                    合理價（中位數 {band['pe_fair']:.1f} 倍）
+                                </div>
+                                <div class='highlight-val'>{price_fair:.2f}</div>
+                            </div>
+                        </div>
+                        """,
                         unsafe_allow_html=True,
                     )
+
+                    rows_html = ""
+                    for i, lv in enumerate(levels):
+                        if i == 0:
+                            price_txt = f"{lv['price']:.2f} 以下"
+                        elif i == len(levels) - 1:
+                            price_txt = f"高於 {levels[i - 1]['price']:.2f}"
+                        else:
+                            price_txt = f"{levels[i - 1]['price']:.2f} ~ {lv['price']:.2f}"
+
+                        hit = (
+                            "background-color: rgba(255,188,75,0.15);"
+                            if rec.endswith(lv["label"]) else ""
+                        )
+                        rows_html += (
+                            f"<tr style='{hit}'><td>{lv['label']} (歷史 {lv['pct']}%)</td>"
+                            f"<td>{lv['pe']:.1f} 倍</td><td>{price_txt}</td></tr>"
+                        )
 
                     st.markdown(
                         f"""
                         <table class="styled-table">
-                            <thead><tr><th>估值位階</th><th>本益比</th><th>建議價格參考</th></tr></thead>
-                            <tbody>
-                                <tr><td>便宜價 (歷史 20%)</td><td>{band['pe_low']:.1f} 倍</td>
-                                    <td>{p_cheap:.2f} 以下</td></tr>
-                                <tr><td>合理價 (歷史中位數)</td><td>{band['pe_mid']:.1f} 倍</td>
-                                    <td>{p_cheap:.2f} ~ {p_high:.2f}</td></tr>
-                                <tr><td>昂貴價 (歷史 80%)</td><td>{band['pe_high']:.1f} 倍</td>
-                                    <td>高於 {p_high:.2f}</td></tr>
-                            </tbody>
+                            <thead><tr><th>估值位階</th><th>本益比</th><th>股價區間</th></tr></thead>
+                            <tbody>{rows_html}</tbody>
                         </table>
                         """,
                         unsafe_allow_html=True,
@@ -2042,7 +2084,8 @@ elif page == "stock_query":
                     stat2.metric("目前本益比", f"{band['current_pe']:.1f} 倍")
                     stat3.metric(
                         "距合理價",
-                        f"{(p_fair / current_price - 1) * 100:+.1f}%" if current_price > 0 else "－",
+                        f"{(price_fair / current_price - 1) * 100:+.1f}%"
+                        if current_price > 0 else "－",
                     )
 
                     # EPS 明細
@@ -2085,19 +2128,22 @@ elif page == "stock_query":
                     st.subheader("📈 本益比河流圖")
 
                     chart_df = band["chart"].copy()
-                    for label, level in [
-                        (f"便宜 {band['pe_low']:.0f}x", band["pe_low"]),
-                        (f"合理 {band['pe_mid']:.0f}x", band["pe_mid"]),
-                        (f"昂貴 {band['pe_high']:.0f}x", band["pe_high"]),
-                    ]:
-                        chart_df[label] = chart_df["eps"] * level
+                    for lv in levels:
+                        chart_df[f"{lv['label']} {lv['pe']:.0f}x"] = chart_df["eps"] * lv["pe"]
                     chart_df = chart_df.rename(columns={"close": "股價"}).drop(columns=["eps"])
 
                     fig = px.line(
                         chart_df,
                         x="date",
                         y=[c for c in chart_df.columns if c != "date"],
-                        color_discrete_sequence=[TEXT_COLOR, DOWN_COLOR, "#ffbc4b", UP_COLOR],
+                        color_discrete_sequence=[
+                            TEXT_COLOR,      # 股價
+                            "#1a9850",       # 極便宜
+                            "#91cf60",       # 便宜
+                            "#ffbc4b",       # 合理
+                            "#fc8d59",       # 昂貴
+                            "#d73027",       # 極昂貴
+                        ],
                     )
                     fig.update_layout(
                         paper_bgcolor="rgba(0,0,0,0)",
@@ -2119,7 +2165,7 @@ elif page == "stock_query":
                 st.divider()
                 with st.expander("⚙️ 自訂本益比試算", expanded=not band.get("success")):
                     default_eps = float(band["current_eps"]) if band.get("success") else 10.0
-                    default_pe = float(round(band["pe_mid"], 1)) if band.get("success") else 15.0
+                    default_pe = float(round(band["pe_fair"], 1)) if band.get("success") else 15.0
 
                     m_col1, m_col2 = st.columns(2)
                     with m_col1:
