@@ -40,7 +40,7 @@ st.set_page_config(
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / market-v16"
+APP_VERSION = "2026-09-16 / market-v17"
 
 # --- API 金鑰 ---------------------------------------------------------------
 # 建議改放 .streamlit/secrets.toml，例如：
@@ -1571,8 +1571,39 @@ MARKET_GROUPS = [
 
 # 有些代碼在 Yahoo 上資料時有時無（台指期尤其嚴重），依序往下試。
 MARKET_TICKER_FALLBACKS = {
-    "WTX=F": ["WTX=F", "TWF=F", "^TWII"],
+    # 櫃買指數在 Yahoo 的代碼不太一致，依序試
+    "^TWOII": ["^TWOII", "^OTCI", "^TWO"],
 }
+
+# 櫃買中心官方 OpenAPI（免驗證），Yahoo 全掛時的最後備援
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_tpex_index():
+    """從櫃買中心取得櫃買指數現值與漲跌。"""
+    for url in (
+        "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_index",
+        "https://www.tpex.org.tw/openapi/v1/index_summary",
+    ):
+        try:
+            rows = requests.get(url, headers=UA_HEADER, timeout=HTTP_TIMEOUT).json()
+        except Exception as e:
+            print(f"[tpex_index] {url}: {e}")
+            continue
+
+        if isinstance(rows, dict):
+            rows = [rows]
+        for row in rows or []:
+            close = _pick_field(row, "ClosingIndex", "收盤指數", "Close", "IndexClose")
+            change = _pick_field(row, "Change", "漲跌", "UpDown")
+            try:
+                close_f = float(str(close).replace(",", ""))
+                change_f = float(str(change).replace(",", "").replace("+", ""))
+            except (TypeError, ValueError):
+                continue
+            if close_f > 0:
+                prev = close_f - change_f
+                pct = (change_f / prev * 100) if prev else 0
+                return close_f, change_f, pct
+    return None, None, None
 
 
 def _fetch_quote(ticker):
@@ -1614,6 +1645,10 @@ def get_market_data(ticker):
         if candidate != ticker:
             print(f"[market] {ticker} 無資料，改用 {candidate}")
         return current_p, change, pct
+
+    # Yahoo 全掛時，櫃買指數改走櫃買中心官方 API
+    if ticker == "^TWOII":
+        return fetch_tpex_index()
 
     return None, None, None
 
@@ -1755,13 +1790,19 @@ def fetch_institutional_flow():
     return None
 
 
+# 不同區間本來就會有不同的資料筆數，門檻寫死 30 會讓「近一月」永遠取不到
+MIN_BARS_BY_PERIOD = {"5d": 3, "1mo": 5, "3mo": 15, "6mo": 20}
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_index_history(ticker, period="1y"):
     """指數歷史收盤，給走勢圖用。"""
+    min_bars = MIN_BARS_BY_PERIOD.get(period, 30)
     try:
         hist = yf.Ticker(ticker).history(period=period)
         closes = hist["Close"].dropna()
-        if len(closes) < 30:
+        if len(closes) < min_bars:
+            print(f"[index_history] {ticker} {period}: 只有 {len(closes)} 筆，低於門檻 {min_bars}")
             return pd.DataFrame(columns=["date", "close"])
         out = pd.DataFrame(
             {
@@ -2914,13 +2955,27 @@ elif page == "market_index":
 
     # ---------- 加權指數走勢 ----------
     st.divider()
-    st.markdown("##### 台股加權指數走勢")
+    st.markdown("##### 指數走勢")
 
-    trend_period = st.selectbox(
-        "區間", ["1mo", "6mo", "1y", "5y"], index=2,
-        format_func=lambda p: {"1mo": "近一月", "6mo": "近半年", "1y": "近一年", "5y": "近五年"}[p],
-    )
-    twii = fetch_index_history("^TWII", trend_period)
+    (col_idx, col_period), _ = bottom_columns([1, 1])
+    with col_idx:
+        trend_index = st.selectbox("指數", ["台股加權", "櫃買指數"])
+    with col_period:
+        trend_period = st.selectbox(
+            "區間", ["1mo", "6mo", "1y", "5y"], index=2,
+            format_func=lambda p: {
+                "1mo": "近一月", "6mo": "近半年", "1y": "近一年", "5y": "近五年"
+            }[p],
+        )
+
+    if trend_index == "台股加權":
+        twii = fetch_index_history("^TWII", trend_period)
+    else:
+        twii = pd.DataFrame(columns=["date", "close"])
+        for code in MARKET_TICKER_FALLBACKS["^TWOII"]:
+            twii = fetch_index_history(code, trend_period)
+            if not twii.empty:
+                break
 
     if twii.empty:
         st.caption("暫時取不到加權指數歷史資料。")
