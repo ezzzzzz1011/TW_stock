@@ -1050,6 +1050,154 @@ def fetch_twse_latest_quarter_eps(symbol):
     return None
 
 
+# =============================================================
+#  本益比河流圖：用該股「自己的」歷史本益比區間來估價
+#
+#  做法與財報狗／Goodinfo 的河流圖一致：
+#    1. 取歷史每季 EPS，滾動加總成「近四季 EPS」時間序列
+#    2. 每個交易日的本益比 = 當日收盤價 ÷ 當時適用的近四季 EPS
+#    3. 取歷史本益比的 20 / 50 / 80 百分位當作便宜／合理／昂貴倍數
+#    4. 合理價 = 該倍數 × 目前近四季 EPS
+#  固定用 15 倍去套所有股票是沒有依據的，這才是正確做法。
+# =============================================================
+PE_LOW_PCT, PE_MID_PCT, PE_HIGH_PCT = 0.20, 0.50, 0.80
+EPS_UNSTABLE_CV = 0.35          # 近四季 EPS 變異係數超過此值視為獲利不穩
+
+
+def report_effective_date(quarter_end):
+    """財報實際可被市場看到的日期（依公開資訊觀測站申報期限）。"""
+    try:
+        dt = datetime.strptime(quarter_end, "%Y-%m-%d")
+    except Exception:
+        return None
+    deadlines = {3: (0, 5, 15), 6: (0, 8, 14), 9: (0, 11, 14), 12: (1, 3, 31)}
+    if dt.month in deadlines:
+        offset, month, day = deadlines[dt.month]
+        return datetime(dt.year + offset, month, day)
+    return dt + timedelta(days=75)
+
+
+def build_ttm_eps_series(quarters):
+    """把單季資料滾成「近四季 EPS」序列，回傳 [(生效日, ttm_eps), ...] 由舊到新。"""
+    ordered = sorted(
+        [q for q in quarters if q.get("eps") is not None],
+        key=lambda x: x["date"],
+    )
+    points = []
+    for i in range(3, len(ordered)):
+        window = ordered[i - 3 : i + 1]
+        latest = window[-1]
+
+        shares = None
+        if latest.get("net_income") and abs(latest["eps"]) > 0.01:
+            candidate = latest["net_income"] / latest["eps"]
+            if candidate > 0:
+                shares = candidate
+
+        if shares and all(w.get("net_income") is not None for w in window):
+            ttm = sum(w["net_income"] for w in window) / shares
+        else:
+            ttm = sum(w["eps"] for w in window)
+
+        eff = report_effective_date(latest["date"])
+        if eff:
+            points.append((eff, round(ttm, 4)))
+    return points
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_price_history(symbol, years=5):
+    """近 N 年日收盤價。"""
+    code = clean_code(symbol)
+    for suffix in (".TW", ".TWO"):
+        try:
+            hist = yf.Ticker(f"{code}{suffix}").history(period=f"{years}y")
+            closes = hist["Close"].dropna()
+            if len(closes) > 60:
+                out = pd.DataFrame(
+                    {"date": pd.to_datetime(closes.index).tz_localize(None), "close": closes.values}
+                )
+                return out.sort_values("date").reset_index(drop=True)
+        except Exception as e:
+            print(f"[price_history] {code}{suffix}: {e}")
+    return pd.DataFrame(columns=["date", "close"])
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def analyze_pe_band(symbol, years=5):
+    """算出該股歷史本益比分布與對應的三段價位。"""
+    quarters, error = fetch_quarterly_financials(symbol)
+    if len(quarters) < 5:
+        detail = f"（{error}）" if error else ""
+        return {
+            "success": False,
+            "msg": f"季度財報不足（需至少 5 季才能滾出近四季序列）{detail}",
+        }
+
+    points = build_ttm_eps_series(quarters)
+    if not points:
+        return {"success": False, "msg": "無法建立近四季 EPS 序列。"}
+
+    prices = fetch_price_history(symbol, years)
+    if prices.empty:
+        return {"success": False, "msg": "查無歷史股價，無法計算歷史本益比。"}
+
+    eps_df = pd.DataFrame(points, columns=["date", "eps"]).sort_values("date")
+    merged = pd.merge_asof(prices, eps_df, on="date", direction="backward").dropna()
+    merged = merged[merged["eps"] > 0].copy()
+    if len(merged) < 120:
+        return {
+            "success": False,
+            "msg": "可用的歷史本益比樣本太少（可能近年曾虧損或上市未滿一年）。",
+        }
+
+    merged["pe"] = merged["close"] / merged["eps"]
+    # 去掉極端離群值，避免財報空窗期的失真把區間拉爛
+    upper_cut = merged["pe"].quantile(0.995)
+    merged = merged[(merged["pe"] > 0) & (merged["pe"] <= upper_cut)]
+
+    pe_low = float(merged["pe"].quantile(PE_LOW_PCT))
+    pe_mid = float(merged["pe"].quantile(PE_MID_PCT))
+    pe_high = float(merged["pe"].quantile(PE_HIGH_PCT))
+
+    current_eps = float(eps_df["eps"].iloc[-1])
+    current_price = float(prices["close"].iloc[-1])
+    current_pe = current_price / current_eps if current_eps > 0 else 0
+    percentile = float((merged["pe"] < current_pe).mean() * 100)
+
+    ttm_values = eps_df["eps"]
+    eps_cv = float(ttm_values.std() / ttm_values.mean()) if ttm_values.mean() > 0 else 99
+    has_loss = bool((ttm_values <= 0).any())
+
+    warnings = []
+    if has_loss:
+        warnings.append("期間內曾出現近四季虧損，本益比法參考性低。")
+    if eps_cv > EPS_UNSTABLE_CV:
+        warnings.append(
+            f"近四季 EPS 波動偏大（變異係數 {eps_cv:.0%}），可能是景氣循環股或獲利不穩定，"
+            "本益比河流圖不適用這類股票。"
+        )
+
+    return {
+        "success": True,
+        "symbol": clean_code(symbol),
+        "pe_low": pe_low,
+        "pe_mid": pe_mid,
+        "pe_high": pe_high,
+        "current_pe": current_pe,
+        "current_eps": current_eps,
+        "current_price": current_price,
+        "percentile": percentile,
+        "price_low": pe_low * current_eps,
+        "price_mid": pe_mid * current_eps,
+        "price_high": pe_high * current_eps,
+        "sample_days": len(merged),
+        "years": years,
+        "warnings": warnings,
+        "chart": merged[["date", "close", "eps"]].iloc[::5].reset_index(drop=True),
+    }
+
+
 def get_ttm_eps(symbol):
     """
     計算近四季 EPS。
@@ -1475,6 +1623,7 @@ with st.sidebar:
         for k in (
             "etf_symbol_input", "portfolio_editor",
             "eps_input", "pe_input", "eps_detail", "eps_pending",
+            "pe_pending", "pe_band",
         ):
             st.session_state.pop(k, None)
         st.session_state.page = "welcome"
@@ -1705,6 +1854,8 @@ elif page == "stock_query":
         # 所以自動帶入的值先暫存，於下一輪在元件建立「之前」套用。
         if st.session_state.get("eps_pending") is not None:
             st.session_state.eps_input = st.session_state.pop("eps_pending")
+        if st.session_state.get("pe_pending") is not None:
+            st.session_state.pe_input = st.session_state.pop("pe_pending")
 
         col_eps, col_pe = st.columns(2)
         with col_eps:
@@ -1856,6 +2007,109 @@ elif page == "stock_query":
                         st.success(f"✅ 目前股價 {current_price:.2f} 低於目標參考價")
                     else:
                         st.warning(f"⚠️ 目前股價 {current_price:.2f} 已超過目標參考價")
+
+                # ---------- 歷史本益比河流圖 ----------
+                st.divider()
+                st.subheader("📊 歷史本益比區間（河流圖）")
+                st.caption(
+                    "固定用 15 倍套所有股票是沒有依據的。這裡改用這檔股票"
+                    "「自己的」歷史本益比分布，推算便宜／合理／昂貴價。"
+                )
+
+                col_band, col_years = st.columns([2, 1])
+                with col_years:
+                    band_years = st.selectbox("取樣年數", [3, 5, 10], index=1)
+                with col_band:
+                    st.write("")
+                    if st.button("📈 分析歷史本益比區間", use_container_width=True, type="primary"):
+                        with st.spinner("計算歷史本益比中..."):
+                            st.session_state.pe_band = analyze_pe_band(stock_code, band_years)
+                        st.rerun()
+
+                band = st.session_state.get("pe_band")
+                if band and band.get("symbol") == clean_code(stock_code):
+                    if not band["success"]:
+                        st.warning(f"⚠️ {band['msg']}")
+                    else:
+                        for msg in band["warnings"]:
+                            st.warning(f"⚠️ {msg}")
+
+                        pct = band["percentile"]
+                        if pct <= 20:
+                            verdict, v_color = "💎 相對便宜", DOWN_COLOR
+                        elif pct <= 50:
+                            verdict, v_color = "✅ 偏低合理", DOWN_COLOR
+                        elif pct <= 80:
+                            verdict, v_color = "⚠️ 偏高", "#ffbc4b"
+                        else:
+                            verdict, v_color = "❌ 相對昂貴", UP_COLOR
+
+                        b1, b2, b3 = st.columns(3)
+                        b1.metric("目前本益比", f"{band['current_pe']:.1f} 倍")
+                        b2.metric("歷史位階", f"{pct:.0f} %")
+                        b3.metric("近四季 EPS", f"{band['current_eps']:.2f}")
+
+                        st.markdown(
+                            f"<div class='calc-box'>系統判讀："
+                            f"<b style='color:{v_color};'>{verdict}</b>"
+                            f"　<span style='opacity:0.7; font-size:0.9rem;'>"
+                            f"（目前股價贏過過去 {pct:.0f}% 的交易日，數字越低越便宜）</span></div>",
+                            unsafe_allow_html=True,
+                        )
+
+                        st.markdown(
+                            f"""
+                            <table class="styled-table">
+                                <thead><tr><th>估值位階</th><th>本益比</th><th>對應股價</th></tr></thead>
+                                <tbody>
+                                    <tr><td>便宜價 (歷史 20%)</td><td>{band['pe_low']:.1f} 倍</td>
+                                        <td>{band['price_low']:.2f} 以下</td></tr>
+                                    <tr><td>合理價 (歷史中位數)</td><td>{band['pe_mid']:.1f} 倍</td>
+                                        <td>{band['price_low']:.2f} ~ {band['price_high']:.2f}</td></tr>
+                                    <tr><td>昂貴價 (歷史 80%)</td><td>{band['pe_high']:.1f} 倍</td>
+                                        <td>高於 {band['price_high']:.2f}</td></tr>
+                                </tbody>
+                            </table>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                        if st.button(f"⬆️ 把合理本益比 {band['pe_mid']:.1f} 帶入上方欄位"):
+                            st.session_state.pe_pending = round(band["pe_mid"], 1)
+                            st.rerun()
+
+                        chart_df = band["chart"].copy()
+                        for label, level in [
+                            (f"便宜 {band['pe_low']:.0f}x", band["pe_low"]),
+                            (f"合理 {band['pe_mid']:.0f}x", band["pe_mid"]),
+                            (f"昂貴 {band['pe_high']:.0f}x", band["pe_high"]),
+                        ]:
+                            chart_df[label] = chart_df["eps"] * level
+                        chart_df = chart_df.rename(columns={"close": "股價"}).drop(columns=["eps"])
+
+                        fig = px.line(
+                            chart_df,
+                            x="date",
+                            y=[c for c in chart_df.columns if c != "date"],
+                            title=f"近 {band['years']} 年本益比河流圖",
+                            color_discrete_sequence=[TEXT_COLOR, DOWN_COLOR, "#ffbc4b", UP_COLOR],
+                        )
+                        fig.update_layout(
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            font_color=TEXT_COLOR,
+                            legend_title_text="",
+                            legend=dict(orientation="h", y=-0.2),
+                            xaxis_title="",
+                            yaxis_title="股價",
+                        )
+                        st.plotly_chart(fig, use_container_width=True, key="pe_river")
+
+                        st.caption(
+                            f"樣本 {band['sample_days']} 個交易日。河流由 EPS 乘上各倍數而成，"
+                            "所以河道會隨獲利成長而上移；股價貼近下緣代表相對便宜。"
+                            "此方法只適用獲利穩定或穩定成長的公司。"
+                        )
 
     with side_col:
         st.write("### 📖 說明")
