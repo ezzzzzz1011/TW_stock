@@ -17,7 +17,7 @@ st.set_page_config(
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / secrets-v21"
+APP_VERSION = "2026-09-16 / theme-fix-v22"
 
 FEE_RATE = 0.001425          # 券商手續費率
 NHI_RATE = 0.0211            # 二代健保補充保費費率
@@ -127,12 +127,24 @@ ASSET_CATEGORIES = [
 UP_COLOR = "#ff4b4b"
 DOWN_COLOR = "#09ab3b"
 
-if "theme" not in st.session_state:
-    st.session_state.theme = "dark"
+DEFAULT_THEME = "dark"
+
+
+def init_theme():
+    """
+    主題初始化。必須由主程式每次 rerun 呼叫，不能寫成模組層級的 if。
+    Python 只在第一次 import 時執行模組，新的 session 不會再跑一次，
+    那個 session 的 theme 就永遠不會被建立。
+    """
+    st.session_state.setdefault("theme", DEFAULT_THEME)
+
+
+def current_theme():
+    return st.session_state.get("theme", DEFAULT_THEME)
 
 
 def toggle_theme():
-    st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+    st.session_state.theme = "light" if current_theme() == "dark" else "dark"
 
 
 _DARK = {
@@ -155,7 +167,7 @@ _LIGHT = {
 
 def palette():
     """回傳目前主題的顏色。每次 rerun 都要重新取，不能存成模組常數。"""
-    return dict(_DARK if st.session_state.get("theme", "dark") == "dark" else _LIGHT)
+    return dict(_DARK if current_theme() == "dark" else _LIGHT)
 
 
 def apply_palette(module_globals):
