@@ -40,7 +40,7 @@ st.set_page_config(
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / market-v13"
+APP_VERSION = "2026-09-16 / market-v16"
 
 # --- API 金鑰 ---------------------------------------------------------------
 # 建議改放 .streamlit/secrets.toml，例如：
@@ -1655,62 +1655,104 @@ def draw_compact_metric(label, ticker_code):
     )
 
 
-TWSE_INSTITUTIONAL_URL = "https://openapi.twse.com.tw/v1/fund/BFI82U"
+# 三大法人資料不在證交所 OpenAPI（屬對外販售項目），改用官網查詢端點。
+TWSE_BFI82U_URLS = [
+    "https://www.twse.com.tw/rwd/zh/fund/BFI82U?type=day&dayDate={d}&response=json",
+    "https://www.twse.com.tw/exchangeReport/BFI82U?type=day&dayDate={d}&response=json",
+]
+
+
+def _bfi_rows(payload):
+    """同時相容 fields+data 陣列格式與 list-of-dict 格式。"""
+    if isinstance(payload, list):
+        return [
+            (
+                str(_pick_field(r, "Name", "單位名稱", "name") or ""),
+                _pick_field(r, "DifferenceAmount", "買賣差額", "差額"),
+            )
+            for r in payload
+        ]
+
+    if not isinstance(payload, dict) or payload.get("stat") != "OK":
+        return []
+
+    fields = [str(f) for f in (payload.get("fields") or [])]
+    data = payload.get("data") or []
+    try:
+        name_idx = next(i for i, f in enumerate(fields) if "單位" in f or "類別" in f)
+        diff_idx = next(i for i, f in enumerate(fields) if "差額" in f or "買賣超" in f)
+    except StopIteration:
+        return []
+
+    out = []
+    for row in data:
+        if len(row) > max(name_idx, diff_idx):
+            out.append((str(row[name_idx]), row[diff_idx]))
+    return out
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_institutional_flow():
     """
-    證交所三大法人買賣金額（免驗證）。
-    回傳 {"date": 日期, "外資": 億元, "投信": 億元, "自營商": 億元, "合計": 億元}
+    證交所三大法人買賣金額。回傳各項買賣超（億元）。
+
+    注意：證交所註明「外資自營商買賣金額已計入自營商」，
+    故不納入合計，外資那欄也不該再加一次，否則會重複計算。
     """
-    try:
-        rows = requests.get(TWSE_INSTITUTIONAL_URL, timeout=HTTP_TIMEOUT).json()
-    except Exception as e:
-        print(f"[institutional] {e}")
-        return None
-    if not rows:
-        return None
+    today = datetime.now(tw_tz).date()
 
-    buckets = {"外資": 0.0, "投信": 0.0, "自營商": 0.0}
-    total = 0.0
-    date_str = ""
+    for back in range(0, 7):          # 假日與盤中未結算時往前找
+        day = (today - timedelta(days=back)).strftime("%Y%m%d")
+        for template in TWSE_BFI82U_URLS:
+            try:
+                res = requests.get(
+                    template.format(d=day), headers=UA_HEADER, timeout=HTTP_TIMEOUT
+                )
+                if res.status_code != 200:
+                    continue
+                rows = _bfi_rows(res.json())
+            except Exception as e:
+                print(f"[institutional] {day}: {e}")
+                continue
 
-    for row in rows:
-        name = str(
-            _pick_field(row, "Name", "單位名稱", "name") or ""
-        ).strip()
-        raw_diff = _pick_field(row, "DifferenceAmount", "買賣差額", "差額")
-        date_str = date_str or str(_pick_field(row, "Date", "日期") or "")
-        try:
-            diff = float(str(raw_diff).replace(",", ""))
-        except (TypeError, ValueError):
-            continue
+            if not rows:
+                continue
 
-        if "合計" in name or "總計" in name:
-            total = diff
-            continue
-        # 「外資自營商」同時含外資與自營商，優先歸到外資
-        if "外資" in name or "陸資" in name:
-            buckets["外資"] += diff
-        elif "投信" in name:
-            buckets["投信"] += diff
-        elif "自營" in name:
-            buckets["自營商"] += diff
+            buckets = {"外資": 0.0, "投信": 0.0, "自營商": 0.0}
+            official_total = None
 
-    if not any(buckets.values()) and not total:
-        return None
+            for name, raw in rows:
+                try:
+                    diff = float(str(raw).replace(",", ""))
+                except (TypeError, ValueError):
+                    continue
 
-    if not total:
-        total = sum(buckets.values())
+                flat = str(name).replace(" ", "").replace("　", "")
+                if "合計" in flat or "總計" in flat:
+                    official_total = diff      # 直接採用證交所公告的合計
+                    continue
+                # 「外資及陸資(不含外資自營商)」字串裡也含有「外資自營商」，
+                # 所以必須用開頭比對，不能用包含比對，否則外資那列會被誤刪。
+                if flat.startswith("外資自營商"):
+                    continue      # 已計入自營商，跳過避免重複計算
+                if "外資" in flat or "陸資" in flat:
+                    buckets["外資"] += diff
+                elif "投信" in flat:
+                    buckets["投信"] += diff
+                elif "自營" in flat:
+                    buckets["自營商"] += diff
 
-    # 原始單位是元，換算成億元
-    result = {k: v / 1e8 for k, v in buckets.items()}
-    result["合計"] = total / 1e8
-    if len(date_str) == 8:
-        date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-    result["date"] = date_str
-    return result
+            if not any(buckets.values()):
+                continue
+
+            result = {k: v / 1e8 for k, v in buckets.items()}
+            result["合計"] = (
+                official_total / 1e8 if official_total is not None else sum(result.values())
+            )
+            result["date"] = f"{day[:4]}-{day[4:6]}-{day[6:]}"
+            return result
+
+    return None
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1721,7 +1763,15 @@ def fetch_index_history(ticker, period="1y"):
         closes = hist["Close"].dropna()
         if len(closes) < 30:
             return pd.DataFrame(columns=["date", "close"])
-        out = pd.DataFrame({"date": pd.Series(closes.index), "close": closes.to_numpy()})
+        out = pd.DataFrame(
+            {
+                "date": pd.Series(closes.index),
+                "close": closes.to_numpy(),
+                # 區間最高／最低要看盤中價，只用收盤價會低估
+                "high": hist["High"].reindex(closes.index).to_numpy(),
+                "low": hist["Low"].reindex(closes.index).to_numpy(),
+            }
+        )
         out["date"] = _normalize_dates(out["date"])
         return out.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
     except Exception as e:
@@ -2890,10 +2940,14 @@ elif page == "market_index":
 
         first, last = float(twii["close"].iloc[0]), float(twii["close"].iloc[-1])
         change_pct = (last / first - 1) * 100 if first else 0
+        high = float(twii["high"].max()) if "high" in twii else float(twii["close"].max())
+        low = float(twii["low"].min()) if "low" in twii else float(twii["close"].min())
+
         t1, t2, t3 = st.columns(3)
         t1.metric("區間漲跌", f"{change_pct:+.2f}%")
-        t2.metric("區間最高", f"{twii['close'].max():,.0f}")
-        t3.metric("區間最低", f"{twii['close'].min():,.0f}")
+        t2.metric("區間最高", f"{high:,.0f}")
+        t3.metric("區間最低", f"{low:,.0f}")
+        st.caption("最高／最低為盤中價，走勢線為收盤價。")
 elif page == "tax_calc":
     back_button()
 
