@@ -8,16 +8,22 @@ from datetime import datetime
 import streamlit as st
 import pytz
 
-st.set_page_config(
-    page_title="台股個股/ETF查詢",
-    page_icon="🔍",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+def setup_page():
+    """
+    版面設定。必須由主程式每次 rerun 呼叫，且要在所有其他 Streamlit 指令之前。
+    寫成模組層級的話只有第一個 session 會執行到，之後的 session 會套用預設的
+    centered 版面，畫面會突然變窄。
+    """
+    st.set_page_config(
+        page_title="台股個股/ETF查詢",
+        page_icon="🔍",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / theme-fix-v22"
+APP_VERSION = "2026-09-16 / layout-fix-v23"
 
 FEE_RATE = 0.001425          # 券商手續費率
 NHI_RATE = 0.0211            # 二代健保補充保費費率
