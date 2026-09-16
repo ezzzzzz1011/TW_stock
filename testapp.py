@@ -40,7 +40,7 @@ st.set_page_config(
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / market-v18"
+APP_VERSION = "2026-09-16 / market-v19"
 
 # --- API 金鑰 ---------------------------------------------------------------
 # 建議改放 .streamlit/secrets.toml，例如：
@@ -1624,12 +1624,26 @@ def fetch_market_turnover():
                 except (TypeError, ValueError, IndexError):
                     return None
 
-            values = [(r, to_num(r)) for r in rows]
-            values = [(r, v) for r, v in values if v is not None]
+            def roc_to_date(raw):
+                """民國日期 115/09/16 -> date(2026, 9, 16)"""
+                try:
+                    y, m, d = str(raw).strip().split("/")
+                    return datetime(int(y) + 1911, int(m), int(d)).date()
+                except Exception:
+                    return None
+
+            # 不能假設證交所的回傳順序，必須自己依日期排序後再取最新兩筆
+            values = []
+            for r in rows:
+                val = to_num(r)
+                dt = roc_to_date(r[date_idx]) if date_idx < len(r) else None
+                if val is not None and dt is not None:
+                    values.append((dt, val))
             if not values:
                 continue
 
-            last_row, last_val = values[-1]
+            values.sort(key=lambda x: x[0])
+            last_date, last_val = values[-1]
             prev_val = values[-2][1] if len(values) >= 2 else None
 
             amount = last_val / 1e8                      # 元 -> 億元
@@ -1639,8 +1653,7 @@ def fetch_market_turnover():
             else:
                 change, pct = 0.0, 0.0
 
-            date_txt = str(last_row[date_idx]) if date_idx < len(last_row) else ""
-            return amount, change, pct, date_txt
+            return amount, change, pct, last_date.strftime("%m/%d")
 
     return None, None, None, ""
 
@@ -1879,6 +1892,9 @@ def draw_turnover_card():
             <div style="display:inline-block; background:{color}22; color:{color};
                         padding:2px 10px; border-radius:12px; font-size:0.8rem; font-weight:500;">
                 {arrow} 較前日 {change:+,.0f} ({pct:+.1f}%)
+            </div>
+            <div style="font-size:0.7rem; opacity:0.5; margin-top:4px;">
+                {date_txt}　含鉅額與盤後
             </div>
         </div>
         """,
