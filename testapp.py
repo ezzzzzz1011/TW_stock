@@ -189,14 +189,35 @@ def inject_css():
             --text-color: {TEXT_COLOR};
         }}
 
+        /* 注意：頁首是 <header> 不是 <div>，選擇器不要綁標籤名，
+           否則深色模式下最上方會留一條白色橫條。
+           新舊版 Streamlit 的 testid 不同，這裡一次全蓋。 */
         .stApp,
-        div[data-testid="stAppViewContainer"],
-        div[data-testid="stHeader"] {{
+        [data-testid="stAppViewContainer"],
+        [data-testid="stMain"],
+        [data-testid="stHeader"],
+        [data-testid="stAppHeader"] {{
             background-color: {APP_BG} !important;
             color: {TEXT_COLOR} !important;
         }}
 
-        section[data-testid="stSidebar"] {{
+        [data-testid="stHeader"],
+        [data-testid="stAppHeader"],
+        [data-testid="stToolbar"],
+        [data-testid="stDecoration"] {{
+            background: {APP_BG} !important;
+            box-shadow: none !important;
+        }}
+
+        /* 頁首上的圖示（GitHub、選單）跟著主題走 */
+        [data-testid="stHeader"] svg,
+        [data-testid="stAppHeader"] svg,
+        [data-testid="stToolbar"] svg {{
+            fill: {TEXT_COLOR} !important;
+            color: {TEXT_COLOR} !important;
+        }}
+
+        [data-testid="stSidebar"] {{
             background-color: {SECONDARY_BG} !important;
         }}
 
