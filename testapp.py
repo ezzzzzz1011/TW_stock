@@ -874,10 +874,13 @@ def fetch_dividend_history_super(symbol):
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_quarterly_financials(symbol):
-    """抓綜合損益表的單季 EPS 與稅後淨利，由新到舊排序。快取一天。"""
+    """
+    抓綜合損益表的單季 EPS 與稅後淨利，由新到舊排序。快取一天。
+    回傳 (資料列表, 錯誤訊息)；成功時錯誤訊息為 None。
+    """
     code = clean_code(symbol)
     if not code:
-        return []
+        return [], "沒有代碼"
 
     start = (datetime.now() - timedelta(days=900)).strftime("%Y-%m-%d")
     try:
@@ -894,10 +897,15 @@ def fetch_quarterly_financials(symbol):
         payload = res.json()
     except Exception as e:
         print(f"[financials] {code}: {e}")
-        return []
+        return [], f"FinMind 連線失敗：{e}"
 
     if payload.get("msg") != "success" or not payload.get("data"):
-        return []
+        reason = str(payload.get("msg") or "無回傳訊息")
+        # token 壞掉或過期時，FinMind 會回 token 相關訊息而不是「查無資料」
+        if any(k in reason.lower() for k in ("token", "unauthor", "login", "permission")):
+            reason = f"FinMind token 無效或已過期（{reason}）"
+        print(f"[financials] {code}: {reason}")
+        return [], reason
 
     by_date = {}
     for item in payload["data"]:
@@ -915,7 +923,64 @@ def fetch_quarterly_financials(symbol):
         for d, v in by_date.items()
         if v.get("EPS") is not None
     ]
-    return sorted(rows, key=lambda x: x["date"], reverse=True)
+    if not rows:
+        return [], "FinMind 有回應但沒有 EPS 欄位"
+    return sorted(rows, key=lambda x: x["date"], reverse=True), None
+
+
+# ---------- 證交所 OpenAPI 備援（免驗證） ----------
+TWSE_PE_URL = "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"
+TWSE_PRICE_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
+
+
+def _pick_field(row, *candidates):
+    """欄位名稱偶爾會調整，容忍大小寫與部分相符。"""
+    for key in row:
+        flat = str(key).replace("_", "").lower()
+        for want in candidates:
+            if flat == want.replace("_", "").lower():
+                return row[key]
+    return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_twse_pe_table():
+    """
+    證交所每日「個股日本益比、殖利率及股價淨值比」＋「每日收盤行情」。
+    證交所的本益比定義為 收盤價 ÷ 近四季每股稅後純益，
+    所以 EPS = 收盤價 ÷ 本益比，等同官方版的近四季 EPS。
+    """
+    table = {}
+    try:
+        pe_rows = requests.get(TWSE_PE_URL, timeout=HTTP_TIMEOUT).json()
+        price_rows = requests.get(TWSE_PRICE_URL, timeout=HTTP_TIMEOUT).json()
+    except Exception as e:
+        print(f"[twse] {e}")
+        return {}
+
+    prices = {}
+    for row in price_rows or []:
+        code = str(_pick_field(row, "Code") or "").strip()
+        try:
+            prices[code] = float(str(_pick_field(row, "ClosingPrice") or "").replace(",", ""))
+        except (TypeError, ValueError):
+            continue
+
+    for row in pe_rows or []:
+        code = str(_pick_field(row, "Code") or "").strip()
+        try:
+            pe = float(str(_pick_field(row, "PEratio") or "").replace(",", ""))
+        except (TypeError, ValueError):
+            continue
+        close = prices.get(code)
+        if code and pe > 0 and close and close > 0:
+            table[code] = {
+                "eps": round(close / pe, 2),
+                "pe": pe,
+                "close": close,
+                "name": str(_pick_field(row, "Name") or ""),
+            }
+    return table
 
 
 def quarter_label(date_str):
@@ -935,20 +1000,45 @@ def get_ttm_eps(symbol):
     調整，但 API 給的舊季數值仍是當初的原始值，直接相加會高估。
     依 FinMind 官方建議，改用「四季稅後淨利加總 ÷ 同一個加權平均股數」。
     """
-    rows = fetch_quarterly_financials(symbol)
-    if not rows:
+    code = clean_code(symbol)
+    rows, error = fetch_quarterly_financials(symbol)
+
+    if not rows or len(rows) < 4:
+        # 引擎 2：證交所 OpenAPI，只給一個近四季總額，沒有分季明細
+        fallback = fetch_twse_pe_table().get(code)
+        if fallback:
+            return {
+                "success": True,
+                "symbol": code,
+                "ttm_eps": fallback["eps"],
+                "naive_sum": fallback["eps"],
+                "adjusted": False,
+                "method": (
+                    f"證交所 OpenAPI 備援：收盤價 {fallback['close']:.2f} "
+                    f"÷ 本益比 {fallback['pe']:.2f}"
+                ),
+                "quarters": [],
+                "period": "近四季（證交所公告）",
+                "source": "twse",
+            }
+
+        if rows:
+            return {
+                "success": False,
+                "msg": f"只取得 {len(rows)} 季財報（最新一季可能尚未公布），不足四季無法計算。",
+                "quarters": rows,
+            }
+        detail = f"（{error}）" if error else ""
         return {
             "success": False,
-            "msg": "查無財報資料。ETF、部分 KY 股與興櫃股票沒有 EPS，請手動輸入。",
+            "msg": (
+                f"兩個來源都查不到 {code} 的財報{detail}。"
+                "ETF、KY 股與興櫃股票本來就沒有 EPS；若是一般上市櫃股票，"
+                "多半是 FinMind token 失效，請更新後再試，或直接手動輸入。"
+            ),
         }
 
     quarters = rows[:4]
-    if len(quarters) < 4:
-        return {
-            "success": False,
-            "msg": f"只取得 {len(quarters)} 季財報（最新一季可能尚未公布），不足四季無法計算。",
-            "quarters": quarters,
-        }
 
     naive_sum = sum(q["eps"] for q in quarters)
     latest = quarters[0]
@@ -977,6 +1067,7 @@ def get_ttm_eps(symbol):
         "method": method,
         "quarters": quarters,
         "period": f"{quarter_label(quarters[-1]['date'])} ~ {quarter_label(quarters[0]['date'])}",
+        "source": "finmind",
     }
 
 
@@ -1555,22 +1646,34 @@ elif page == "stock_query":
 
         detail = st.session_state.eps_detail
         if detail and detail.get("symbol") == clean_code(stock_code):
-            with st.expander(f"📄 財報明細（{detail['period']}）", expanded=False):
+            source_tag = "證交所 OpenAPI" if detail.get("source") == "twse" else "FinMind 財報"
+            with st.expander(
+                f"📄 EPS 來源：{source_tag}（{detail['period']}）", expanded=False
+            ):
                 st.caption(detail["method"])
-                q_df = pd.DataFrame(
-                    [
-                        {
-                            "季別": quarter_label(q["date"]),
-                            "財報日期": q["date"],
-                            "單季 EPS": round(q["eps"], 2),
-                            "稅後淨利 (千元)": (
-                                f"{q['net_income']:,.0f}" if q.get("net_income") is not None else "－"
-                            ),
-                        }
-                        for q in detail["quarters"]
-                    ]
-                )
-                st.dataframe(q_df, use_container_width=True, hide_index=True)
+
+                if detail["quarters"]:
+                    q_df = pd.DataFrame(
+                        [
+                            {
+                                "季別": quarter_label(q["date"]),
+                                "財報日期": q["date"],
+                                "單季 EPS": round(q["eps"], 2),
+                                "稅後淨利 (千元)": (
+                                    f"{q['net_income']:,.0f}"
+                                    if q.get("net_income") is not None
+                                    else "－"
+                                ),
+                            }
+                            for q in detail["quarters"]
+                        ]
+                    )
+                    st.dataframe(q_df, use_container_width=True, hide_index=True)
+                else:
+                    st.caption(
+                        "此來源只提供近四季合計值，沒有分季明細。"
+                        "若要看每一季的數字，請更新 FinMind token。"
+                    )
 
                 if detail["adjusted"]:
                     st.info(
