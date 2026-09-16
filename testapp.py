@@ -1064,6 +1064,21 @@ PE_LOW_PCT, PE_MID_PCT, PE_HIGH_PCT = 0.20, 0.50, 0.80
 EPS_UNSTABLE_CV = 0.35          # 近四季 EPS 變異係數超過此值視為獲利不穩
 
 
+def _normalize_dates(series):
+    """
+    統一成 tz-naive 的 datetime64[ns]。
+    新版 pandas 會把 Python datetime 物件推成 datetime64[us]，
+    而 yfinance 給的是 datetime64[ns]，兩者不一致時 merge_asof 會直接報錯。
+    """
+    out = pd.to_datetime(series, errors="coerce")
+    try:
+        if getattr(out.dt, "tz", None) is not None:
+            out = out.dt.tz_localize(None)
+    except (AttributeError, TypeError):
+        pass
+    return out.astype("datetime64[ns]")
+
+
 def report_effective_date(quarter_end):
     """財報實際可被市場看到的日期（依公開資訊觀測站申報期限）。"""
     try:
@@ -1115,9 +1130,10 @@ def fetch_price_history(symbol, years=5):
             closes = hist["Close"].dropna()
             if len(closes) > 60:
                 out = pd.DataFrame(
-                    {"date": pd.to_datetime(closes.index).tz_localize(None), "close": closes.values}
+                    {"date": pd.Series(closes.index), "close": closes.to_numpy()}
                 )
-                return out.sort_values("date").reset_index(drop=True)
+                out["date"] = _normalize_dates(out["date"])
+                return out.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
         except Exception as e:
             print(f"[price_history] {code}{suffix}: {e}")
     return pd.DataFrame(columns=["date", "close"])
@@ -1142,8 +1158,19 @@ def analyze_pe_band(symbol, years=5):
     if prices.empty:
         return {"success": False, "msg": "查無歷史股價，無法計算歷史本益比。"}
 
-    eps_df = pd.DataFrame(points, columns=["date", "eps"]).sort_values("date")
-    merged = pd.merge_asof(prices, eps_df, on="date", direction="backward").dropna()
+    eps_df = pd.DataFrame(points, columns=["date", "eps"])
+    eps_df["date"] = _normalize_dates(eps_df["date"])
+    eps_df = eps_df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+
+    prices = prices.copy()
+    prices["date"] = _normalize_dates(prices["date"])
+    prices = prices.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+
+    try:
+        merged = pd.merge_asof(prices, eps_df, on="date", direction="backward").dropna()
+    except Exception as e:
+        print(f"[pe_band] merge 失敗 {symbol}: {e}")
+        return {"success": False, "msg": f"歷史資料對齊失敗：{e}"}
     merged = merged[merged["eps"] > 0].copy()
     if len(merged) < 120:
         return {
