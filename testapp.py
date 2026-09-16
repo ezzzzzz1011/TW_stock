@@ -40,7 +40,7 @@ st.set_page_config(
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / clean-icons-v11"
+APP_VERSION = "2026-09-16 / hide-hints-v12"
 
 # --- API 金鑰 ---------------------------------------------------------------
 # 建議改放 .streamlit/secrets.toml，例如：
@@ -249,6 +249,12 @@ def inject_css():
             color: {TEXT_COLOR} !important;
             border: 1px solid {BORDER_COLOR} !important;
             border-radius: 8px !important;
+        }}
+
+        /* 隱藏輸入框內的 "Press Enter to submit form" / "Press Enter to apply" 提示 */
+        [data-testid="InputInstructions"],
+        [data-testid="stWidgetInstructions"] {{
+            display: none !important;
         }}
 
         div[data-baseweb="select"] > div {{
