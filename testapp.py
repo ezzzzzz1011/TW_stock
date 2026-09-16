@@ -43,7 +43,22 @@ tw_tz = pytz.timezone("Asia/Taipei")
 # 建議改放 .streamlit/secrets.toml，例如：
 #   FUGLE_TOKEN = st.secrets["fugle"]["token"]
 FUGLE_TOKEN = "YzJjNmM3ODAtZjE1Ny00NzhiLWFjOTUtMDUwZjc2ZWJhYTI1IGRjYTE0ODk3LTRjYTUtNDg5Yi05MjAwLWZmYzNmNzFmNmYwNg=="
-FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2Vyc2lkIjp6ZW5vaWLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSJ9.ApZobjnh5PCRDtXb8rj6a3Y10h1GUGS0EYKHXkTEvKw"
+# FinMind token（帳號 ezzzz，永久期限）。
+# 這串是照網頁畫面填入的，若簽章段有一個字元讀錯就會驗證失敗，
+# 請對照 finmindtrade.com 會員頁再確認一次。
+# 也可以改放 Secrets，設定後會自動覆寫下面的預設值，不必改程式碼：
+#   [finmind]
+#   token = "你的token"
+_FINMIND_TOKEN_FALLBACK = (
+    "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiZXp6enoiLCJlbWFpbCI6ImVhc29uOTMxMDExQGdtYWlsLmNvbSIsInRva2VuX3ZlcnNpb24iOjB9.pssoltruEUZW9pmCPkF1n6Ec12oWHyBLFyrSlH1vO9Y"
+)
+try:
+    _secret_token = st.secrets.get("finmind", {}).get("token")
+except Exception:
+    _secret_token = None
+
+FINMIND_TOKEN = _secret_token or _FINMIND_TOKEN_FALLBACK
+FINMIND_TOKEN_SOURCE = "Secrets" if _secret_token else "程式內建"
 
 client = RestClient(api_key=FUGLE_TOKEN)
 
@@ -992,6 +1007,50 @@ def quarter_label(date_str):
         return date_str
 
 
+# 證交所綜合損益表 OpenAPI。只保留最新一季（每季覆蓋），拿不到連續四季，
+# 但可以當作「今年累計到某季」的交叉比對值。分業別各一支。
+TWSE_IS_URLS = [
+    ("一般業", "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_ci"),
+    ("金控業", "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_fh"),
+    ("金融業", "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_bd"),
+    ("證券期貨業", "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_mim"),
+    ("保險業", "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_ins"),
+    ("異業", "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_basi"),
+]
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_twse_latest_quarter_eps(symbol):
+    """證交所最新一季綜合損益表的『基本每股盈餘』（本年度累計數）。"""
+    code = clean_code(symbol)
+    if not code:
+        return None
+
+    for industry, url in TWSE_IS_URLS:
+        try:
+            rows = requests.get(url, timeout=HTTP_TIMEOUT).json()
+        except Exception as e:
+            print(f"[twse_is] {industry}: {e}")
+            continue
+
+        for row in rows or []:
+            if str(_pick_field(row, "公司代號") or "").strip() != code:
+                continue
+            raw_eps = _pick_field(row, "基本每股盈餘（元）", "基本每股盈餘(元)", "基本每股盈餘")
+            try:
+                eps = float(str(raw_eps).replace(",", ""))
+            except (TypeError, ValueError):
+                continue
+            return {
+                "industry": industry,
+                "year": str(_pick_field(row, "年度") or ""),
+                "quarter": str(_pick_field(row, "季別") or ""),
+                "eps_cumulative": eps,
+                "name": str(_pick_field(row, "公司名稱") or ""),
+            }
+    return None
+
+
 def get_ttm_eps(symbol):
     """
     計算近四季 EPS。
@@ -1422,7 +1481,31 @@ with st.sidebar:
         st.session_state.page = "welcome"
         st.rerun()
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    with st.expander("🔧 資料來源診斷", expanded=False):
+        st.caption(f"FinMind token 來源：{FINMIND_TOKEN_SOURCE}")
+        if st.button("測試 FinMind 連線", use_container_width=True, key="diag_finmind"):
+            try:
+                res = requests.get(
+                    FINMIND_URL,
+                    params={
+                        "dataset": "TaiwanStockFinancialStatements",
+                        "data_id": "2330",
+                        "start_date": "2025-01-01",
+                        "token": FINMIND_TOKEN,
+                    },
+                    timeout=HTTP_TIMEOUT,
+                )
+                payload = res.json()
+                if payload.get("msg") == "success" and payload.get("data"):
+                    st.success(f"✅ 連線正常，取得 {len(payload['data'])} 筆資料")
+                else:
+                    st.error(f"❌ {payload.get('msg') or '無回傳訊息'}")
+            except Exception as e:
+                st.error(f"❌ {e}")
+
+    st.markdown("<br>", unsafe_allow_html=True)
     st.caption("⚠️ 本系統數據僅供參考，不構成投資建議，投資人請審慎評估風險並自負盈虧。")
 
 
@@ -1678,10 +1761,37 @@ elif page == "stock_query":
                     )
                     st.dataframe(q_df, use_container_width=True, hide_index=True)
                 else:
-                    st.caption(
-                        "此來源只提供近四季合計值，沒有分季明細。"
-                        "若要看每一季的數字，請更新 FinMind token。"
+                    st.warning(
+                        "⚠️ 此來源只給近四季的**合計值**，拆不出每一季。\n\n"
+                        "證交所的官方財報 API 每季覆蓋、只留最新一季，"
+                        "要看四季明細必須更新 FinMind token（免費註冊即可）。"
                     )
+
+                    cross = fetch_twse_latest_quarter_eps(detail["symbol"])
+                    if cross:
+                        st.markdown("**🔎 證交所財報交叉比對（可自行核對）**")
+                        st.dataframe(
+                            pd.DataFrame(
+                                [
+                                    {
+                                        "項目": f"{cross['year']}年第{cross['quarter']}季 累計 EPS",
+                                        "數值": f"{cross['eps_cumulative']:.2f}",
+                                        "說明": f"證交所綜合損益表（{cross['industry']}）本年度累計數",
+                                    },
+                                    {
+                                        "項目": "近四季 EPS",
+                                        "數值": f"{detail['ttm_eps']:.2f}",
+                                        "說明": "收盤價 ÷ 本益比 反推",
+                                    },
+                                ]
+                            ),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        st.caption(
+                            "兩者計算區間不同（一個是今年累計、一個是近四季），數字本來就不會相等；"
+                            "但若差距大到不合理，代表其中一邊有問題。"
+                        )
 
                 if detail["adjusted"]:
                     st.info(
@@ -2734,3 +2844,4 @@ else:
     st.warning("找不到這個頁面，請從左側選單重新選擇。")
     if st.button("回到首頁"):
         go_to("welcome")
+    
