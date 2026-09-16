@@ -40,7 +40,7 @@ st.set_page_config(
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-09-16 / pe-5band-v9"
+APP_VERSION = "2026-09-16 / clean-icons-v11"
 
 # --- API 金鑰 ---------------------------------------------------------------
 # 建議改放 .streamlit/secrets.toml，例如：
@@ -512,7 +512,7 @@ try:
     sh, user_sheet, portfolio_sheet, watchlist_sheet = init_workbook()
 except Exception as e:
     msg = str(e)
-    st.error(f"❌ 雲端資料庫連線失敗：{msg}")
+    st.error(f"雲端資料庫連線失敗：{msg}")
     if "429" in msg or "Quota exceeded" in msg:
         st.info(
             "這是 Google Sheets 的每分鐘讀取上限（60 次／使用者）。"
@@ -579,7 +579,7 @@ def save_portfolio_to_cloud(username, df):
             portfolio_sheet.append_row([str(username), json_data])
         return True
     except Exception as e:
-        st.error(f"⚠️ 雲端儲存失敗：{e}")
+        st.error(f"雲端儲存失敗：{e}")
         return False
 
 
@@ -632,7 +632,7 @@ def login_ui():
                     background-color: {SECONDARY_BG}; border-radius: 15px;
                     border: 1px solid {BORDER_COLOR};
                     box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center;">
-            <h2 style="margin: 0; color: {TEXT_COLOR} !important; font-size: 24px;">🚀 台股個股/ETF查詢</h2>
+            <h2 style="margin: 0; color: {TEXT_COLOR} !important; font-size: 24px;">台股個股/ETF查詢</h2>
             <p style="color: {TEXT_COLOR} !important; opacity: 0.7; margin-top: 8px;
                       margin-bottom: 0; font-size: 14px;">Ez開發 - 投資助手系統</p>
         </div>
@@ -642,7 +642,7 @@ def login_ui():
 
     _, col_theme, _ = st.columns([1, 1.2, 1])
     with col_theme:
-        btn_label = "☀️ 切換淺色模式" if st.session_state.theme == "dark" else "🌙 切換深色模式"
+        btn_label = "切換淺色模式" if st.session_state.theme == "dark" else "切換深色模式"
         if st.button(btn_label, use_container_width=True, key="login_theme_toggle"):
             toggle_theme()
             st.rerun()
@@ -650,7 +650,7 @@ def login_ui():
     _, col2, _ = st.columns([1, 1.2, 1])
     with col2:
         user_db = get_cloud_users()
-        tab_login, tab_reg = st.tabs(["🔑 帳號登入", "📝 新用戶註冊"])
+        tab_login, tab_reg = st.tabs(["帳號登入", "新用戶註冊"])
 
         with tab_login:
             # 包成 form，在密碼欄按 Enter 就能直接登入
@@ -670,7 +670,7 @@ def login_ui():
                     st.session_state.page = "welcome"
                     st.rerun()
                 else:
-                    st.error("❌ 帳號或密碼不正確")
+                    st.error("帳號或密碼不正確")
 
         with tab_reg:
             st.info("註冊資料將儲存於雲端，重啟系統不會遺失。")
@@ -682,17 +682,17 @@ def login_ui():
 
             if reg_submitted:
                 if new_u in user_db:
-                    st.warning("⚠️ 帳號已存在")
+                    st.warning("帳號已存在")
                 elif new_p != confirm_p:
-                    st.error("❌ 密碼不一致")
+                    st.error("密碼不一致")
                 elif len(new_u) < 2 or len(new_p) < 4:
-                    st.error("❌ 長度不足 (帳號需2字元, 密碼需4字元)")
+                    st.error("長度不足 (帳號需2字元, 密碼需4字元)")
                 else:
                     try:
                         user_sheet.append_row([new_u, new_p])
                         save_portfolio_to_cloud(new_u, empty_portfolio())
                         get_cloud_users.clear()   # 清掉快取，新帳號才登得進去
-                        st.success("✅ 註冊成功！請切換至登入分頁。")
+                        st.success("註冊成功！請切換至登入分頁。")
                     except Exception as e:
                         st.error(f"註冊失敗：{e}")
 
@@ -1508,7 +1508,7 @@ def generate_user_calendar():
     valid = df.dropna(subset=["代碼", "張數"])
     valid = valid[valid["代碼"].astype(str).str.strip() != ""]
     if valid.empty:
-        st.warning("⚠️ 您的投資組合目前是空的。")
+        st.warning("您的投資組合目前是空的。")
         return None
 
     codes = [clean_code(c) for c in valid["代碼"]]
@@ -1670,14 +1670,14 @@ def label_spacer():
 def judge_pe_level(price, levels):
     """依五等分位階判斷目前股價落在哪一段。"""
     if price <= levels[0]["price"]:
-        return "💎 極便宜", DOWN_COLOR
+        return "極便宜", DOWN_COLOR
     if price <= levels[1]["price"]:
-        return "✅ 便宜", DOWN_COLOR
+        return "便宜", DOWN_COLOR
     if price <= levels[3]["price"]:
-        return "🟡 合理", "#ffbc4b"
+        return "合理", "#ffbc4b"
     if price <= levels[4]["price"]:
-        return "⚠️ 昂貴", UP_COLOR
-    return "❌ 極昂貴", UP_COLOR
+        return "昂貴", UP_COLOR
+    return "極昂貴", UP_COLOR
 
 
 def go_to(page_name):
@@ -1685,7 +1685,7 @@ def go_to(page_name):
     st.rerun()
 
 
-def back_button(label="⬅️ 返回工具箱", target="home", key=None):
+def back_button(label="← 返回工具箱", target="home", key=None):
     """返回鍵放在窄欄位裡，不再橫跨整個畫面。"""
     col, _ = st.columns([1, 5])
     with col:
@@ -1719,14 +1719,14 @@ with st.sidebar:
 
     st.markdown(f"<hr style='margin:10px 0; border-color:{BORDER_COLOR};'>", unsafe_allow_html=True)
 
-    theme_btn_label = "☀️ 切換淺色模式" if st.session_state.theme == "dark" else "🌙 切換深色模式"
+    theme_btn_label = "切換淺色模式" if st.session_state.theme == "dark" else "切換深色模式"
     if st.button(theme_btn_label, use_container_width=True):
         toggle_theme()
         st.rerun()
 
     st.markdown(f"<hr style='margin:10px 0; border-color:{BORDER_COLOR};'>", unsafe_allow_html=True)
 
-    if st.button("🚪 登出系統", use_container_width=True):
+    if st.button("登出系統", use_container_width=True):
         for k in ("logged_in", "current_user", "portfolio", "watchlist", "data"):
             st.session_state[k] = False if k == "logged_in" else None
         # 一併清掉殘留的元件狀態，避免下一位使用者看到上一位的資料
@@ -1737,7 +1737,7 @@ with st.sidebar:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    with st.expander("🔧 資料來源診斷", expanded=False):
+    with st.expander("資料來源診斷", expanded=False):
         st.caption(f"程式版本：{APP_VERSION}")
         st.caption(f"FinMind token 來源：{FINMIND_TOKEN_SOURCE}")
         if st.button("測試 FinMind 連線", use_container_width=True, key="diag_finmind"):
@@ -1754,18 +1754,18 @@ with st.sidebar:
                 )
                 payload = res.json()
                 if payload.get("msg") == "success" and payload.get("data"):
-                    st.success(f"✅ 連線正常，取得 {len(payload['data'])} 筆資料")
+                    st.success(f"連線正常，取得 {len(payload['data'])} 筆資料")
                 else:
-                    st.error(f"❌ {payload.get('msg') or '無回傳訊息'}")
+                    st.error(f"{payload.get('msg') or '無回傳訊息'}")
             except Exception as e:
-                st.error(f"❌ {e}")
+                st.error(f"{e}")
 
-        if st.button("🧹 清除資料快取", use_container_width=True, key="diag_clear"):
+        if st.button("清除資料快取", use_container_width=True, key="diag_clear"):
             st.cache_data.clear()
             st.success("已清除，請重新查詢一次。")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.caption("⚠️ 本系統數據僅供參考，不構成投資建議，投資人請審慎評估風險並自負盈虧。")
+    st.caption("本系統數據僅供參考，不構成投資建議，投資人請審慎評估風險並自負盈虧。")
 
 
 # =============================================================
@@ -1776,18 +1776,18 @@ with st.sidebar:
 # ------------------------------------------------------------------
 if page == "welcome":
     user = st.session_state.current_user
-    st.markdown(f"## {greeting()}，{user} 👋")
+    st.markdown(f"## {greeting()}，{user}")
     st.caption(datetime.now(tw_tz).strftime("台北時間 %Y-%m-%d %H:%M"))
     st.divider()
 
-    st.markdown("#### 🌐 市場快照")
+    st.markdown("#### 市場快照")
     snapshot = [("台股加權", "^TWII"), ("S&P 500", "^GSPC"), ("美元/台幣", "TWD=X")]
     for col, (label, ticker) in zip(st.columns(3), snapshot):
         with col:
             with st.container(border=True):
                 draw_compact_metric(label, ticker)
 
-    st.markdown("#### ⭐ 關注清單")
+    st.markdown("#### 關注清單")
     if st.session_state.watchlist is None:
         st.session_state.watchlist = load_watchlist_from_cloud(user)
 
@@ -1819,7 +1819,7 @@ if page == "welcome":
             st.caption(f"僅顯示前 {len(preview)} 檔，共 {len(st.session_state.watchlist)} 檔。")
 
     st.divider()
-    st.markdown("#### 🚀 快速前往")
+    st.markdown("#### 快速前往")
     shortcuts = [
         ("📈 個股分析", "stock_query"),
         ("📊 ETF 分析", "etf_query"),
@@ -1863,7 +1863,7 @@ elif page == "home":
 elif page == "watchlist":
     back_button()
 
-    st.title("⭐ 我的關注清單")
+    st.title("我的關注清單")
 
     if st.session_state.watchlist is None:
         st.session_state.watchlist = load_watchlist_from_cloud(st.session_state.current_user)
@@ -1874,9 +1874,9 @@ elif page == "watchlist":
             "新增代碼", placeholder="例如：2330 或 00919", label_visibility="collapsed"
         )
     with col_btn:
-        add_clicked = st.button("➕ 加入", use_container_width=True, type="primary")
+        add_clicked = st.button("加入", use_container_width=True, type="primary")
     with col_refresh:
-        refresh_clicked = st.button("🔄 更新報價", use_container_width=True)
+        refresh_clicked = st.button("更新報價", use_container_width=True)
 
     if add_clicked:
         code = clean_code(new_code)
@@ -1947,7 +1947,7 @@ elif page == "watchlist":
 # ------------------------------------------------------------------
 elif page == "stock_query":
     back_button()
-    st.title("🔍 台股自動估價系統 (個股)")
+    st.title("台股自動估價系統 (個股)")
 
     main_col, side_col = st.columns([8, 4])
 
@@ -1972,7 +1972,7 @@ elif page == "stock_query":
                     st.markdown(f"## {info['name']}")
                 with col_btn:
                     st.link_button(
-                        "🌐 找公司官網",
+                        "找公司官網",
                         f"https://www.google.com/search?q={info['name']}+公司官網",
                         use_container_width=True,
                     )
@@ -2006,7 +2006,7 @@ elif page == "stock_query":
                 st.divider()
 
                 # ---------- 估值位階（主要結論） ----------
-                st.subheader("📊 估值位階參考")
+                st.subheader("估值位階參考")
 
                 with st.spinner("分析歷史本益比中..."):
                     try:
@@ -2019,10 +2019,10 @@ elif page == "stock_query":
                         }
 
                 if not band.get("success"):
-                    st.warning(f"⚠️ 無法自動估價：{band.get('msg', '原因不明')}")
+                    st.warning(f"無法自動估價：{band.get('msg', '原因不明')}")
                 else:
                     for msg in band["warnings"]:
-                        st.warning(f"⚠️ {msg}")
+                        st.warning(f"{msg}")
 
                     eps_now = band["current_eps"]
                     levels = band["levels"]
@@ -2094,7 +2094,7 @@ elif page == "stock_query":
                         source_tag = (
                             "證交所 OpenAPI" if eps_detail.get("source") == "twse" else "FinMind 財報"
                         )
-                        with st.expander(f"📄 EPS 來源：{source_tag}（{eps_detail['period']}）"):
+                        with st.expander(f"EPS 來源：{source_tag}（{eps_detail['period']}）"):
                             st.caption(eps_detail["method"])
                             if eps_detail["quarters"]:
                                 st.dataframe(
@@ -2118,14 +2118,14 @@ elif page == "stock_query":
                                 )
                             if eps_detail.get("adjusted"):
                                 st.info(
-                                    f"ℹ️ 期間內有配股／增資。四季 EPS 直接相加為 "
+                                    f"期間內有配股／增資。四季 EPS 直接相加為 "
                                     f"**{eps_detail['naive_sum']:.2f}**，還原加權平均股數後為 "
                                     f"**{eps_detail['ttm_eps']:.2f}**，系統採用後者。"
                                 )
 
                     # ---------- 河流圖 ----------
                     st.divider()
-                    st.subheader("📈 本益比河流圖")
+                    st.subheader("本益比河流圖")
 
                     chart_df = band["chart"].copy()
                     for lv in levels:
@@ -2163,7 +2163,7 @@ elif page == "stock_query":
 
                 # ---------- 進階：手動試算 ----------
                 st.divider()
-                with st.expander("⚙️ 自訂本益比試算", expanded=not band.get("success")):
+                with st.expander("自訂本益比試算", expanded=not band.get("success")):
                     default_eps = float(band["current_eps"]) if band.get("success") else 10.0
                     default_pe = float(round(band["pe_fair"], 1)) if band.get("success") else 15.0
 
@@ -2184,23 +2184,23 @@ elif page == "stock_query":
                         unsafe_allow_html=True,
                     )
                     if current_price <= manual_price:
-                        st.success(f"✅ 目前股價 {current_price:.2f} 低於此假設下的參考價")
+                        st.success(f"目前股價 {current_price:.2f} 低於此假設下的參考價")
                     else:
-                        st.warning(f"⚠️ 目前股價 {current_price:.2f} 高於此假設下的參考價")
+                        st.warning(f"目前股價 {current_price:.2f} 高於此假設下的參考價")
 
     with side_col:
-        st.write("### 📖 說明")
+        st.write("### 說明")
         st.caption("輸入代碼即可，系統自動抓取近四季 EPS 與歷史本益比。")
         st.divider()
-        st.warning("⚠️ 不適用景氣循環股（航運、鋼鐵、記憶體）與獲利不穩的公司。")
+        st.warning("不適用景氣循環股（航運、鋼鐵、記憶體）與獲利不穩的公司。")
 elif page == "etf_query":
     back_button()
 
-    st.title("📈 ETF 專用")
+    st.title("ETF 專用")
     main_col, side_col = st.columns([8, 4])
 
     with main_col:
-        st.markdown("### 🔍 查詢設定")
+        st.markdown("### 查詢設定")
         if "etf_symbol_input" not in st.session_state:
             st.session_state.etf_symbol_input = ""
 
@@ -2226,7 +2226,7 @@ elif page == "etf_query":
 
         if st.session_state.data:
             if not st.session_state.data.get("success"):
-                st.error(f"❌ 查詢失敗：{st.session_state.data.get('msg')}")
+                st.error(f"查詢失敗：{st.session_state.data.get('msg')}")
             else:
                 d = st.session_state.data
                 m_color = UP_COLOR if d["change"] >= 0 else DOWN_COLOR
@@ -2258,13 +2258,13 @@ elif page == "etf_query":
                     st.write(f"開盤: {d['open']:.2f} / 總量: {d['vol_lots']:,} 張")
 
                 st.divider()
-                st.subheader("📑 歷史配息參考")
+                st.subheader("歷史配息參考")
 
                 freq_map = {"月配": 12, "季配": 4, "半年配": 2, "年配": 1}
                 sys_freq_name = f"{d['freq_label']}配"
                 sys_index = list(freq_map).index(sys_freq_name) if sys_freq_name in freq_map else 3
 
-                user_freq = st.selectbox("🔄 自訂/修正配息頻率：", list(freq_map), index=sys_index)
+                user_freq = st.selectbox("自訂/修正配息頻率：", list(freq_map), index=sys_index)
                 # 只用區域變數，不去改動快取回來的字典
                 multiplier = freq_map[user_freq]
                 freq_label = user_freq.replace("配", "")
@@ -2290,19 +2290,19 @@ elif page == "etf_query":
                     st.markdown(f"<div class='highlight-val'>{real_yield:.2f}%</div>", unsafe_allow_html=True)
 
                 st.divider()
-                st.subheader("📊 估值位階參考")
+                st.subheader("估值位階參考")
 
                 p_cheap = avg_annual / YIELD_CHEAP if avg_annual > 0 else 0
                 p_fair = avg_annual / YIELD_FAIR if avg_annual > 0 else 0
 
                 if avg_annual <= 0:
-                    rec = "－ 無配息資料，無法評估"
+                    rec = "無配息資料，無法評估"
                 elif d["price"] <= p_cheap:
-                    rec = "💎 便宜買入"
+                    rec = "便宜買入"
                 elif d["price"] <= p_fair:
-                    rec = "✅ 合理持有"
+                    rec = "合理持有"
                 else:
-                    rec = "❌ 昂貴不建議"
+                    rec = "昂貴不建議"
 
                 st.markdown(f"<div class='calc-box'>系統建議：<b>{rec}</b></div>", unsafe_allow_html=True)
 
@@ -2322,7 +2322,7 @@ elif page == "etf_query":
                 )
 
                 st.divider()
-                st.subheader("💰 持有張數試算 (含稅費)")
+                st.subheader("持有張數試算 (含稅費)")
                 ratio_54c = st.slider("54C 股利佔比 (%)", 0, 100, 40)
                 calc_c1, _ = st.columns([1, 2])
                 with calc_c1:
@@ -2350,7 +2350,7 @@ elif page == "etf_query":
                 st.caption(f"※ 二代健保：費率 {NHI_RATE:.2%}，單次給付達 {NHI_THRESHOLD:,} 元起扣")
 
                 st.divider()
-                st.subheader("🔮 存股未來財富試算")
+                st.subheader("存股未來財富試算")
 
                 f_col0, f_col1, f_col2, f_col3 = st.columns(4)
                 with f_col0:
@@ -2401,7 +2401,7 @@ elif page == "etf_query":
                 )
 
     with side_col:
-        st.write("### 📖 說明")
+        st.write("### 說明")
         st.caption("輸入代號後點擊開始計算，配息欄位可手動修改。")
 
 # ------------------------------------------------------------------
@@ -2410,7 +2410,7 @@ elif page == "etf_query":
 elif page == "pk_tool":
     back_button()
 
-    st.title("⚔️ ETF 對比工具")
+    st.title("ETF 對比工具")
 
     col_in1, col_in2 = st.columns(2)
     with col_in1:
@@ -2475,7 +2475,7 @@ elif page == "pk_tool":
 elif page == "portfolio":
     back_button()
 
-    st.title(f"💼 {st.session_state.current_user} 的投資組合")
+    st.title(f"{st.session_state.current_user} 的投資組合")
 
     # --- 資料校準 ---
     if st.session_state.portfolio is not None:
@@ -2489,7 +2489,7 @@ elif page == "portfolio":
     if st.session_state.portfolio is None or len(st.session_state.portfolio) == 0:
         st.session_state.portfolio = empty_portfolio()
 
-    st.markdown("### 📝 編輯投資清單")
+    st.markdown("### 編輯投資清單")
     edited_df = st.data_editor(
         st.session_state.portfolio[COLUMNS_ORDER],
         column_config={
@@ -2505,7 +2505,7 @@ elif page == "portfolio":
 
     col_edit1, col_edit2 = st.columns(2)
     with col_edit1:
-        if st.button("🔄 自動帶入資訊", use_container_width=True):
+        if st.button("自動帶入資訊", use_container_width=True):
             temp_df = edited_df.copy()
             codes = [
                 clean_code(c)
@@ -2529,16 +2529,16 @@ elif page == "portfolio":
             st.rerun()
 
     with col_edit2:
-        if st.button("💾 儲存變更至資料庫", type="primary", use_container_width=True):
+        if st.button("儲存變更至資料庫", type="primary", use_container_width=True):
             save_df = edited_df[COLUMNS_ORDER].copy()
             save_df["張數"] = pd.to_numeric(save_df["張數"], errors="coerce")
             st.session_state.portfolio = save_df
             if save_portfolio_to_cloud(st.session_state.current_user, save_df):
-                st.success("✅ 資料庫已同步更新")
+                st.success("資料庫已同步更新")
 
     st.divider()
-    st.markdown("### 📊 資產市值與配置分析")
-    total_cost_input = st.number_input("💵 請輸入總成本", min_value=0.0, value=0.0, step=10000.0)
+    st.markdown("### 資產市值與配置分析")
+    total_cost_input = st.number_input("請輸入總成本", min_value=0.0, value=0.0, step=10000.0)
 
     calc_prep = edited_df.copy()
     calc_prep["張數"] = pd.to_numeric(calc_prep["張數"], errors="coerce")
@@ -2645,7 +2645,7 @@ elif page == "portfolio":
                 avg_yield = (total_annual_div / total_market_val * 100) if total_market_val > 0 else 0
                 m2.metric("組合平均殖利率", f"{avg_yield:.2f}%")
 
-                st.markdown("### 🎯 戰略資產佈局")
+                st.markdown("### 戰略資產佈局")
                 cat_df = res_df.groupby("戰略屬性", observed=True)["持有價值"].sum().reset_index()
                 col_pie1, col_pie2, col_table = st.columns([1, 1, 1.5])
 
@@ -2685,10 +2685,10 @@ elif page == "portfolio":
                     )
 
         st.divider()
-        st.subheader("📅 自動化領息排程月曆")
+        st.subheader("自動化領息排程月曆")
         horizon_days = st.slider("顯示未來幾天內的配息", 7, 120, DIV_PAY_LAG_DAYS * 2, step=7)
 
-        if st.button("🚀 生成我的專屬領息月曆", use_container_width=True, type="primary"):
+        if st.button("生成我的專屬領息月曆", use_container_width=True, type="primary"):
             cal_df = generate_user_calendar()
 
             if cal_df is None or cal_df.empty:
@@ -2699,7 +2699,7 @@ elif page == "portfolio":
                 filtered = cal_df[cal_df["_pay"] <= cutoff].sort_values("_pay")
 
                 if filtered.empty:
-                    st.warning(f"⚠️ 未來 {horizon_days} 天內暫無預計領息資料。")
+                    st.warning(f"未來 {horizon_days} 天內暫無預計領息資料。")
                 else:
                     display_df = filtered.drop(columns=["_pay"]).copy()
                     display_df["每股配息"] = display_df["每股配息"].map(lambda v: f"${v:.3f}")
@@ -2707,7 +2707,7 @@ elif page == "portfolio":
                     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
                     st.success(
-                        f"💰 這一波領息預計總入帳： **${filtered['預估入帳金額'].sum():,.0f}** 元"
+                        f"這一波領息預計總入帳： **${filtered['預估入帳金額'].sum():,.0f}** 元"
                     )
                     st.caption(f"※ 發放日以除息日加 {DIV_PAY_LAG_DAYS} 天推估，實際日期請以公告為準。")
 
@@ -2717,12 +2717,12 @@ elif page == "portfolio":
 elif page == "market_index":
     back_button()
 
-    st.markdown("### 🌐 大盤指數")
+    st.markdown("### 大盤指數")
     st.divider()
 
     _, col_refresh = st.columns([4, 1])
     with col_refresh:
-        if st.button("🔄 重新整理", use_container_width=True):
+        if st.button("重新整理", use_container_width=True):
             get_market_data.clear()
             st.rerun()
     st.caption(f"最後更新：{datetime.now(tw_tz).strftime('%Y-%m-%d %H:%M')}")
@@ -2741,7 +2741,7 @@ elif page == "market_index":
 elif page == "tax_calc":
     back_button()
 
-    st.title("📝 股利報稅與綜合所得稅試算")
+    st.title("股利報稅與綜合所得稅試算")
 
     years = sorted(TAX_CONFIG.keys(), reverse=True)
     tax_year = st.selectbox(
@@ -2758,10 +2758,10 @@ elif page == "tax_calc":
         )
 
     # ------------------------- 輸入區 -------------------------
-    with st.expander("✏️ 展開填寫：所得與家庭扣除額資料", expanded=True):
-        st.markdown("#### 💼 第一部分：所得資料 (精準薪資防呆)")
+    with st.expander("展開填寫：所得與家庭扣除額資料", expanded=True):
+        st.markdown("#### 第一部分：所得資料 (精準薪資防呆)")
         st.caption(
-            f"💡 若有打工族，請務必分開填寫薪資！系統會自動判斷「實領薪資」與"
+            f"若有打工族，請務必分開填寫薪資！系統會自動判斷「實領薪資」與"
             f"「{cfg['salary_cap'] / 10000:.1f}萬上限」取低值扣除。股利則直接填寫全家總和即可。"
         )
 
@@ -2775,7 +2775,7 @@ elif page == "tax_calc":
         div_total = st.number_input("全年股利及盈餘合計金額 (全家加總)", min_value=0, value=0, step=1000)
 
         st.divider()
-        st.markdown("#### 👨‍👩‍👧‍👦 第二部分：家庭與一般扣除額")
+        st.markdown("#### 第二部分：家庭與一般扣除額")
         c1, c2, c3 = st.columns(3)
         with c1:
             marital_options = [
@@ -2796,14 +2796,14 @@ elif page == "tax_calc":
         c_item1, c_item2 = st.columns([1, 2])
         with c_item1:
             itemized_deduction = st.number_input(
-                "🏥 列舉扣除額總計 (如醫藥/保險/捐贈)", min_value=0, value=0, step=10000
+                "列舉扣除額總計 (如醫藥/保險/捐贈)", min_value=0, value=0, step=10000
             )
         with c_item2:
             st.write("")
-            st.info("💡 系統會自動比較「標準」與「列舉」，採用金額較高者。")
+            st.info("系統會自動比較「標準」與「列舉」，採用金額較高者。")
 
         st.divider()
-        st.markdown("#### 🌟 第三部分：特別扣除額")
+        st.markdown("#### 第三部分：特別扣除額")
         st.caption("以下請輸入符合資格的【人數】，系統自動乘上對應額度。")
         c4, c5, c6 = st.columns(3)
         with c4:
@@ -2938,7 +2938,7 @@ elif page == "tax_calc":
         </table>
         """
 
-    tab1, tab2 = st.tabs(["📊 方案 A：一般合併申報明細", "👑 方案 B：股利 28% 分開計稅明細"])
+    tab1, tab2 = st.tabs(["方案 A：一般合併申報", "方案 B：股利 28% 分開計稅"])
 
     # ---------------- 方案 A ----------------
     with tab1:
@@ -2959,15 +2959,15 @@ elif page == "tax_calc":
         if is_rich_a:
             reason = "基本所得額超過門檻" if basic_income_over_cap else "課稅級距達 20% 以上"
             st.warning(
-                f"⚠️ **系統偵測：{reason}，已自動觸發排富條款！**\n\n"
+                f"**系統偵測：{reason}，已自動觸發排富條款！**\n\n"
                 "長期照顧與房屋租金特別扣除額已自動歸零；"
                 "幼兒學前特別扣除額自 113 年度起已取消排富，故仍可全額適用。"
             )
 
-        st.markdown("### 📝 扣除額與抵減稅額明細 (方案 A)")
+        st.markdown("### 扣除額與抵減稅額明細 (方案 A)")
         st.markdown(render_deduction_table(case_a, muted_note_a), unsafe_allow_html=True)
 
-        st.markdown("★ **股利及盈餘可抵減稅額：**")
+        st.markdown("**股利及盈餘可抵減稅額：**")
         st.markdown(
             f"""
             <table class="tax-table">
@@ -2988,11 +2988,11 @@ elif page == "tax_calc":
         st.divider()
         col_chart_a, col_result_a = st.columns([1.2, 1])
         with col_chart_a:
-            st.markdown(f"### 📊 {tax_year}年度綜合所得稅級距表")
+            st.markdown(f"### {tax_year}年度綜合所得稅級距表")
             st.table(tax_table_data)
 
         with col_result_a:
-            st.markdown("### 🧾 結算單 (方案 A)")
+            st.markdown("### 結算單 (方案 A)")
             with st.container(border=True):
                 st.markdown(
                     f"**綜合所得總額 (薪資＋股利)：** "
@@ -3049,14 +3049,14 @@ elif page == "tax_calc":
         final_tax_b = case_b["base_tax"] + div_tax_b
 
         st.warning(
-            "👑 **方案 B 預設：凡選擇股利 28% 分開計稅，即自動觸發排富條款！**\n\n"
+            "**方案 B 預設：凡選擇股利 28% 分開計稅，即自動觸發排富條款！**\n\n"
             "長期照顧與房屋租金特別扣除額已自動歸零；幼兒學前特別扣除額不受排富限制，仍可適用。"
         )
 
-        st.markdown("### 📝 扣除額明細 (方案 B：排富沒收版)")
+        st.markdown("### 扣除額明細 (方案 B：排富沒收版)")
         st.markdown(render_deduction_table(case_b, "(28%排富取消)"), unsafe_allow_html=True)
 
-        st.markdown("★ **股利及盈餘分開計稅：**")
+        st.markdown("**股利及盈餘分開計稅：**")
         st.markdown(
             f"""
             <table class="tax-table">
@@ -3074,14 +3074,14 @@ elif page == "tax_calc":
         st.divider()
         col_chart_b, col_result_b = st.columns([1.2, 1])
         with col_chart_b:
-            st.markdown(f"### 📊 {tax_year}年度綜合所得稅級距表")
+            st.markdown(f"### {tax_year}年度綜合所得稅級距表")
             st.table(tax_table_data)
 
         with col_result_b:
-            st.markdown("### 🧾 結算單 (方案 B)")
+            st.markdown("### 結算單 (方案 B)")
             with st.container(border=True):
                 st.markdown(
-                    f"**綜合所得總額 (⚠️ 不含股利)：** "
+                    f"**綜合所得總額 (不含股利)：** "
                     f"<span style='float:right;'>{case_b['total_income']:,.0f} 元</span>",
                     unsafe_allow_html=True,
                 )
@@ -3111,7 +3111,7 @@ elif page == "tax_calc":
                     f"= 薪資應納稅額 {case_b['base_tax']:,.0f} 元"
                 )
                 st.markdown(
-                    f"**➕ 股利 {DIV_SEPARATE_RATE:.0%} 分開計稅額：** "
+                    f"**股利 {DIV_SEPARATE_RATE:.0%} 分開計稅額：** "
                     f"<span style='float:right; color:#ffbc4b;'>+ {div_tax_b:,.0f} 元</span>",
                     unsafe_allow_html=True,
                 )
@@ -3132,7 +3132,7 @@ elif page == "tax_calc":
     better = "方案 A（合併計稅）" if final_tax_a <= final_tax_b else "方案 B（28% 分開計稅）"
     diff = abs(final_tax_a - final_tax_b)
     st.success(
-        f"📌 以目前輸入的資料，**{better}** 較有利，兩者相差約 **{diff:,.0f}** 元。"
+        f"以目前輸入的資料，**{better}** 較有利，兩者相差約 **{diff:,.0f}** 元。"
         "（實際申報請以財政部電子申報系統試算結果為準。）"
     )
 
