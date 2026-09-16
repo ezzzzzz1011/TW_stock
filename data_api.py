@@ -1,4 +1,4 @@
-"""
+\"""
 資料引擎：雲端資料庫（Google Sheets）、報價、配息、財報、本益比河流圖、大盤。
 這裡只負責取資料與運算，畫面相關的東西放在 pages.py。
 """
@@ -59,12 +59,17 @@ FUGLE_TOKEN = _read_secret("fugle")
 FINMIND_TOKEN_SOURCE = "Secrets" if FINMIND_TOKEN else "未設定"
 FUGLE_TOKEN_SOURCE = "Secrets" if FUGLE_TOKEN else "未設定"
 
-_missing = [
-    name for name, value in (("finmind", FINMIND_TOKEN), ("fugle", FUGLE_TOKEN)) if not value
-]
-if _missing:
+def require_tokens():
+    """金鑰檢查。同樣要由主程式每次 rerun 呼叫，不能寫在模組層級。"""
+    missing = [
+        name
+        for name, value in (("finmind", FINMIND_TOKEN), ("fugle", FUGLE_TOKEN))
+        if not value
+    ]
+    if not missing:
+        return
     st.error(
-        "缺少 API 金鑰設定：" + "、".join(f"[{m}]" for m in _missing) + "\n\n"
+        "缺少 API 金鑰設定：" + "、".join(f"[{m}]" for m in missing) + "\n\n"
         "請到 Streamlit Cloud 的 Settings → Secrets 補上，格式為：\n\n"
         "```toml\n[finmind]\ntoken = \"...\"\n\n[fugle]\ntoken = \"...\"\n```"
     )
