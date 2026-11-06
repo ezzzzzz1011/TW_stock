@@ -28,7 +28,8 @@ from data_api import (
     generate_user_calendar, get_asset_category, get_cloud_users,
     get_market_data, get_safe_data_etf, get_stock_info, get_ttm_eps,
     load_portfolio_from_cloud, load_watchlist_from_cloud,
-    quarter_label, save_portfolio_to_cloud, save_watchlist_to_cloud, user_sheet,
+    quarter_label, save_portfolio_to_cloud, save_watchlist_to_cloud, sum_lots_by_code,
+    user_sheet,
 )
 import requests
 
@@ -1058,9 +1059,9 @@ def render():
             st.info("請先在上方表格輸入股票代碼與持有張數。")
         else:
             if st.button("開始計算當前市值", type="primary", use_container_width=True):
-                codes = [clean_code(c) for c in valid_df["代碼"]]
-                lots_map = {clean_code(r["代碼"]): float(r["張數"]) for _, r in valid_df.iterrows()}
-                cat_map = {clean_code(r["代碼"]): r.get("戰略屬性") for _, r in valid_df.iterrows()}
+                # 同一檔分多列輸入時張數相加，不會只算到最後一列
+                lots_map, cat_map = sum_lots_by_code(valid_df)
+                codes = list(lots_map)
 
                 with st.spinner("同步市場最新價格中..."):
                     data_map = fetch_many(codes, get_safe_data_etf)

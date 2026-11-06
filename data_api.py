@@ -149,7 +149,8 @@ def find_user_row(worksheet, username):
 def get_cloud_users():
     """使用者清單快取 5 分鐘，避免每次 rerun 都打 Google API。"""
     try:
-        records = user_sheet.get_all_records()
+        # numericise_ignore=["all"]：不要把 "0123" 這類密碼轉成數字 123，否則永遠比對不到
+        records = user_sheet.get_all_records(numericise_ignore=["all"])
         return {
             str(row["username"]).strip(): str(row["password"]).strip()
             for row in records
@@ -165,13 +166,53 @@ def empty_portfolio():
     )
 
 
+def _repair_code(value):
+    """
+    修復被轉成數字、開頭 0 被吃掉的代碼。
+    台股沒有 1～3 位數的代碼，這種一定是 ETF 掉了 0：
+    50 -> 0050、919 -> 00919。4 位數以上無法分辨（6208 可能是 006208），維持原樣。
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    text = str(value).strip()
+    if text.lower() in ("nan", "none"):
+        return ""
+    if text.endswith(".0") and text[:-2].isdigit():
+        text = text[:-2]
+    if text.isdigit():
+        if len(text) <= 2:
+            return text.zfill(4)
+        if len(text) == 3:
+            return text.zfill(5)
+    return text
+
+
+def sum_lots_by_code(df):
+    """
+    同一檔股票分多列輸入時，張數相加，戰略屬性取第一個有填的。
+    回傳 (lots_map, cat_map)，dict 的順序即為代碼首次出現的順序。
+    """
+    lots_map, cat_map = {}, {}
+    for _, row in df.iterrows():
+        code = clean_code(row["代碼"])
+        lots_map[code] = lots_map.get(code, 0.0) + float(row["張數"])
+        cat = row.get("戰略屬性")
+        has_cat = not pd.isna(cat) and str(cat).strip() != ""
+        if has_cat and code not in cat_map:
+            cat_map[code] = cat
+    return lots_map, cat_map
+
+
 def load_portfolio_from_cloud(username):
     try:
         cell = find_user_row(portfolio_sheet, username)
         if cell:
             json_data = portfolio_sheet.cell(cell.row, 2).value
             if json_data:
-                df = pd.read_json(io.StringIO(json_data))
+                # dtype 指定為文字，否則 pandas 會把 "0050" 轉成數字 50
+                df = pd.read_json(io.StringIO(json_data), dtype={"代碼": str})
+                if "代碼" in df.columns:
+                    df["代碼"] = df["代碼"].map(_repair_code)
                 for col in COLUMNS_ORDER:
                     if col not in df.columns:
                         df[col] = None if col == "張數" else ""
@@ -1032,8 +1073,8 @@ def generate_user_calendar():
         st.warning("您的投資組合目前是空的。")
         return None
 
-    codes = [clean_code(c) for c in valid["代碼"]]
-    lots_map = {clean_code(r["代碼"]): float(r["張數"]) for _, r in valid.iterrows()}
+    lots_map, _ = sum_lots_by_code(valid)
+    codes = list(lots_map)
 
     with st.spinner("查詢配息資料中..."):
         div_map = fetch_many(codes, get_dividend_calendar)
