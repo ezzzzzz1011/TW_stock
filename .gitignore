@@ -1,0 +1,7 @@
+# Python 自動產生的暫存檔
+__pycache__/
+*.pyc
+
+# 本機的正式金鑰（正式網站的金鑰放在 Streamlit Cloud 的 Secrets）。
+# 只排除根目錄這份；tests/.streamlit/secrets.toml 是測試用假設定，要保留。
+/.streamlit/secrets.toml
