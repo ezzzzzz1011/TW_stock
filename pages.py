@@ -5,6 +5,7 @@
 
 import base64
 import json
+import math
 from bisect import bisect_left
 from datetime import datetime
 from urllib.parse import quote_plus
@@ -29,7 +30,8 @@ from data_api import (
     fetch_market_turnover, format_market_value,
     generate_user_calendar, get_asset_category, get_cloud_users,
     admin_status, get_market_data, get_safe_data_etf, get_stock_info, get_ttm_eps,
-    load_portfolio_from_cloud, load_watchlist_from_cloud,
+    quote_date_text,
+    load_portfolio_from_cloud, load_watchlist_from_cloud, login_lock_remaining,
     quarter_label, register_user, save_portfolio_to_cloud, save_watchlist_to_cloud,
     sum_lots_by_code,
 )
@@ -201,7 +203,13 @@ def login_ui():
                     st.session_state.page = "welcome"
                     st.rerun()
                 else:
-                    st.error("帳號或密碼不正確")
+                    remaining = login_lock_remaining(u_id.strip())
+                    if remaining > 0:
+                        st.error(
+                            f"這個帳號登入失敗次數過多，請 {math.ceil(remaining / 60)} 分鐘後再試。"
+                        )
+                    else:
+                        st.error("帳號或密碼不正確")
 
         with tab_reg:
             st.info("註冊資料將儲存於雲端，重啟系統不會遺失。")
@@ -518,7 +526,7 @@ def render():
                         )
 
                     st.markdown(
-                        f"<div class='date-text'>資料日期：{datetime.now(tw_tz).strftime('%Y-%m-%d')}</div>",
+                        f"<div class='date-text'>資料日期：{quote_date_text(info)}</div>",
                         unsafe_allow_html=True,
                     )
 
@@ -1446,12 +1454,21 @@ def render():
                 standard_deduction = (
                     cfg["standard_single"] if "單身" in marital_status else cfg["standard_couple"]
                 )
+            # 免稅額 1.5 倍只適用於「年滿 70 歲的本人、配偶、受扶養直系尊親屬」。
+            # 原本寫「滿70歲以上扶養人數」，70 歲以上的報稅人會誤填到一般欄位而少算免稅額；
+            # 反過來，70 歲以上但不是直系尊親屬的受扶養親屬（例如兄姊）只適用一般免稅額。
             with c2:
                 dependents_normal = st.number_input(
-                    "未滿70歲人數 (含本人/配偶/扶養)", min_value=0, value=0, step=1
+                    "一般免稅額人數 (本人/配偶/受扶養親屬)", min_value=0, value=0, step=1,
+                    help="不屬於右側 70 歲加成資格的人都算這裡，"
+                    "包括 70 歲以上但不是直系尊親屬的受扶養親屬（例如兄姊）。",
                 )
             with c3:
-                dependents_70plus = st.number_input("滿70歲以上扶養人數", min_value=0, value=0, step=1)
+                dependents_70plus = st.number_input(
+                    "滿70歲：本人/配偶/受扶養直系尊親屬人數", min_value=0, value=0, step=1,
+                    help="年滿 70 歲的本人、配偶，以及受扶養的父母、祖父母等直系尊親屬，"
+                    "免稅額為一般的 1.5 倍。同一人不要在兩邊重複填寫。",
+                )
 
             c_item1, c_item2 = st.columns([1, 2])
             with c_item1:

@@ -8,6 +8,8 @@ import hmac
 import io
 import re
 import secrets
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
@@ -240,10 +242,63 @@ def verify_password(password, stored):
     return hmac.compare_digest(password.encode("utf-8"), stored.encode("utf-8"))
 
 
+# ===================== 登入次數限制 =====================
+# 同一個帳號連續輸錯 LOGIN_MAX_FAILURES 次，就鎖 LOGIN_LOCK_SECONDS 秒。
+# 4 位數密碼只有 1 萬種組合，不限制的話用程式幾個小時就猜得到。
+# 用 cache_resource 讓所有使用者共用同一份紀錄：換瀏覽器、開新分頁都繞不過去。
+# 網站重新啟動時紀錄會清空，這是可接受的。
+LOGIN_MAX_FAILURES = 5
+LOGIN_LOCK_SECONDS = 300
+
+
+@st.cache_resource(show_spinner=False)
+def _login_guard():
+    return {"lock": threading.Lock(), "fails": {}, "locked_until": {}}
+
+
+def login_lock_remaining(username):
+    """這個帳號還要鎖幾秒；沒被鎖回傳 0。"""
+    guard = _login_guard()
+    with guard["lock"]:
+        until = guard["locked_until"].get(username, 0)
+    return max(0, int(until - time.time() + 0.999))
+
+
+def _record_login_result(username, ok):
+    guard = _login_guard()
+    now = time.time()
+    with guard["lock"]:
+        if ok:
+            guard["fails"].pop(username, None)
+            return
+        recent = [t for t in guard["fails"].get(username, []) if now - t < LOGIN_LOCK_SECONDS]
+        recent.append(now)
+        if len(recent) >= LOGIN_MAX_FAILURES:
+            guard["locked_until"][username] = now + LOGIN_LOCK_SECONDS
+            guard["fails"].pop(username, None)
+        else:
+            guard["fails"][username] = recent
+        # 防止有人用大量不存在的帳號名稱把紀錄塞爆
+        if len(guard["fails"]) > 10_000:
+            guard["fails"].clear()
+        if len(guard["locked_until"]) > 10_000:
+            guard["locked_until"] = {
+                k: v for k, v in guard["locked_until"].items() if v > now
+            }
+
+
 def authenticate(username, password):
-    """帳密正確回傳 True。舊的明碼帳號登入成功時，順便把密碼換成雜湊。"""
+    """
+    帳密正確回傳 True。舊的明碼帳號登入成功時，順便把密碼換成雜湊。
+    帳號被鎖住時一律回傳 False，連密碼都不比對，避免鎖住期間還能繼續猜。
+    """
+    if login_lock_remaining(username) > 0:
+        return False
+
     stored = get_cloud_users().get(username)
-    if stored is None or not verify_password(password, stored):
+    ok = stored is not None and verify_password(password, stored)
+    _record_login_result(username, ok)
+    if not ok:
         return False
 
     if not is_hashed(stored):
@@ -378,6 +433,23 @@ def clean_code(symbol):
     return str(symbol).strip().upper().replace(".TW", "").replace(".TWO", "")
 
 
+def _quote_date(raw):
+    """把報價日期整理成 YYYY-MM-DD；格式不符就回傳空字串，畫面會改顯示今天。"""
+    text = str(raw or "").strip()[:10]
+    return text if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text) else ""
+
+
+def quote_date_text(info):
+    """畫面上的「資料日期」。有報價日期就用報價日期，沒有才用今天。"""
+    today = datetime.now(tw_tz).strftime("%Y-%m-%d")
+    date = (info or {}).get("date") or ""
+    if not date:
+        return today
+    if date != today:
+        return f"{date}（最近一個交易日）"
+    return date
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def get_stock_info(symbol):
     """即時報價。快取 60 秒，避免每次 rerun 都重打 API。"""
@@ -409,6 +481,9 @@ def get_stock_info(symbol):
             "open": float(data.get("openPrice") or price),
             "vol_lots": int(vol_lots),
             "full_ticker": code,
+            # 報價所屬的交易日（Fugle 官方文件：date，格式 YYYY-MM-DD）。
+            # 週末、假日查詢時是上一個交易日，不是今天。
+            "date": _quote_date(data.get("date")),
         }
     except Exception as e:
         print(f"[get_stock_info] {code}: {e}")
@@ -1130,7 +1205,7 @@ def get_safe_data_etf(symbol):
         "raw_divs": raw_divs,
         "multiplier": multiplier,
         "freq_label": freq_label,
-        "last_date": datetime.now(tw_tz).strftime("%Y-%m-%d"),
+        "last_date": quote_date_text(info),
         "full_ticker": info["full_ticker"],
     }
 
