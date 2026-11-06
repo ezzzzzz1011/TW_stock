@@ -1,11 +1,15 @@
-streamlit>=1.49        # width="stretch" 寫法從 1.49 起所有元件都支援
-pandas>=2.0
-numpy>=1.24
-plotly>=5.18
-yfinance>=0.2.40
+# 上限設在「已測試版本的下一個主版本」：套件大改版（主版本號變動）時不會自動升級，
+# 避免網站在重新部署時突然壞掉。要升級時，先跑 tests/run_tests.py 確認沒問題再調整上限。
+# 2026-11 實測：streamlit 1.49 與 1.67、pandas 2.3 與 3.1、numpy 2.5、plotly 7.1、
+# yfinance 1.8、gspread 6.2、google-auth 2.62、fugle-marketdata 2.8
+streamlit>=1.49,<2     # width="stretch" 寫法從 1.49 起所有元件都支援
+pandas>=2.0,<4
+numpy>=1.24,<3
+plotly>=5.18,<8
+yfinance>=0.2.40,<2
 pytz
 requests
-gspread>=6.0
-google-auth>=2.28
-fugle-marketdata>=1.0
+gspread>=6.0,<7
+google-auth>=2.28,<3
+fugle-marketdata>=1.0,<3
 lxml            # pandas.read_html 解析 HiStock 表格用
