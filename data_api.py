@@ -1530,6 +1530,10 @@ def etf_yield_ranking(today=None):
             multiplier, freq = infer_frequency(history)
             annual = annualize([h["amount"] for h in history], multiplier)
             freq_text = f"{freq}配"
+            if freq == "季":
+                # 季配附上近一年的除息月份，例如「季配（1·4·7·10月）」，不另開欄位以免表格更寬
+                months = sorted({d.month for d, _ in recent})
+                freq_text += f"（{'·'.join(str(m) for m in months)}月）"
         else:
             multiplier, annual, freq_text = None, None, "未知"
 

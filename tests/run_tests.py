@@ -113,7 +113,10 @@ try:
     next(b for b in at.button if b.label == "提交註冊").click()
     at.run()
     carol = next((r for r in d.user_sheet.rows if r[0] == "carol"), None)
-    check("新註冊帳號只存雜湊", carol and carol[1].startswith("pbkdf2_sha256$") and "0123" not in carol[1])
+    # 不能用「雜湊裡不含 0123」來判斷：雜湊是隨機的十六進位字串，碰巧含有 0123 的機率約 0.1%
+    check("新註冊帳號只存雜湊",
+          carol is not None and carol[1].startswith("pbkdf2_sha256$") and carol[1] != "0123"
+          and d.verify_password("0123", carol[1]) and not d.verify_password("0124", carol[1]))
     at = new_app()
     check("新註冊帳號 carol / 0123 可登入", login(at, "carol", "0123"))
 
@@ -339,6 +342,12 @@ try:
     check("年化殖利率是數值欄（無法推估時顯示空白，不會出現 None）",
           rank["年化殖利率(%)"].dtype.kind == "f")
     row56 = rank[rank["代號"] == "0056"].iloc[0]
+    row919 = rank[rank["代號"] == "00919"].iloc[0]
+    row50 = rank[rank["代號"] == "0050"].iloc[0]
+    check("季配附上除息月份：0056 是 1·4·7·10 月、00919 是 3·6·9·12 月",
+          row56["配息頻率"] == "季配（1·4·7·10月）" and row919["配息頻率"] == "季配（3·6·9·12月）",
+          f"{row56['配息頻率']} / {row919['配息頻率']}")
+    check("非季配不加月份（0050 半年配）", row50["配息頻率"] == "半年配", row50["配息頻率"])
     fm56 = d.fetch_dividend_history_super("0056")
     start = rinfo["start"].strftime("%Y-%m-%d")
     fm_ttm = round(sum(x["amount"] for x in fm56 if x["date"] >= start), 4)
@@ -377,10 +386,13 @@ try:
     check("點進去是殖利率排行頁", at.session_state["page"] == "etf_rank" and not at.exception, errors(at))
 
     def rank_table():
-        return next(f.value for f in at.dataframe)
+        value = next(f.value for f in at.dataframe)
+        return getattr(value, "data", value)   # Styler -> DataFrame
 
     t = rank_table()
     check("預設顯示前 20 名", len(t) == 20 and list(t["排名"]) == list(range(1, 21)))
+    check("表格裡沒有空值（無法推估的年化殖利率以 -1 存、顯示成「—」，不會出現 None）",
+          t["年化殖利率"].notna().all() and ((t["年化殖利率"] >= 0) | (t["年化殖利率"] == -1)).all())
     at.selectbox(key="etf_rank_size").select("前 50 名")
     at.run()
     check("選前 50 名顯示 50 檔", len(rank_table()) == 50)
@@ -396,7 +408,7 @@ try:
     at.run()
     t = rank_table()
     check("依年化殖利率排序且沒有空值",
-          t["年化殖利率(%)"].notna().all() and t["年化殖利率(%)"].is_monotonic_decreasing)
+          t["年化殖利率"].notna().all() and t["年化殖利率"].is_monotonic_decreasing)
     at.selectbox(key="etf_rank_size").select("前 20 名")
     at.run()
     first = rank_table().iloc[0]["代號"]
@@ -424,6 +436,15 @@ try:
             common.st.markdown = orig_md
         css_by_theme[theme] = captured[0]
     dark_css, light_css = css_by_theme["dark"], css_by_theme["light"]
+    captured = []
+    orig_md = common.st.markdown
+    common.st.markdown = lambda body, **kw: captured.append(body)
+    try:
+        common.inject_css(hide_stale=True)
+    finally:
+        common.st.markdown = orig_md
+    check("換頁時才藏起上一頁的殘留畫面（同一頁操作不藏）",
+          'data-stale="true"' in captured[0] and 'data-stale="true"' not in light_css)
     check("淺色模式的表格會反相成淺色、深色模式不會",
           "invert(1)" in light_css and "invert(1)" not in dark_css)
     for kind in ("Info", "Success", "Warning", "Error"):

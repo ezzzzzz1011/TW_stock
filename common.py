@@ -23,7 +23,7 @@ def setup_page():
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-11-06 / etf-rank-v34"
+APP_VERSION = "2026-11-06 / rank-months-v35"
 
 FEE_RATE = 0.001425          # 券商手續費率
 NHI_RATE = 0.0211            # 二代健保補充保費費率
@@ -225,9 +225,16 @@ def style_plotly(fig):
     return fig
 
 
-def inject_css():
+def inject_css(hide_stale=False):
     """
     全站 CSS，所有顏色跟著目前主題走。每次 rerun 都要呼叫。
+
+    hide_stale：這次執行是不是「換頁」。Streamlit 預設會把上一頁的內容（標記為
+    data-stale）半透明地留在畫面上，直到新頁面畫到那個位置為止；新頁面若要先抓資料
+    （例如 ETF 殖利率排行），上一頁的卡片就會卡在下面好幾秒。換頁時把這些舊內容藏起來；
+    同一頁內的操作不藏，維持 Streamlit 原本的淡出效果，畫面才不會閃。
+    （已實測無效的做法：先放 st.empty() 再建容器——同一格的更新會在送出前被合併；
+    改用不同 key 的容器——瀏覽器照樣沿用舊內容。）
 
     為什麼要寫這麼多：.streamlit/config.toml 把 Streamlit 內建主題固定為深色，
     淺色模式其實是用這份 CSS 蓋上去的。沒蓋到的元件（下拉選單、提示框、
@@ -503,6 +510,9 @@ def inject_css():
             fill: {TEXT_COLOR} !important;
         }}
         {grid_css}
+        {'''[data-testid="stMain"] [data-stale="true"] {
+            display: none !important;
+        }''' if hide_stale else ""}
         /* 表格儲存格編輯時跳出的輸入框、下拉清單：它們放在 #portal 裡、不在表格內，
            上面的反相處理不到，要另外指定顏色 */
         #portal .gdg-style,

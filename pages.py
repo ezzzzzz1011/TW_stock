@@ -255,6 +255,9 @@ def render():
     """每次 rerun 由 testapp.py 呼叫：先畫側邊欄，再依 st.session_state.page 畫對應的頁面。"""
     page = st.session_state.page
     render_sidebar(page)
+
+    # 記下這次畫的是哪一頁；下一次執行時 testapp 用它判斷是不是「換頁」（見 common.inject_css）
+    st.session_state["_last_rendered_page"] = page
     PAGES.get(page, page_not_found)()
 
 
@@ -1940,20 +1943,30 @@ def page_etf_rank():
         st.info("這個類型目前沒有符合條件的 ETF。")
         return
 
+    # 數字格式用 Styler 處理。
+    # 無法推估年化殖利率（只配過一次）的 ETF：Streamlit 表格會無視 Styler 的 na_rep，
+    # 一律把空值顯示成英文「None」。所以先把空值換成 -1、再顯示成「—」；
+    # 欄位仍是數字，點欄位標題排序時 -1 會排在最後。
+    # 注意：這些欄位不能再設 column_config 的 NumberColumn，否則會蓋掉 Styler 的顯示文字。
+    view = view.rename(columns={"近12個月殖利率(%)": "近12個月殖利率", "年化殖利率(%)": "年化殖利率"})
+    view["年化殖利率"] = view["年化殖利率"].fillna(-1)
+    styled = view.style.format(
+        {
+            "收盤價": "{:.2f}",
+            "近12個月配息": "{:.3f}",
+            "近12個月殖利率": "{:.2f}%",
+            "年化殖利率": lambda v: "—" if v < 0 else f"{v:.2f}%",
+            "最新一次配息": "{:.3f}",
+            "成交量(張)": "{:,.0f}",
+        },
+    )
     st.dataframe(
-        view,
+        styled,
         hide_index=True,
         width="stretch",
         # 20、50 名直接全部展開；「全部」最多顯示約 25 列高度，其餘捲動
         height=min(len(view), 25) * 35 + 38,
         column_config={
-            "排名": st.column_config.NumberColumn("排名", format="%d", width="small"),
-            "收盤價": st.column_config.NumberColumn("收盤價", format="%.2f"),
-            "近12個月配息": st.column_config.NumberColumn("近12個月配息", format="%.3f"),
-            "近12個月殖利率(%)": st.column_config.NumberColumn("近12個月殖利率", format="%.2f%%"),
-            "年化殖利率(%)": st.column_config.NumberColumn("年化殖利率", format="%.2f%%"),
-            "最新一次配息": st.column_config.NumberColumn("最新一次配息", format="%.3f"),
-            "成交量(張)": st.column_config.NumberColumn("成交量(張)", format="%d"),
             "備註": st.column_config.TextColumn("備註", width="large"),
         },
     )
@@ -1982,6 +1995,7 @@ def page_etf_rank():
   上市未滿一年的 ETF，近 12 個月的配息次數較少，看這一欄比較準。
 - **高殖利率不等於高報酬**：配息可能來自資本利得或收益平準金；股價下跌也會讓殖利率變高。
   請搭配「ETF 分析」與「ETF 對比」一起評估。
+- **配息頻率**為季配的 ETF，括號內是近一年的**除息月份**，例如「季配（1·4·7·10月）」。
 - **備註**欄會標示需要留意的情況，例如上市未滿一年、可能停發，或除息日提前導致一年內算到兩次。
 - 資料來源：證交所與櫃買中心的除權除息計算結果表、每日收盤行情。配息資料每 6 小時更新一次。
             """

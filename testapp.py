@@ -38,9 +38,15 @@ for _key, _default in [
     if _key not in st.session_state:
         st.session_state[_key] = _default
 
-common.inject_css()
+# 這次執行是不是「換頁」（含登入後的第一頁）：換頁時要藏起上一頁留下的畫面
+page_changing = (
+    st.session_state.logged_in
+    and st.session_state.get("_last_rendered_page") != st.session_state.page
+)
+common.inject_css(hide_stale=page_changing)
 
 if not st.session_state.logged_in:
+    st.session_state["_last_rendered_page"] = None   # 登入後的第一頁也算換頁
     pages.login_ui()
     st.stop()
 
