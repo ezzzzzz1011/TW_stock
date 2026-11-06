@@ -647,9 +647,26 @@ def _fetch_quarterly_financials(symbol, token, days=900):
     return sorted(rows, key=lambda x: x["date"], reverse=True), None
 
 
-# ---------- 證交所 OpenAPI 備援（免驗證） ----------
-TWSE_PE_URL = "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"
-TWSE_PRICE_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
+# ---------- 證交所／櫃買中心 OpenAPI 備援（免驗證） ----------
+# 兩邊的本益比定義都是「收盤價 ÷ 近四季每股稅後純益」，所以 EPS = 收盤價 ÷ 本益比。
+# 每個來源：(代號, 名稱, 本益比網址, 收盤價網址, 代碼欄, 本益比欄, 收盤價欄, 名稱欄, 逾時秒數)
+EXCHANGE_PE_SOURCES = [
+    (
+        "twse", "證交所",
+        "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL",
+        "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+        "Code", "PEratio", "ClosingPrice", "Name", HTTP_TIMEOUT,
+    ),
+    (
+        # 上櫃股票。收盤價用 tpex_mainboard_quotes（只有股票，約 0.4MB）；
+        # 不用 daily_close_quotes，那支含權證、約 5MB，下載偶爾會中途斷線
+        "tpex", "櫃買中心",
+        "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis",
+        "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes",
+        "SecuritiesCompanyCode", "PriceEarningRatio", "Close", "CompanyName", HTTP_TIMEOUT,
+    ),
+]
+EXCHANGE_NAMES = {key: name for key, name, *_ in EXCHANGE_PE_SOURCES}
 
 
 def _pick_field(row, *candidates):
@@ -662,43 +679,54 @@ def _pick_field(row, *candidates):
     return None
 
 
+def _to_float(raw):
+    try:
+        return float(str(raw).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_twse_pe_table():
+def fetch_exchange_pe_table():
     """
-    證交所每日「個股日本益比、殖利率及股價淨值比」＋「每日收盤行情」。
-    證交所的本益比定義為 收盤價 ÷ 近四季每股稅後純益，
-    所以 EPS = 收盤價 ÷ 本益比，等同官方版的近四季 EPS。
+    證交所（上市）＋櫃買中心（上櫃）的每日本益比與收盤價，反推近四季 EPS。
+    回傳 {代碼: {eps, pe, close, name, source}}。
+    其中一邊連不上時，另一邊照樣可用。
     """
     table = {}
-    try:
-        pe_rows = requests.get(TWSE_PE_URL, timeout=HTTP_TIMEOUT).json()
-        price_rows = requests.get(TWSE_PRICE_URL, timeout=HTTP_TIMEOUT).json()
-    except Exception as e:
-        print(f"[twse] {e}")
-        return {}
-
-    prices = {}
-    for row in price_rows or []:
-        code = str(_pick_field(row, "Code") or "").strip()
+    for key, label, pe_url, price_url, code_f, pe_f, close_f, name_f, timeout in EXCHANGE_PE_SOURCES:
         try:
-            prices[code] = float(str(_pick_field(row, "ClosingPrice") or "").replace(",", ""))
-        except (TypeError, ValueError):
+            pe_rows = requests.get(pe_url, headers=UA_HEADER, timeout=timeout).json()
+            price_rows = requests.get(price_url, headers=UA_HEADER, timeout=timeout).json()
+        except Exception as e:
+            print(f"[{key}_pe] {e}")
             continue
 
-    for row in pe_rows or []:
-        code = str(_pick_field(row, "Code") or "").strip()
-        try:
-            pe = float(str(_pick_field(row, "PEratio") or "").replace(",", ""))
-        except (TypeError, ValueError):
-            continue
-        close = prices.get(code)
-        if code and pe > 0 and close and close > 0:
-            table[code] = {
-                "eps": round(close / pe, 2),
-                "pe": pe,
-                "close": close,
-                "name": str(_pick_field(row, "Name") or ""),
-            }
+        # 本益比與收盤價必須是同一天，否則反推出的 EPS 會錯
+        prices = {}
+        for row in price_rows or []:
+            code = str(_pick_field(row, code_f) or "").strip()
+            close = _to_float(_pick_field(row, close_f))
+            if code and close:
+                prices[code] = (close, str(_pick_field(row, "Date") or ""))
+
+        for row in pe_rows or []:
+            code = str(_pick_field(row, code_f) or "").strip()
+            pe = _to_float(_pick_field(row, pe_f))
+            if not code or not pe or pe <= 0 or code not in prices:
+                continue
+            close, price_date = prices[code]
+            pe_date = str(_pick_field(row, "Date") or "")
+            if pe_date and price_date and pe_date != price_date:
+                continue
+            if close > 0:
+                table[code] = {
+                    "eps": round(close / pe, 2),
+                    "pe": pe,
+                    "close": close,
+                    "name": str(_pick_field(row, name_f) or ""),
+                    "source": key,
+                }
     return table
 
 
@@ -955,9 +983,10 @@ def get_ttm_eps(symbol):
     rows, error = fetch_quarterly_financials(symbol)
 
     if not rows or len(rows) < 4:
-        # 引擎 2：證交所 OpenAPI，只給一個近四季總額，沒有分季明細
-        fallback = fetch_twse_pe_table().get(code)
+        # 引擎 2：證交所（上市）／櫃買中心（上櫃）OpenAPI，只給近四季總額，沒有分季明細
+        fallback = fetch_exchange_pe_table().get(code)
         if fallback:
+            exchange = EXCHANGE_NAMES[fallback["source"]]
             return {
                 "success": True,
                 "symbol": code,
@@ -965,12 +994,12 @@ def get_ttm_eps(symbol):
                 "naive_sum": fallback["eps"],
                 "adjusted": False,
                 "method": (
-                    f"證交所 OpenAPI 備援：收盤價 {fallback['close']:.2f} "
+                    f"{exchange} OpenAPI 備援：收盤價 {fallback['close']:.2f} "
                     f"÷ 本益比 {fallback['pe']:.2f}"
                 ),
                 "quarters": [],
-                "period": "近四季（證交所公告）",
-                "source": "twse",
+                "period": f"近四季（{exchange}公告）",
+                "source": fallback["source"],
             }
 
         if rows:
@@ -1168,12 +1197,16 @@ def get_asset_category(code, name):
     return ASSET_CATEGORIES[0]
 
 
-def generate_user_calendar():
-    """依投資組合產生未來領息排程。"""
-    if st.session_state.portfolio is None:
+def generate_user_calendar(portfolio_df):
+    """
+    依投資組合產生未來領息排程。
+    portfolio_df 要傳畫面上正在編輯的表格，跟「計算當前市值」用同一份；
+    原本讀的是上次儲存的資料，改了張數還沒儲存時，月曆會用舊的張數算。
+    """
+    if portfolio_df is None:
         return None
 
-    df = st.session_state.portfolio.copy()
+    df = portfolio_df.copy()
     df["張數"] = pd.to_numeric(df["張數"], errors="coerce")
     valid = df.dropna(subset=["代碼", "張數"])
     valid = valid[valid["代碼"].astype(str).str.strip() != ""]

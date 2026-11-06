@@ -23,7 +23,7 @@ from common import (
     label_spacer, lookup_bracket, preschool_amount, toggle_theme, tw_tz,
 )
 from data_api import (
-    FINMIND_TOKEN, FINMIND_TOKEN_SOURCE, FINMIND_URL, FUGLE_TOKEN_SOURCE,
+    EXCHANGE_NAMES, FINMIND_TOKEN, FINMIND_TOKEN_SOURCE, FINMIND_URL, FUGLE_TOKEN_SOURCE,
     MARKET_GROUPS, analyze_pe_band, annualize, authenticate, clean_code, empty_portfolio,
     fetch_index_history, fetch_institutional_flow, fetch_many,
     fetch_market_turnover, format_market_value,
@@ -640,7 +640,8 @@ def render():
                         eps_detail = get_ttm_eps(stock_code)
                         if eps_detail.get("success"):
                             source_tag = (
-                                "證交所 OpenAPI" if eps_detail.get("source") == "twse" else "FinMind 財報"
+                                f"{EXCHANGE_NAMES[eps_detail['source']]} OpenAPI"
+                                if eps_detail.get("source") in EXCHANGE_NAMES else "FinMind 財報"
                             )
                             with st.expander(f"EPS 來源：{source_tag}（{eps_detail['period']}）"):
                                 st.caption(eps_detail["method"])
@@ -843,6 +844,16 @@ def render():
                     with stat_c2:
                         st.caption("實質殖利率")
                         st.markdown(f"<div class='highlight-val'>{real_yield:.2f}%</div>", unsafe_allow_html=True)
+                    # 說明年配息是怎麼推估的（與 annualize 的算法一致），避免誤認為去年實際配發金額
+                    method_txt = {
+                        1: "以最新一次配息作為年配息",
+                        2: "以最近 2 次配息加總",
+                        4: "以最近 4 次配息加總",
+                    }.get(multiplier, f"以最近 4 次配息的平均 × {multiplier} 次推估")
+                    st.caption(
+                        f"※ 預估年配息{method_txt}，反映最近的配息水準，"
+                        "可能與過去一年實際領到的金額不同。"
+                    )
 
                     st.divider()
                     st.subheader("估值位階參考")
@@ -1244,7 +1255,7 @@ def render():
             horizon_days = st.slider("顯示未來幾天內的配息", 7, 120, DIV_PAY_LAG_DAYS * 2, step=7)
 
             if st.button("生成我的專屬領息月曆", width="stretch", type="primary"):
-                cal_df = generate_user_calendar()
+                cal_df = generate_user_calendar(edited_df)
 
                 if cal_df is None or cal_df.empty:
                     st.info("目前沒有可用的配息預估資料。")
