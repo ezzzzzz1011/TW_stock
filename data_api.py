@@ -63,27 +63,48 @@ FINMIND_TOKEN_SOURCE = "Secrets" if FINMIND_TOKEN else "未設定"
 FUGLE_TOKEN_SOURCE = "Secrets" if FUGLE_TOKEN else "未設定"
 
 
-def _read_admin_users():
+def admin_status(username):
     """
-    管理員帳號清單，從 Secrets 的 [admin] users 讀取，例如：
+    判斷是不是管理員，回傳 (是否為管理員, 說明文字)。
+    管理員名單從 Secrets 的 [admin] users 讀取，例如：
         [admin]
         users = ["你的帳號"]
-    沒設定時沒有人是管理員，管理功能（清除全站快取）就不會出現。
+    每次呼叫都即時讀 Secrets，不存成模組常數：
+    模組只在網站啟動時執行一次，存成常數的話，之後改 Secrets 都讀不到。
     """
+    username = str(username or "").strip()
     try:
-        users = st.secrets.get("admin", {}).get("users", [])
-    except Exception:
-        users = []
+        section = st.secrets.get("admin")
+        gcp = st.secrets.get("gcp_service_account") or {}
+    except Exception as e:
+        return False, f"讀取 Secrets 失敗：{e}"
+
+    if section is None:
+        # 常見錯誤：少了 [admin] 這行，users 就被併進上一個區塊
+        if "users" in gcp:
+            return False, (
+                "users 被寫進了 [gcp_service_account] 裡。"
+                "請在 users 那行上面加一行 [admin]，並把這兩行移到 [gcp_service_account] 之前"
+            )
+        return False, "Secrets 中沒有 [admin] 區塊"
+
+    users = section.get("users") if hasattr(section, "get") else None
+    if users is None:
+        return False, "[admin] 區塊裡沒有 users 設定"
     if isinstance(users, str):
         users = [users]
-    return {str(u).strip() for u in users if str(u).strip()}
+    names = {str(u).strip() for u in users if str(u).strip()}
 
-
-ADMIN_USERS = _read_admin_users()
+    if username in names:
+        return True, "有"
+    lowered = {n.lower() for n in names}
+    if username.lower() in lowered:
+        return False, f"大小寫不一致：目前登入的帳號是「{username}」，名單裡的寫法不同"
+    return False, f"目前登入的帳號「{username}」不在名單中（名單共 {len(names)} 個帳號）"
 
 
 def is_admin(username):
-    return str(username or "").strip() in ADMIN_USERS
+    return admin_status(username)[0]
 
 def require_tokens():
     """金鑰檢查。同樣要由主程式每次 rerun 呼叫，不能寫在模組層級。"""

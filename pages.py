@@ -28,7 +28,7 @@ from data_api import (
     fetch_index_history, fetch_institutional_flow, fetch_many,
     fetch_market_turnover, format_market_value,
     generate_user_calendar, get_asset_category, get_cloud_users,
-    get_market_data, get_safe_data_etf, get_stock_info, get_ttm_eps, is_admin,
+    admin_status, get_market_data, get_safe_data_etf, get_stock_info, get_ttm_eps,
     load_portfolio_from_cloud, load_watchlist_from_cloud,
     quarter_label, register_user, save_portfolio_to_cloud, save_watchlist_to_cloud,
     sum_lots_by_code,
@@ -302,7 +302,9 @@ def render():
                     st.error(f"{e}")
 
             # 這會清掉「所有使用者」共用的快取，只開放給 Secrets 裡設定的管理員
-            if is_admin(st.session_state.current_user):
+            admin_ok, admin_reason = admin_status(st.session_state.current_user)
+            st.caption(f"管理員權限：{admin_reason}")
+            if admin_ok:
                 if st.button("清除全站資料快取", use_container_width=True, key="diag_clear"):
                     st.cache_data.clear()
                     st.success("已清除，請重新查詢一次。")
