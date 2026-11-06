@@ -23,7 +23,7 @@ def setup_page():
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-11-06 / fix-zero-lots-v27"
+APP_VERSION = "2026-11-06 / review-fixes-v28"
 
 FEE_RATE = 0.001425          # 券商手續費率
 NHI_RATE = 0.0211            # 二代健保補充保費費率
@@ -174,15 +174,6 @@ _LIGHT = {
 def palette():
     """回傳目前主題的顏色。每次 rerun 都要重新取，不能存成模組常數。"""
     return dict(_DARK if current_theme() == "dark" else _LIGHT)
-
-
-def apply_palette(module_globals):
-    """
-    把顏色灌進呼叫端的模組命名空間。
-    Python 只會在第一次 import 時執行模組，所以顏色不能寫成模組層級常數，
-    否則切換主題後不會更新；改由每次 rerun 呼叫這個函式刷新。
-    """
-    module_globals.update(palette())
 
 
 # 供本檔 inject_css 及尚未 apply 的情境使用的預設值

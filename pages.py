@@ -5,7 +5,9 @@
 
 import base64
 import json
+from bisect import bisect_left
 from datetime import datetime
+from urllib.parse import quote_plus
 
 import pandas as pd
 import plotly.express as px
@@ -22,35 +24,54 @@ from common import (
 )
 from data_api import (
     FINMIND_TOKEN, FINMIND_TOKEN_SOURCE, FINMIND_URL, FUGLE_TOKEN_SOURCE,
-    MARKET_GROUPS, analyze_pe_band, annualize, clean_code, empty_portfolio,
+    MARKET_GROUPS, analyze_pe_band, annualize, authenticate, clean_code, empty_portfolio,
     fetch_index_history, fetch_institutional_flow, fetch_many,
     fetch_market_turnover, format_market_value,
     generate_user_calendar, get_asset_category, get_cloud_users,
-    get_market_data, get_safe_data_etf, get_stock_info, get_ttm_eps,
+    get_market_data, get_safe_data_etf, get_stock_info, get_ttm_eps, is_admin,
     load_portfolio_from_cloud, load_watchlist_from_cloud,
-    quarter_label, save_portfolio_to_cloud, save_watchlist_to_cloud, sum_lots_by_code,
-    user_sheet,
+    quarter_label, register_user, save_portfolio_to_cloud, save_watchlist_to_cloud,
+    sum_lots_by_code,
 )
 import requests
 
-# 顏色由 common.palette() 在每次 rerun 時刷新，先給預設值避免 NameError
-APP_BG = SECONDARY_BG = TEXT_COLOR = BORDER_COLOR = TRACK_COLOR = TABLE_HEAD_BG = ""
+# 主題顏色一律在函式裡用 common.palette() 取成區域變數。
+# 不能寫進模組全域變數：所有使用者共用同一個模組，
+# 兩個人同時用不同主題時，顏色會互相蓋掉。
 
 
 # ===================== 小元件 =====================
-def judge_pe_level(price, levels):
-    """依五等分位階判斷目前股價落在哪一段。"""
-    if price <= levels[0]["price"]:
-        return "極便宜", DOWN_COLOR
-    if price <= levels[1]["price"]:
-        return "便宜", DOWN_COLOR
-    if price <= levels[3]["price"]:
-        return "合理", "#ffbc4b"
-    if price <= levels[4]["price"]:
-        return "昂貴", UP_COLOR
-    return "極昂貴", UP_COLOR
+ZONE_COLORS = {
+    "極便宜": DOWN_COLOR,
+    "便宜": DOWN_COLOR,
+    "合理": "#ffbc4b",
+    "昂貴": UP_COLOR,
+    "極昂貴": UP_COLOR,
+}
+
+
+def judge_pe_level(price, zones):
+    """
+    依五個位階判斷目前股價落在哪一段。
+    zones 由 analyze_pe_band 產生，表格也用同一份，判讀與表格才會一致。
+    """
+    for zone in zones:
+        if zone["price_hi"] is None or price <= zone["price_hi"]:
+            return zone["label"], ZONE_COLORS[zone["label"]]
+    last = zones[-1]["label"]
+    return last, ZONE_COLORS[last]
+
+
+def _range_text(lo, hi, unit=""):
+    """位階表格的區間文字：上下界任一為 None 代表沒有界限。"""
+    if lo is None:
+        return f"{hi:.2f}{unit} 以下"
+    if hi is None:
+        return f"高於 {lo:.2f}{unit}"
+    return f"{lo:.2f} ~ {hi:.2f}{unit}"
 
 def draw_compact_metric(label, ticker_code):
+    TEXT_COLOR = common.palette()["TEXT_COLOR"]
     p, c, pct = get_market_data(ticker_code)
     if p is None:
         st.markdown(
@@ -79,6 +100,7 @@ def draw_compact_metric(label, ticker_code):
     )
 
 def draw_turnover_card():
+    TEXT_COLOR = common.palette()["TEXT_COLOR"]
     """成交金額卡片，樣式與其他指數卡一致。"""
     amount, change, pct, date_txt = fetch_market_turnover()
     if amount is None:
@@ -133,7 +155,8 @@ def describe_finmind_token():
 
 
 def login_ui():
-    common.apply_palette(globals())   # 登入頁也要先取得主題顏色
+    p = common.palette()
+    SECONDARY_BG, BORDER_COLOR, TEXT_COLOR = p["SECONDARY_BG"], p["BORDER_COLOR"], p["TEXT_COLOR"]
     st.markdown(
         f"""
         <div style="max-width: 400px; margin: 40px auto 20px auto; padding: 25px;
@@ -170,7 +193,7 @@ def login_ui():
                 )
 
             if login_submitted:
-                if user_db.get(u_id.strip()) == u_pw:
+                if authenticate(u_id.strip(), u_pw):
                     st.session_state.logged_in = True
                     st.session_state.current_user = u_id.strip()
                     st.session_state.portfolio = load_portfolio_from_cloud(u_id.strip())
@@ -197,9 +220,8 @@ def login_ui():
                     st.error("長度不足 (帳號需2字元, 密碼需4字元)")
                 else:
                     try:
-                        user_sheet.append_row([new_u, new_p])
+                        register_user(new_u, new_p)   # 只存雜湊，並清掉帳號快取
                         save_portfolio_to_cloud(new_u, empty_portfolio())
-                        get_cloud_users.clear()   # 清掉快取，新帳號才登得進去
                         st.success("註冊成功！請切換至登入分頁。")
                     except Exception as e:
                         st.error(f"註冊失敗：{e}")
@@ -208,7 +230,9 @@ def login_ui():
 # ===================== 側邊欄與路由 =====================
 def render():
     """每次 rerun 由 testapp.py 呼叫。"""
-    common.apply_palette(globals())
+    p = common.palette()
+    SECONDARY_BG, TEXT_COLOR = p["SECONDARY_BG"], p["TEXT_COLOR"]
+    BORDER_COLOR, TRACK_COLOR = p["BORDER_COLOR"], p["TRACK_COLOR"]
 
     page = st.session_state.page
     TOOLBOX_PAGES = {"home", "stock_query", "etf_query", "pk_tool", "portfolio", "market_index"}
@@ -277,9 +301,11 @@ def render():
                 except Exception as e:
                     st.error(f"{e}")
 
-            if st.button("清除資料快取", use_container_width=True, key="diag_clear"):
-                st.cache_data.clear()
-                st.success("已清除，請重新查詢一次。")
+            # 這會清掉「所有使用者」共用的快取，只開放給 Secrets 裡設定的管理員
+            if is_admin(st.session_state.current_user):
+                if st.button("清除全站資料快取", use_container_width=True, key="diag_clear"):
+                    st.cache_data.clear()
+                    st.success("已清除，請重新查詢一次。")
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.caption("本系統數據僅供參考，不構成投資建議，投資人請審慎評估風險並自負盈虧。")
@@ -483,7 +509,9 @@ def render():
                     with col_btn:
                         st.link_button(
                             "找公司官網",
-                            f"https://www.google.com/search?q={info['name']}+公司官網",
+                            # 名稱要編碼，含 & 或空白等符號時連結才不會壞掉
+                            "https://www.google.com/search?q="
+                            + quote_plus(f"{info['name']} 公司官網"),
                             use_container_width=True,
                         )
 
@@ -535,9 +563,13 @@ def render():
                             st.warning(f"{msg}")
 
                         eps_now = band["current_eps"]
-                        levels = band["levels"]
+                        zones = band["zones"]
                         price_fair = band["price_fair"]
-                        rec, rec_color = judge_pe_level(current_price, levels)
+                        # 判讀、本益比、歷史位階都用同一個即時股價計算
+                        rec, rec_color = judge_pe_level(current_price, zones)
+                        current_pe = current_price / eps_now
+                        pe_values = band["pe_values"]
+                        percentile = bisect_left(pe_values, current_pe) / len(pe_values) * 100
 
                         st.markdown(
                             f"""
@@ -547,7 +579,7 @@ def render():
                                     <div style='opacity:0.7; font-size:0.9rem;'>系統判讀</div>
                                     <div style='font-size:1.8rem; font-weight:bold; color:{rec_color};'>{rec}</div>
                                     <div style='opacity:0.6; font-size:0.85rem;'>
-                                        歷史位階 {band['percentile']:.0f}%（越低越便宜）
+                                        歷史位階 {percentile:.0f}%（越低越便宜）
                                     </div>
                                 </div>
                                 <div style='text-align:right;'>
@@ -562,27 +594,31 @@ def render():
                         )
 
                         rows_html = ""
-                        for i, lv in enumerate(levels):
-                            if i == 0:
-                                price_txt = f"{lv['price']:.2f} 以下"
-                            elif i == len(levels) - 1:
-                                price_txt = f"高於 {levels[i - 1]['price']:.2f}"
+                        for zone in zones:
+                            lo, hi = zone["pct_lo"], zone["pct_hi"]
+                            if lo is None:
+                                pct_txt = f"歷史 {hi}% 以下"
+                            elif hi is None:
+                                pct_txt = f"歷史 {lo}% 以上"
                             else:
-                                price_txt = f"{levels[i - 1]['price']:.2f} ~ {lv['price']:.2f}"
+                                pct_txt = f"歷史 {lo}~{hi}%"
+                            pe_txt = _range_text(zone["pe_lo"], zone["pe_hi"], " 倍")
+                            price_txt = _range_text(zone["price_lo"], zone["price_hi"])
 
+                            # 用完全相等比對；endswith 會讓「極便宜」同時標亮「便宜」
                             hit = (
                                 "background-color: rgba(255,188,75,0.15);"
-                                if rec.endswith(lv["label"]) else ""
+                                if rec == zone["label"] else ""
                             )
                             rows_html += (
-                                f"<tr style='{hit}'><td>{lv['label']} (歷史 {lv['pct']}%)</td>"
-                                f"<td>{lv['pe']:.1f} 倍</td><td>{price_txt}</td></tr>"
+                                f"<tr style='{hit}'><td>{zone['label']} ({pct_txt})</td>"
+                                f"<td>{pe_txt}</td><td>{price_txt}</td></tr>"
                             )
 
                         st.markdown(
                             f"""
                             <table class="styled-table">
-                                <thead><tr><th>估值位階</th><th>本益比</th><th>股價區間</th></tr></thead>
+                                <thead><tr><th>估值位階</th><th>本益比區間</th><th>股價區間</th></tr></thead>
                                 <tbody>{rows_html}</tbody>
                             </table>
                             """,
@@ -591,7 +627,7 @@ def render():
 
                         stat1, stat2, stat3 = st.columns(3)
                         stat1.metric("近四季 EPS", f"{eps_now:.2f}")
-                        stat2.metric("目前本益比", f"{band['current_pe']:.1f} 倍")
+                        stat2.metric("目前本益比", f"{current_pe:.1f} 倍")
                         stat3.metric(
                             "距合理價",
                             f"{(price_fair / current_price - 1) * 100:+.1f}%"
@@ -638,8 +674,8 @@ def render():
                         st.subheader("本益比河流圖")
 
                         chart_df = band["chart"].copy()
-                        for lv in levels:
-                            chart_df[f"{lv['label']} {lv['pe']:.0f}x"] = chart_df["eps"] * lv["pe"]
+                        for line in band["lines"]:
+                            chart_df[f"{line['pct']}% 線 {line['pe']:.1f}x"] = chart_df["eps"] * line["pe"]
                         chart_df = chart_df.rename(columns={"close": "股價"}).drop(columns=["eps"])
 
                         fig = px.line(
@@ -648,11 +684,11 @@ def render():
                             y=[c for c in chart_df.columns if c != "date"],
                             color_discrete_sequence=[
                                 TEXT_COLOR,      # 股價
-                                "#1a9850",       # 極便宜
-                                "#91cf60",       # 便宜
-                                "#ffbc4b",       # 合理
-                                "#fc8d59",       # 昂貴
-                                "#d73027",       # 極昂貴
+                                "#1a9850",       # 10% 線（極便宜／便宜分界）
+                                "#91cf60",       # 30% 線（便宜／合理分界）
+                                "#ffbc4b",       # 50% 線（合理價）
+                                "#fc8d59",       # 70% 線（合理／昂貴分界）
+                                "#d73027",       # 90% 線（昂貴／極昂貴分界）
                             ],
                         )
                         fig.update_layout(
@@ -668,8 +704,15 @@ def render():
                         st.plotly_chart(fig, use_container_width=True, key="pe_river")
 
                         st.caption(
-                            f"近 {band['years']} 年 · {band['sample_days']} 個交易日"
+                            f"取樣 {band['sample_start']} ~ {band['sample_end']}"
+                            f" · {band['sample_days']} 個交易日"
                         )
+                        # 上市未滿 N 年或早年財報缺漏時，實際涵蓋期間會比選的短，要讓使用者知道
+                        if band["covered_years"] < band["years"] - 0.5:
+                            st.caption(
+                                f"※ 選擇近 {band['years']} 年，但可用資料只涵蓋約 "
+                                f"{band['covered_years']:.1f} 年（上市時間較短或早年財報缺漏）。"
+                            )
 
                     # ---------- 進階：手動試算 ----------
                     st.divider()
@@ -1364,7 +1407,19 @@ def render():
             sal_4 = c_inc[3].number_input("扶養親屬2 薪資", min_value=0, value=0, step=10000)
 
             st.write("")
-            div_total = st.number_input("全年股利及盈餘合計金額 (全家加總)", min_value=0, value=0, step=1000)
+            c_div, c_int = st.columns(2)
+            with c_div:
+                div_total = st.number_input(
+                    "全年股利及盈餘合計金額 (全家加總)", min_value=0, value=0, step=1000
+                )
+            with c_int:
+                # 儲蓄投資特別扣除額只能扣「已申報的利息所得」，所以利息必須先算進所得
+                interest_income = st.number_input(
+                    "全年利息所得 (存款、債券利息等，全家加總)", min_value=0, value=0, step=1000
+                )
+            st.caption(
+                "※ 郵局存簿儲金利息免稅，請勿填入；短期票券、附條件交易利息採 10% 分離課稅，也不要填入。"
+            )
 
             st.divider()
             st.markdown("#### 第二部分：家庭與一般扣除額")
@@ -1396,12 +1451,16 @@ def render():
 
             st.divider()
             st.markdown("#### 第三部分：特別扣除額")
-            st.caption("以下請輸入符合資格的【人數】，系統自動乘上對應額度。")
+            st.caption("身障、幼兒、長照請輸入符合資格的【人數】，系統自動乘上對應額度。")
             c4, c5, c6 = st.columns(3)
             with c4:
-                saving_deduction = st.number_input(
-                    f"儲蓄投資金額 (上限{cfg['saving_cap'] / 10000:.0f}萬)",
-                    min_value=0, max_value=cfg["saving_cap"], value=0, step=1000,
+                # 儲蓄投資特別扣除額 = 利息所得，上限 27 萬，不能超過實際利息
+                saving_deduction = min(interest_income, cfg["saving_cap"])
+                st.markdown(
+                    f"儲蓄投資特別扣除額：**{saving_deduction:,.0f}** 元  \n"
+                    f"<span style='opacity:0.6; font-size:0.85rem;'>"
+                    f"依上方利息所得自動計算，上限 {cfg['saving_cap'] / 10000:.0f} 萬</span>",
+                    unsafe_allow_html=True,
                 )
                 disability_count = st.number_input(
                     f"身心障礙【人數】 (每人{cfg['disability_per_person'] / 10000:.1f}萬)",
@@ -1409,9 +1468,19 @@ def render():
                 )
             with c5:
                 edu_count = st.number_input(
-                    f"教育學費【人數】 (每人{cfg['edu_per_person'] / 10000:.1f}萬)",
-                    min_value=0, value=0, step=1,
+                    f"就讀大專以上子女【人數】 (學費每人上限{cfg['edu_per_person'] / 10000:.1f}萬)",
+                    min_value=0, max_value=10, value=0, step=1,
                 )
+                # 教育學費扣除額是「實際繳納的學費」，每人上限 2.5 萬，不是人數 × 2.5 萬
+                edu_tuitions = [
+                    st.number_input(
+                        f"第 {i + 1} 位實際繳納學費 (已扣除政府補助)",
+                        min_value=0, value=0, step=1000, key=f"edu_tuition_{i}",
+                    )
+                    for i in range(int(edu_count))
+                ]
+                if edu_count:
+                    st.caption("空中大學、專校及五專前三年不適用。")
                 preschool_count = st.number_input(
                     f"幼兒學前【人數】 (第1名{cfg['preschool_first'] / 10000:.0f}萬/"
                     f"第2名起每人{cfg['preschool_rest'] / 10000:.1f}萬)",
@@ -1440,7 +1509,7 @@ def render():
         deduction_type_str = "列舉" if itemized_deduction > standard_deduction else "標準"
 
         disability_deduction = disability_count * cfg["disability_per_person"]
-        edu_deduction = edu_count * cfg["edu_per_person"]
+        edu_deduction = sum(min(t, cfg["edu_per_person"]) for t in edu_tuitions)
         # 幼兒學前特別扣除額自 113 年度起已刪除排富規定，兩個方案都完整適用
         preschool_deduction = preschool_amount(preschool_count, cfg)
         ltc_full = ltc_count * cfg["ltc_per_person"]
@@ -1460,7 +1529,8 @@ def render():
                 + edu_deduction + preschool_deduction + ltc_amt + rent_amt
             )
             basic_diff = max(0, total_basic_living - comparison_sum)
-            total_income = salary + (div_total if include_dividend else 0)
+            # 利息屬於綜合所得，兩個方案都要計入；股利只有方案 A 併入
+            total_income = salary + interest_income + (div_total if include_dividend else 0)
             total_deductions = comparison_sum + salary_deduction
             net = max(0, total_income - total_deductions - basic_diff)
             rate, prog = lookup_bracket(net, cfg)
@@ -1587,7 +1657,7 @@ def render():
                 st.markdown("### 結算單 (方案 A)")
                 with st.container(border=True):
                     st.markdown(
-                        f"**綜合所得總額 (薪資＋股利)：** "
+                        f"**綜合所得總額 (薪資＋利息＋股利)：** "
                         f"<span style='float:right;'>{case_a['total_income']:,.0f} 元</span>",
                         unsafe_allow_html=True,
                     )
@@ -1673,7 +1743,7 @@ def render():
                 st.markdown("### 結算單 (方案 B)")
                 with st.container(border=True):
                     st.markdown(
-                        f"**綜合所得總額 (不含股利)：** "
+                        f"**綜合所得總額 (薪資＋利息，不含股利)：** "
                         f"<span style='float:right;'>{case_b['total_income']:,.0f} 元</span>",
                         unsafe_allow_html=True,
                     )

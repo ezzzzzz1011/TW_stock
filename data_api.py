@@ -3,8 +3,11 @@
 這裡只負責取資料與運算，畫面相關的東西放在 pages.py。
 """
 
+import hashlib
+import hmac
 import io
 import re
+import secrets
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
@@ -58,6 +61,29 @@ FUGLE_TOKEN = _read_secret("fugle")
 
 FINMIND_TOKEN_SOURCE = "Secrets" if FINMIND_TOKEN else "未設定"
 FUGLE_TOKEN_SOURCE = "Secrets" if FUGLE_TOKEN else "未設定"
+
+
+def _read_admin_users():
+    """
+    管理員帳號清單，從 Secrets 的 [admin] users 讀取，例如：
+        [admin]
+        users = ["你的帳號"]
+    沒設定時沒有人是管理員，管理功能（清除全站快取）就不會出現。
+    """
+    try:
+        users = st.secrets.get("admin", {}).get("users", [])
+    except Exception:
+        users = []
+    if isinstance(users, str):
+        users = [users]
+    return {str(u).strip() for u in users if str(u).strip()}
+
+
+ADMIN_USERS = _read_admin_users()
+
+
+def is_admin(username):
+    return str(username or "").strip() in ADMIN_USERS
 
 def require_tokens():
     """金鑰檢查。同樣要由主程式每次 rerun 呼叫，不能寫在模組層級。"""
@@ -113,11 +139,10 @@ def init_workbook():
     conn = init_connection()
     sh = conn.open("streamlit_db")
 
-    users, created = ensure_worksheet(
+    # 不再自動建立預設帳號（原本是 admin / 8888，任何人都猜得到）
+    users, _ = ensure_worksheet(
         sh, "users", ["username", "password"], rows="500", cols="2"
     )
-    if created:
-        users.append_row(["admin", "8888"])
 
     portfolios, _ = ensure_worksheet(sh, "portfolios", ["username", "data_json"], cols="2")
     watchlist, _ = ensure_worksheet(sh, "watchlist", ["username", "codes"], cols="2")
@@ -158,6 +183,67 @@ def get_cloud_users():
     except Exception as e:
         st.error(f"讀取使用者資料失敗：{e}")
         return {}
+
+
+# ===================== 密碼 =====================
+# 試算表裡只存雜湊值，不存密碼本身。格式：pbkdf2_sha256$次數$鹽$雜湊
+# 舊帳號存的是明碼，登入成功時會自動換成雜湊，使用者不需要重設密碼。
+PWD_SCHEME = "pbkdf2_sha256"
+PWD_ITERATIONS = 600_000        # OWASP 建議值
+
+
+def hash_password(password):
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), bytes.fromhex(salt), PWD_ITERATIONS
+    )
+    return f"{PWD_SCHEME}${PWD_ITERATIONS}${salt}${digest.hex()}"
+
+
+def is_hashed(stored):
+    return str(stored).startswith(PWD_SCHEME + "$")
+
+
+def verify_password(password, stored):
+    stored = str(stored)
+    if is_hashed(stored):
+        try:
+            _, iterations, salt, expected = stored.split("$")
+            digest = hashlib.pbkdf2_hmac(
+                "sha256", password.encode("utf-8"), bytes.fromhex(salt), int(iterations)
+            )
+        except ValueError:
+            return False
+        return hmac.compare_digest(digest.hex(), expected)
+    # 舊帳號：明碼比對（compare_digest 避免用回應時間猜密碼）
+    return hmac.compare_digest(password.encode("utf-8"), stored.encode("utf-8"))
+
+
+def authenticate(username, password):
+    """帳密正確回傳 True。舊的明碼帳號登入成功時，順便把密碼換成雜湊。"""
+    stored = get_cloud_users().get(username)
+    if stored is None or not verify_password(password, stored):
+        return False
+
+    if not is_hashed(stored):
+        try:
+            cell = find_user_row(user_sheet, username)
+            if cell:
+                user_sheet.update(
+                    range_name=f"B{cell.row}",
+                    values=[[hash_password(password)]],
+                    raw=True,
+                )
+                get_cloud_users.clear()
+        except Exception as e:
+            # 換雜湊失敗不影響這次登入，下次登入會再試
+            print(f"[authenticate] 密碼升級失敗 {username}: {e}")
+    return True
+
+
+def register_user(username, password):
+    user_sheet.append_row([username, hash_password(password)])
+    get_cloud_users.clear()
 
 
 def empty_portfolio():
@@ -327,8 +413,12 @@ def _finmind_dividends(code):
 
         out = []
         for item in payload["data"]:
-            # FinMind 欄位名稱為 CashEarningsDistribution / CashExDividendTradingDate
-            amount = float(item.get("CashEarningsDistribution") or 0)
+            # 現金股利 = 盈餘分配 + 公積分配。
+            # 只算盈餘會漏掉公積配息：台灣大 2026 年實發 4.744 元，只算盈餘是 3.937；
+            # 台泥 2026 年全部從公積發 0.8 元，只算盈餘會變成 0、被當成沒配息。
+            amount = float(item.get("CashEarningsDistribution") or 0) + float(
+                item.get("CashStatutorySurplus") or 0
+            )
             date = item.get("CashExDividendTradingDate") or item.get("date")
             if amount > 0 and date:
                 out.append({"date": str(date)[:10], "amount": amount})
@@ -471,13 +561,17 @@ def _fetch_dividend_history_super(symbol, token):
     )
 
 
-def fetch_quarterly_financials(symbol):
-    """把 token 一起當成快取鍵，token 換掉時舊的失敗結果才不會被沿用。"""
-    return _fetch_quarterly_financials(symbol, FINMIND_TOKEN)
+def fetch_quarterly_financials(symbol, days=900):
+    """
+    把 token 一起當成快取鍵，token 換掉時舊的失敗結果才不會被沿用。
+    days：往回抓幾天的財報。近四季 EPS 用預設 900 天即可；
+    河流圖要涵蓋 N 年股價，必須多抓才夠（見 analyze_pe_band）。
+    """
+    return _fetch_quarterly_financials(symbol, FINMIND_TOKEN, days)
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def _fetch_quarterly_financials(symbol, token):
+def _fetch_quarterly_financials(symbol, token, days=900):
     """
     抓綜合損益表的單季 EPS 與稅後淨利，由新到舊排序。快取一天。
     回傳 (資料列表, 錯誤訊息)；成功時錯誤訊息為 None。
@@ -486,7 +580,7 @@ def _fetch_quarterly_financials(symbol, token):
     if not code:
         return [], "沒有代碼"
 
-    start = (datetime.now() - timedelta(days=900)).strftime("%Y-%m-%d")
+    start = (datetime.now(tw_tz) - timedelta(days=days)).strftime("%Y-%m-%d")
     try:
         res = requests.get(
             FINMIND_URL,
@@ -596,69 +690,29 @@ def quarter_label(date_str):
         return date_str
 
 
-# 證交所綜合損益表 OpenAPI。只保留最新一季（每季覆蓋），拿不到連續四季，
-# 但可以當作「今年累計到某季」的交叉比對值。分業別各一支。
-TWSE_IS_URLS = [
-    ("一般業", "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_ci"),
-    ("金控業", "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_fh"),
-    ("金融業", "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_bd"),
-    ("證券期貨業", "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_mim"),
-    ("保險業", "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_ins"),
-    ("異業", "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_basi"),
-]
-
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def fetch_twse_latest_quarter_eps(symbol):
-    """證交所最新一季綜合損益表的『基本每股盈餘』（本年度累計數）。"""
-    code = clean_code(symbol)
-    if not code:
-        return None
-
-    for industry, url in TWSE_IS_URLS:
-        try:
-            rows = requests.get(url, timeout=HTTP_TIMEOUT).json()
-        except Exception as e:
-            print(f"[twse_is] {industry}: {e}")
-            continue
-
-        for row in rows or []:
-            if str(_pick_field(row, "公司代號") or "").strip() != code:
-                continue
-            raw_eps = _pick_field(row, "基本每股盈餘（元）", "基本每股盈餘(元)", "基本每股盈餘")
-            try:
-                eps = float(str(raw_eps).replace(",", ""))
-            except (TypeError, ValueError):
-                continue
-            return {
-                "industry": industry,
-                "year": str(_pick_field(row, "年度") or ""),
-                "quarter": str(_pick_field(row, "季別") or ""),
-                "eps_cumulative": eps,
-                "name": str(_pick_field(row, "公司名稱") or ""),
-            }
-    return None
-
-
 # =============================================================
 #  本益比河流圖：用該股「自己的」歷史本益比區間來估價
 #
 #  做法與財報狗／Goodinfo 的河流圖一致：
 #    1. 取歷史每季 EPS，滾動加總成「近四季 EPS」時間序列
 #    2. 每個交易日的本益比 = 當日收盤價 ÷ 當時適用的近四季 EPS
-#    3. 取歷史本益比的 20 / 50 / 80 百分位當作便宜／合理／昂貴倍數
-#    4. 合理價 = 該倍數 × 目前近四季 EPS
+#    3. 取歷史本益比的 10 / 30 / 50 / 70 / 90 百分位畫成五條河流線
+#    4. 四條分界線（10/30/70/90）切出五個位階，50 百分位為合理價
 #  固定用 15 倍去套所有股票是沒有依據的，這才是正確做法。
 # =============================================================
-# 五等分位階：對應河流圖的五條河道
-PE_BANDS = [
-    ("極便宜", 0.10),
-    ("便宜", 0.30),
-    ("合理", 0.50),
-    ("昂貴", 0.70),
-    ("極昂貴", 0.90),
+# 河流圖的五條線（百分位）
+PE_LINE_PCTS = [10, 30, 50, 70, 90]
+# 五個位階：(名稱, 下界百分位, 上界百分位)。None 代表沒有界限。
+# 判讀、表格、標亮都只看這一份定義，三者才不會對不起來。
+PE_ZONES = [
+    ("極便宜", None, 10),
+    ("便宜", 10, 30),
+    ("合理", 30, 70),
+    ("昂貴", 70, 90),
+    ("極昂貴", 90, None),
 ]
-EPS_UNSTABLE_CV = 0.35          # 近四季 EPS 變異係數超過此值視為獲利不穩
+EPS_UNSTABLE_CV = 0.35          # 近期近四季 EPS 變異係數超過此值視為獲利不穩
+EPS_STABILITY_POINTS = 8        # 穩定度只看最近 8 個近四季數值（約兩年），不受取樣年數影響
 
 
 def _normalize_dates(series):
@@ -739,7 +793,7 @@ def fetch_price_history(symbol, years=5):
 @st.cache_data(ttl=3600, show_spinner=False)
 def analyze_pe_band(symbol, years=5):
     """
-    算出該股歷史本益比分布與對應的三段價位。
+    算出該股歷史本益比分布與對應的五段位階。
     注意：所有回傳路徑都必須帶 symbol，畫面是靠它判斷要不要顯示，
     漏掉的話失敗訊息會被靜靜吞掉，看起來就像「按了沒反應」。
     """
@@ -748,7 +802,10 @@ def analyze_pe_band(symbol, years=5):
     def fail(msg):
         return {"success": False, "symbol": code, "msg": msg}
 
-    quarters, error = fetch_quarterly_financials(symbol)
+    # 財報要比股價多抓一段：滾出第一個近四季要先有 4 季，
+    # 第 4 季財報又要等到隔年 3/31 才公布，所以多抓 1 年又 4 個多月。
+    # 只抓 900 天的話，不管選 3、5、10 年，實際都只剩最近一年多可用。
+    quarters, error = fetch_quarterly_financials(symbol, days=years * 365 + 500)
     if len(quarters) < 5:
         detail = f"：{error}" if error else ""
         return fail(
@@ -769,6 +826,15 @@ def analyze_pe_band(symbol, years=5):
     eps_df = pd.DataFrame(points, columns=["date", "eps"])
     eps_df["date"] = _normalize_dates(eps_df["date"])
     eps_df = eps_df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+    if eps_df.empty:
+        return fail("無法建立近四季 EPS 序列（財報日期格式異常）。")
+
+    current_eps = float(eps_df["eps"].iloc[-1])
+    if current_eps <= 0:
+        # 虧損時本益比沒有意義，算出來的合理價會是負數
+        return fail(
+            f"最新近四季 EPS 為 {current_eps:.2f} 元（虧損），本益比法無法估價。"
+        )
 
     prices = prices.copy()
     prices["date"] = _normalize_dates(prices["date"])
@@ -779,6 +845,8 @@ def analyze_pe_band(symbol, years=5):
     except Exception as e:
         print(f"[pe_band] merge 失敗 {code}: {e}")
         return fail(f"歷史資料對齊失敗：{e}")
+    # 取樣期間內是否曾虧損（只看實際有對到股價的期間）
+    has_loss = bool((merged["eps"] <= 0).any())
     merged = merged[merged["eps"] > 0].copy()
     if len(merged) < 120:
         return fail(
@@ -791,46 +859,63 @@ def analyze_pe_band(symbol, years=5):
     upper_cut = merged["pe"].quantile(0.995)
     merged = merged[(merged["pe"] > 0) & (merged["pe"] <= upper_cut)]
 
-    current_eps_tmp = float(eps_df["eps"].iloc[-1])
-    levels = [
-        {
-            "label": label,
-            "pct": int(pct * 100),
-            "pe": float(merged["pe"].quantile(pct)),
-            "price": float(merged["pe"].quantile(pct)) * current_eps_tmp,
-        }
-        for label, pct in PE_BANDS
+    # 河流圖的五條線
+    pe_at = {p: float(merged["pe"].quantile(p / 100)) for p in PE_LINE_PCTS}
+    lines = [
+        {"pct": p, "pe": pe_at[p], "price": pe_at[p] * current_eps}
+        for p in PE_LINE_PCTS
     ]
 
-    current_eps = current_eps_tmp
-    current_price = float(prices["close"].iloc[-1])
-    current_pe = current_price / current_eps if current_eps > 0 else 0
-    percentile = float((merged["pe"] < current_pe).mean() * 100)
+    # 五個位階，與 PE_ZONES 一一對應
+    zones = []
+    for label, lo, hi in PE_ZONES:
+        zones.append(
+            {
+                "label": label,
+                "pct_lo": lo,
+                "pct_hi": hi,
+                "pe_lo": pe_at[lo] if lo is not None else None,
+                "pe_hi": pe_at[hi] if hi is not None else None,
+                "price_lo": pe_at[lo] * current_eps if lo is not None else None,
+                "price_hi": pe_at[hi] * current_eps if hi is not None else None,
+            }
+        )
 
-    ttm_values = eps_df["eps"]
-    eps_cv = float(ttm_values.std() / ttm_values.mean()) if ttm_values.mean() > 0 else 99
-    has_loss = bool((ttm_values <= 0).any())
+    current_price = float(prices["close"].iloc[-1])
+
+    # 穩定度只看最近幾個近四季數值；看整段 10 年的話，
+    # 穩定成長股（例如台積電）會因為「成長」而被誤判成「不穩」。
+    recent = eps_df["eps"].tail(EPS_STABILITY_POINTS)
+    eps_cv = float(recent.std() / recent.mean()) if recent.mean() > 0 else 99
 
     warnings = []
     if has_loss:
-        warnings.append("期間內曾出現近四季虧損，本益比法參考性低。")
+        warnings.append("取樣期間內曾出現近四季虧損，本益比法參考性低。")
     if eps_cv > EPS_UNSTABLE_CV:
         warnings.append(
-            f"近四季 EPS 波動偏大（變異係數 {eps_cv:.0%}），可能是景氣循環股或獲利不穩定，"
+            f"近兩年 EPS 波動偏大（變異係數 {eps_cv:.0%}），可能是景氣循環股或獲利不穩定，"
             "本益比河流圖不適用這類股票。"
         )
+
+    sample_start = merged["date"].iloc[0]
+    sample_end = merged["date"].iloc[-1]
+    covered_years = (sample_end - sample_start).days / 365.25
 
     return {
         "success": True,
         "symbol": code,
-        "levels": levels,
-        "pe_fair": levels[2]["pe"],
-        "price_fair": levels[2]["price"],
-        "current_pe": current_pe,
+        "lines": lines,
+        "zones": zones,
+        "pe_fair": pe_at[50],
+        "price_fair": pe_at[50] * current_eps,
         "current_eps": current_eps,
         "current_price": current_price,
-        "percentile": percentile,
+        # 給畫面用即時股價重新計算歷史位階，判讀與位階才會用同一個價格
+        "pe_values": sorted(merged["pe"].tolist()),
         "sample_days": len(merged),
+        "sample_start": sample_start.strftime("%Y-%m"),
+        "sample_end": sample_end.strftime("%Y-%m"),
+        "covered_years": covered_years,
         "years": years,
         "warnings": warnings,
         "chart": merged[["date", "close", "eps"]].iloc[::5].reset_index(drop=True),
@@ -964,7 +1049,9 @@ def get_safe_data_etf(symbol):
 
             # 判斷最近是否有停發：超過「預期間隔 + 寬限期」就往前補 0
             last_date = datetime.strptime(data_list[0]["date"], "%Y-%m-%d")
-            days_since_last = (datetime.now() - last_date).days
+            # 用台北時間：雲端伺服器是 UTC，早上 8 點前日期會差一天
+            today_tw = datetime.now(tw_tz).replace(tzinfo=None)
+            days_since_last = (today_tw - last_date).days
             expected_days = 365 / multiplier
             grace = 100 if multiplier == 1 else 60
 
@@ -1123,10 +1210,8 @@ MARKET_GROUPS = [
 ]
 
 
-# 有些代碼在 Yahoo 上資料時有時無（台指期尤其嚴重），依序往下試。
 # yfinance 打的是美國 Yahoo Finance API，台灣的櫃買指數只存在於 Yahoo 奇摩股市，
 # 國際版沒有這檔資料，所以拿不到；台股區改以「成交金額」呈現市場熱度。
-MARKET_TICKER_FALLBACKS = {}
 
 
 TWSE_FMTQIK_URLS = [
@@ -1135,81 +1220,85 @@ TWSE_FMTQIK_URLS = [
 ]
 
 
+def _roc_to_date(raw):
+    """民國日期 115/09/16 -> date(2026, 9, 16)"""
+    try:
+        y, m, d = str(raw).strip().split("/")
+        return datetime(int(y) + 1911, int(m), int(d)).date()
+    except Exception:
+        return None
+
+
+def _fetch_turnover_month(day_obj):
+    """抓某一個月的每日成交金額，回傳 [(date, 元), ...]；失敗回傳空 list。"""
+    day = day_obj.strftime("%Y%m%d")
+    for template in TWSE_FMTQIK_URLS:
+        try:
+            res = requests.get(template.format(d=day), headers=UA_HEADER, timeout=HTTP_TIMEOUT)
+            if res.status_code != 200:
+                continue
+            payload = res.json()
+        except Exception as e:
+            print(f"[turnover] {day}: {e}")
+            continue
+
+        if not isinstance(payload, dict) or payload.get("stat") != "OK":
+            continue
+        fields = [str(f) for f in (payload.get("fields") or [])]
+        try:
+            amt_idx = next(i for i, f in enumerate(fields) if "成交金額" in f)
+            date_idx = next(i for i, f in enumerate(fields) if "日期" in f)
+        except StopIteration:
+            continue
+
+        values = []
+        for row in payload.get("data") or []:
+            if len(row) <= max(amt_idx, date_idx):
+                continue
+            dt = _roc_to_date(row[date_idx])
+            try:
+                val = float(str(row[amt_idx]).replace(",", ""))
+            except (TypeError, ValueError):
+                continue
+            if dt is not None:
+                values.append((dt, val))
+        if values:
+            return values
+    return []
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_market_turnover():
     """
-    證交所每日市場成交資訊（與三大法人同一組端點，已驗證可用）。
+    證交所每日市場成交資訊。
     回傳 (今日成交金額億元, 較前一日變化億元, 變化百分比, 日期)。
+
+    證交所一次只回一個月的資料，所以本月和上個月都要抓：
+    每月第一個交易日，本月只有一筆，前一個交易日在上個月。
     """
     today = datetime.now(tw_tz).date()
-    first_of_month = today.replace(day=1)
-    candidates = [today, first_of_month - timedelta(days=1)]   # 本月，月初時補上月
+    last_month = today.replace(day=1) - timedelta(days=1)
 
-    for day_obj in candidates:
-        day = day_obj.strftime("%Y%m%d")
-        for template in TWSE_FMTQIK_URLS:
-            try:
-                res = requests.get(
-                    template.format(d=day), headers=UA_HEADER, timeout=HTTP_TIMEOUT
-                )
-                if res.status_code != 200:
-                    continue
-                payload = res.json()
-            except Exception as e:
-                print(f"[turnover] {day}: {e}")
-                continue
+    by_date = {}
+    for day_obj in (today, last_month):
+        for dt, val in _fetch_turnover_month(day_obj):
+            by_date[dt] = val
+    if not by_date:
+        return None, None, None, ""
 
-            if not isinstance(payload, dict) or payload.get("stat") != "OK":
-                continue
+    # 不能假設證交所的回傳順序，自己依日期排序後再取最新兩筆
+    values = sorted(by_date.items())
+    last_date, last_val = values[-1]
+    prev_val = values[-2][1] if len(values) >= 2 else None
 
-            fields = [str(f) for f in (payload.get("fields") or [])]
-            rows = payload.get("data") or []
-            if len(rows) < 1:
-                continue
-            try:
-                amt_idx = next(i for i, f in enumerate(fields) if "成交金額" in f)
-                date_idx = next(i for i, f in enumerate(fields) if "日期" in f)
-            except StopIteration:
-                continue
+    amount = last_val / 1e8                      # 元 -> 億元
+    if prev_val:
+        change = (last_val - prev_val) / 1e8
+        pct = (last_val / prev_val - 1) * 100
+    else:
+        change, pct = 0.0, 0.0
 
-            def to_num(row):
-                try:
-                    return float(str(row[amt_idx]).replace(",", ""))
-                except (TypeError, ValueError, IndexError):
-                    return None
-
-            def roc_to_date(raw):
-                """民國日期 115/09/16 -> date(2026, 9, 16)"""
-                try:
-                    y, m, d = str(raw).strip().split("/")
-                    return datetime(int(y) + 1911, int(m), int(d)).date()
-                except Exception:
-                    return None
-
-            # 不能假設證交所的回傳順序，必須自己依日期排序後再取最新兩筆
-            values = []
-            for r in rows:
-                val = to_num(r)
-                dt = roc_to_date(r[date_idx]) if date_idx < len(r) else None
-                if val is not None and dt is not None:
-                    values.append((dt, val))
-            if not values:
-                continue
-
-            values.sort(key=lambda x: x[0])
-            last_date, last_val = values[-1]
-            prev_val = values[-2][1] if len(values) >= 2 else None
-
-            amount = last_val / 1e8                      # 元 -> 億元
-            if prev_val:
-                change = (last_val - prev_val) / 1e8
-                pct = (last_val / prev_val - 1) * 100
-            else:
-                change, pct = 0.0, 0.0
-
-            return amount, change, pct, last_date.strftime("%m/%d")
-
-    return None, None, None, ""
+    return amount, change, pct, last_date.strftime("%m/%d")
 
 
 def _fetch_quote(ticker):
@@ -1236,23 +1325,18 @@ def _fetch_quote(ticker):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def get_market_data(ticker):
-    for candidate in MARKET_TICKER_FALLBACKS.get(ticker, [ticker]):
-        current_p, prev_p = _fetch_quote(candidate)
-        if current_p is None:
-            continue
+    current_p, prev_p = _fetch_quote(ticker)
+    if current_p is None:
+        return None, None, None
 
-        # ^TNX 在部分 yfinance 版本回傳 42.5 (需 /10)，部分回傳 4.25，這裡自動判斷。
-        if ticker == "^TNX" and current_p > 20:
-            current_p /= 10
-            prev_p /= 10
+    # ^TNX 在部分 yfinance 版本回傳 42.5 (需 /10)，部分回傳 4.25，這裡自動判斷。
+    if ticker == "^TNX" and current_p > 20:
+        current_p /= 10
+        prev_p /= 10
 
-        change = current_p - prev_p
-        pct = (change / prev_p) * 100 if prev_p else 0
-        if candidate != ticker:
-            print(f"[market] {ticker} 無資料，改用 {candidate}")
-        return current_p, change, pct
-
-    return None, None, None
+    change = current_p - prev_p
+    pct = (change / prev_p) * 100 if prev_p else 0
+    return current_p, change, pct
 
 
 def format_market_value(ticker_code, p, c):

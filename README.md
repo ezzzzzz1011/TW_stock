@@ -88,11 +88,16 @@ token = "..."
 [fugle]
 token = "..."
 
+[admin]                      # 選填：可使用「清除全站資料快取」的帳號
+users = ["你的帳號"]
+
 [gcp_service_account]
 # Google 服務帳號 JSON 內容，此區塊須放在最後
 ```
 
 TOML 的區塊會延伸到下一個標頭為止，因此小區塊必須寫在 `[gcp_service_account]` 之前。
+
+密碼以 PBKDF2-SHA256 雜湊後存放，試算表中不含明碼。舊帳號的明碼密碼會在該帳號下次登入成功時自動轉為雜湊。
 
 ---
 
