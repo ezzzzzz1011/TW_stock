@@ -329,6 +329,52 @@ try:
     check("沒有報價日期：顯示今天", d.quote_date_text({}) == today and d.quote_date_text(None) == today)
     check("日期格式不對時不採用", d._quote_date("abc") == "" and d._quote_date(1685338200) == "")
 
+    # ================================================================
+    section("主題（深色／淺色）")
+    import plotly.express as px
+
+    common = sys.modules["common"]
+    css_by_theme = {}
+    for theme in ("dark", "light"):
+        st.session_state["theme"] = theme
+        captured = []
+        orig_md = common.st.markdown
+        common.st.markdown = lambda body, **kw: captured.append(body)
+        try:
+            common.inject_css()
+        finally:
+            common.st.markdown = orig_md
+        css_by_theme[theme] = captured[0]
+    dark_css, light_css = css_by_theme["dark"], css_by_theme["light"]
+    check("淺色模式的表格會反相成淺色、深色模式不會",
+          "invert(1)" in light_css and "invert(1)" not in dark_css)
+    for kind in ("Info", "Success", "Warning", "Error"):
+        check(f"提示框 {kind} 兩種主題都有設定顏色",
+              f"stAlertContent{kind}" in light_css and f"stAlertContent{kind}" in dark_css)
+    for sel in ("stSelectbox", "stExpander", "stNumberInputStepUp", "stTextInputRootElement",
+                "stBaseButton-secondary", "stBaseLinkButton-secondary", "stCheckbox", "#portal"):
+        check(f"CSS 有涵蓋 {sel}", sel in light_css)
+    check("文字顏色規則沒有強制 span（否則漲跌的紅綠字會被蓋掉）",
+          not re.search(r"(^|[\s,])span\s*,", light_css.split("/* ---------- 輸入框")[0]))
+
+    st.session_state["theme"] = "light"
+    lp = common.palette()
+    st.session_state["theme"] = "dark"
+    dp = common.palette()
+    check("淺色主題用較深的漲跌色（白底看得清楚）",
+          lp["UP_COLOR"] != dp["UP_COLOR"] and lp["DOWN_COLOR"] != dp["DOWN_COLOR"]
+          and lp["WARN_COLOR"] != dp["WARN_COLOR"])
+
+    st.session_state["theme"] = "light"
+    fig = px.line(pd.DataFrame({"x": [1, 2], "y": [1, 2]}), x="x", y="y")
+    fig.update_layout(margin=dict(t=20))
+    common.style_plotly(fig)
+    check("圖表跟著淺色主題", fig.layout.template.layout.paper_bgcolor in (None, "white") and
+          fig.layout.font.color == lp["TEXT_COLOR"])
+    check("圖表自己設的邊距保留，沒設的用緊湊邊距",
+          fig.layout.margin.t == 20 and fig.layout.margin.l == 10 and fig.layout.margin.b == 10)
+    st.session_state["theme"] = "dark"
+
 except Exception:
     traceback.print_exc()
     check("測試腳本執行完畢", False, "見上方錯誤")

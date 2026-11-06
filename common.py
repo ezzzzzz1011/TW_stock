@@ -23,7 +23,7 @@ def setup_page():
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-11-06 / refactor-tests-v32"
+APP_VERSION = "2026-11-06 / theme-fix-v33"
 
 FEE_RATE = 0.001425          # 券商手續費率
 NHI_RATE = 0.0211            # 二代健保補充保費費率
@@ -130,6 +130,7 @@ ASSET_CATEGORIES = [
 # =============================================================
 # 主題
 # =============================================================
+# 預設值（深色）。畫面上請一律用 palette() 取得目前主題的顏色。
 UP_COLOR = "#ff4b4b"
 DOWN_COLOR = "#09ab3b"
 
@@ -153,21 +154,45 @@ def toggle_theme():
     st.session_state.theme = "light" if current_theme() == "dark" else "dark"
 
 
+# 漲跌、警示等「有意義的顏色」也要分主題：深色底用的亮色放到白底上會看不清楚
+# （例：#ffbc4b 在白底的對比只有 1.67），所以淺色主題改用較深的同色系。
+# 淺色值在白底的對比度：紅 4.35、綠 3.71、琥珀 3.59、藍 4.60。
 _DARK = {
     "APP_BG": "#0e1117",
     "SECONDARY_BG": "#1e1e28",
     "TEXT_COLOR": "#FAFAFA",
     "BORDER_COLOR": "rgba(255,255,255,0.15)",
+    "BORDER_STRONG": "rgba(255,255,255,0.35)",
     "TRACK_COLOR": "#2b2b36",
     "TABLE_HEAD_BG": "#2a2a36",
+    "UP_COLOR": "#ff4b4b",
+    "DOWN_COLOR": "#09ab3b",
+    "WARN_COLOR": "#ffbc4b",
+    "ACCENT_COLOR": "#4bc0ff",
+    "PLOTLY_TEMPLATE": "plotly_dark",
+    # 提示框（st.info / success / warning / error）：(背景, 文字)
+    "ALERT_INFO": ("rgba(28,131,225,0.18)", "#c7ebff"),
+    "ALERT_SUCCESS": ("rgba(33,195,84,0.16)", "#dffde9"),
+    "ALERT_WARNING": ("rgba(255,200,18,0.16)", "#ffffc2"),
+    "ALERT_ERROR": ("rgba(255,43,43,0.16)", "#ffdede"),
 }
 _LIGHT = {
     "APP_BG": "#FFFFFF",
     "SECONDARY_BG": "#F0F2F6",
     "TEXT_COLOR": "#1f1f1f",
     "BORDER_COLOR": "rgba(0,0,0,0.15)",
+    "BORDER_STRONG": "rgba(0,0,0,0.35)",
     "TRACK_COLOR": "#e2e5ea",
     "TABLE_HEAD_BG": "#e8eaf0",
+    "UP_COLOR": "#e5322d",
+    "DOWN_COLOR": "#15993f",
+    "WARN_COLOR": "#b97a00",
+    "ACCENT_COLOR": "#1976d2",
+    "PLOTLY_TEMPLATE": "plotly_white",
+    "ALERT_INFO": ("#e7f1fc", "#00427f"),
+    "ALERT_SUCCESS": ("#e6f6ec", "#14632d"),
+    "ALERT_WARNING": ("#fff6db", "#7a5a00"),
+    "ALERT_ERROR": ("#fdeaea", "#8a1f26"),
 }
 
 
@@ -176,15 +201,70 @@ def palette():
     return dict(_DARK if current_theme() == "dark" else _LIGHT)
 
 
-# 供本檔 inject_css 及尚未 apply 的情境使用的預設值
-globals().update(_DARK)
+def style_plotly(fig):
+    """
+    Plotly 圖表跟著主題走。搭配 st.plotly_chart(fig, theme=None) 使用：
+    預設的 theme="streamlit" 會套用內建（深色）主題的文字顏色，
+    淺色模式下座標軸與圖例的字會變成白色看不到。
+    """
+    p = palette()
+    # 關掉 Streamlit 主題後，Plotly 預設四邊各留 80px，窄欄位裡的圓餅圖會被擠得很小。
+    # 圖表自己有設的邊距保留，沒設的才改成跟 Streamlit 主題一樣的緊湊邊距。
+    m = fig.layout.margin
+    margin = {
+        side: (getattr(m, side) if getattr(m, side) is not None else default)
+        for side, default in (("l", 10), ("r", 10), ("t", 40), ("b", 10))
+    }
+    fig.update_layout(
+        template=p["PLOTLY_TEMPLATE"],
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_color=p["TEXT_COLOR"],
+        margin=margin,
+    )
+    return fig
+
 
 def inject_css():
-    """全站 CSS，所有顏色跟著目前主題走。每次 rerun 都要呼叫。"""
+    """
+    全站 CSS，所有顏色跟著目前主題走。每次 rerun 都要呼叫。
+
+    為什麼要寫這麼多：.streamlit/config.toml 把 Streamlit 內建主題固定為深色，
+    淺色模式其實是用這份 CSS 蓋上去的。沒蓋到的元件（下拉選單、提示框、
+    展開區塊、數字框的 +/- 等）就會維持內建的深色，所以每一類元件都要寫到。
+    選擇器盡量用 data-testid 的「開頭比對」（^=），一次涵蓋同類元件的各種變體，
+    例如 stBaseButton-secondary 與 stBaseButton-secondaryFormSubmit。
+    """
     p = palette()
     APP_BG, SECONDARY_BG = p["APP_BG"], p["SECONDARY_BG"]
     TEXT_COLOR, BORDER_COLOR = p["TEXT_COLOR"], p["BORDER_COLOR"]
-    TABLE_HEAD_BG = p["TABLE_HEAD_BG"]
+    BORDER_STRONG, TABLE_HEAD_BG = p["BORDER_STRONG"], p["TABLE_HEAD_BG"]
+    UP = p["UP_COLOR"]
+    light = current_theme() == "light"
+
+    alert_css = ""
+    for kind in ("Info", "Success", "Warning", "Error"):
+        bg, fg = p["ALERT_" + kind.upper()]
+        sel = f'[data-testid="stAlertContainer"]:has([data-testid="stAlertContent{kind}"])'
+        alert_css += f"""
+        {sel} {{
+            background-color: {bg} !important;
+            color: {fg} !important;
+        }}
+        .stApp {sel} :is(p, li, span, strong, b, div) {{
+            color: {fg} !important;
+        }}"""
+
+    # 表格（st.dataframe / st.data_editor）是畫在 canvas 上的，CSS 改不到裡面的顏色。
+    # 內建主題是深色，所以淺色模式用「反相再把色相轉回來」把深色表格變成淺色表格。
+    grid_css = (
+        """
+        [data-testid="stDataFrameResizable"] {
+            filter: invert(1) hue-rotate(180deg);
+        }"""
+        if light else ""
+    )
+
     st.markdown(
         f"""
         <style>
@@ -194,8 +274,8 @@ def inject_css():
             --text-color: {TEXT_COLOR};
         }}
 
-        /* 注意：頁首是 <header> 不是 <div>，選擇器不要綁標籤名，
-           否則深色模式下最上方會留一條白色橫條。
+        /* ---------- 頁面底色 ---------- */
+        /* 頁首是 <header> 不是 <div>，選擇器不要綁標籤名，否則深色模式最上方會留白條。
            新舊版 Streamlit 的 testid 不同，這裡一次全蓋。 */
         .stApp,
         [data-testid="stAppViewContainer"],
@@ -205,7 +285,6 @@ def inject_css():
             background-color: {APP_BG} !important;
             color: {TEXT_COLOR} !important;
         }}
-
         [data-testid="stHeader"],
         [data-testid="stAppHeader"],
         [data-testid="stToolbar"],
@@ -213,68 +292,248 @@ def inject_css():
             background: {APP_BG} !important;
             box-shadow: none !important;
         }}
-
-        /* 頁首上的圖示（GitHub、選單）跟著主題走 */
         [data-testid="stHeader"] svg,
         [data-testid="stAppHeader"] svg,
-        [data-testid="stToolbar"] svg {{
+        [data-testid="stToolbar"] svg,
+        [data-testid="stSidebarCollapseButton"] svg,
+        [data-testid="stExpandSidebarButton"] svg,
+        [data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"],
+        [data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"] {{
+            /* 收合側邊欄的 « » 是圖示字型（stIconMaterial），不是 svg，要另外設文字色 */
             fill: {TEXT_COLOR} !important;
             color: {TEXT_COLOR} !important;
         }}
-
-        [data-testid="stSidebar"] {{
+        [data-testid="stSidebar"],
+        [data-testid="stSidebarContent"] {{
             background-color: {SECONDARY_BG} !important;
         }}
 
-        p, span, label, h1, h2, h3, h4, h5, h6,
-        div[data-testid="stMarkdownContainer"] {{
+        /* ---------- 文字 ---------- */
+        /* 不能把 span 一起強制上色：畫面上有很多 <span style="color:綠/紅"> 的漲跌數字，
+           CSS 的 !important 會蓋過 inline 顏色，漲跌就全變成黑字／白字。 */
+        p, li, label, h1, h2, h3, h4, h5, h6,
+        div[data-testid="stMarkdownContainer"],
+        [data-testid="stCaptionContainer"],
+        [data-testid="stWidgetLabel"] {{
             color: {TEXT_COLOR} !important;
         }}
+        hr {{
+            border-color: {BORDER_COLOR} !important;
+            background-color: {BORDER_COLOR} !important;
+        }}
 
+        /* ---------- 輸入框 ---------- */
         .stTextInput input, .stNumberInput input, .stTextArea textarea {{
             background-color: {SECONDARY_BG} !important;
             color: {TEXT_COLOR} !important;
-            border: 1px solid {BORDER_COLOR} !important;
+            -webkit-text-fill-color: {TEXT_COLOR} !important;
             border-radius: 8px !important;
         }}
-
+        /* 外框容器（含密碼欄右邊的眼睛、數字框右邊的 -/+）也要換底色 */
+        [data-testid="stTextInputRootElement"],
+        [data-testid="stNumberInputContainer"],
+        .stTextArea [data-baseweb="textarea"] {{
+            background-color: {SECONDARY_BG} !important;
+            border-color: {BORDER_COLOR} !important;
+            border-radius: 8px !important;
+        }}
+        input::placeholder, textarea::placeholder {{
+            color: {TEXT_COLOR} !important;
+            -webkit-text-fill-color: {TEXT_COLOR} !important;
+            opacity: 0.45 !important;
+        }}
+        [data-testid="stTextInputRootElement"] button,
+        [data-testid="stNumberInputStepDown"],
+        [data-testid="stNumberInputStepUp"] {{
+            background-color: transparent !important;
+            color: {TEXT_COLOR} !important;
+        }}
+        [data-testid="stTextInputRootElement"] button svg,
+        [data-testid="stNumberInputStepDown"] svg,
+        [data-testid="stNumberInputStepUp"] svg {{
+            fill: currentColor !important;
+            color: currentColor !important;
+        }}
+        [data-testid="stNumberInputStepDown"]:hover:enabled,
+        [data-testid="stNumberInputStepUp"]:hover:enabled {{
+            background-color: {UP} !important;
+            color: #FFFFFF !important;
+        }}
+        [data-testid="stNumberInputStepDown"]:disabled,
+        [data-testid="stNumberInputStepUp"]:disabled {{
+            opacity: 0.35 !important;
+        }}
         /* 隱藏輸入框內的 "Press Enter to submit form" / "Press Enter to apply" 提示 */
         [data-testid="InputInstructions"],
         [data-testid="stWidgetInstructions"] {{
             display: none !important;
         }}
 
-        div[data-baseweb="select"] > div {{
+        /* ---------- 下拉選單 ---------- */
+        [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+        [data-testid="stSelectbox"] [role="group"] {{
             background-color: {SECONDARY_BG} !important;
-            color: {TEXT_COLOR} !important;
             border-color: {BORDER_COLOR} !important;
+            color: {TEXT_COLOR} !important;
         }}
-
-        /* 下拉選單彈出層：跟著主題走，不再寫死黑底白字 */
-        div[data-baseweb="popover"], div[role="listbox"] {{
-            background-color: {SECONDARY_BG} !important;
-            border: 1px solid {BORDER_COLOR} !important;
-        }}
-        div[role="option"], div[role="option"] * {{
+        [data-testid="stSelectbox"] input,
+        [data-testid="stSelectbox"] [data-baseweb="select"] div {{
             color: {TEXT_COLOR} !important;
             -webkit-text-fill-color: {TEXT_COLOR} !important;
         }}
-        div[role="option"]:hover,
-        div[role="option"][aria-selected="true"] {{
-            background-color: {UP_COLOR} !important;
+        [data-testid="stSelectbox"] svg {{
+            fill: {TEXT_COLOR} !important;
+            color: {TEXT_COLOR} !important;
         }}
-        div[role="option"]:hover *,
-        div[role="option"][aria-selected="true"] * {{
+        /* 展開後的選項清單（新版是 stSelectboxVirtualDropdown，舊版是 popover/listbox） */
+        [data-testid="stSelectboxVirtualDropdown"],
+        div[data-baseweb="popover"] ul,
+        div[data-baseweb="popover"] [role="listbox"],
+        div[data-baseweb="popover"] > div {{
+            background-color: {SECONDARY_BG} !important;
+            border-color: {BORDER_COLOR} !important;
+        }}
+        [role="option"], [role="option"] * {{
+            color: {TEXT_COLOR} !important;
+            -webkit-text-fill-color: {TEXT_COLOR} !important;
+        }}
+        [role="option"]:hover,
+        [role="option"][aria-selected="true"] {{
+            background-color: {UP} !important;
+        }}
+        [role="option"]:hover,
+        [role="option"]:hover *,
+        [role="option"][aria-selected="true"],
+        [role="option"][aria-selected="true"] * {{
             color: #FFFFFF !important;
             -webkit-text-fill-color: #FFFFFF !important;
         }}
 
-        div[data-testid="stDataEditor"], div[data-testid="stTable"],
-        div[data-testid="stDataFrame"] {{
+        /* ---------- 按鈕 ---------- */
+        /* 開頭比對涵蓋：一般按鈕、表單按鈕、連結按鈕、包在說明提示裡的按鈕 */
+        [data-testid^="stBaseButton-secondary"],
+        [data-testid^="stBaseLinkButton-secondary"] {{
+            background-color: {SECONDARY_BG} !important;
+            color: {TEXT_COLOR} !important;
+            border: 1px solid {BORDER_COLOR} !important;
+            border-radius: 12px !important;
+            font-weight: bold;
+        }}
+        [data-testid^="stBaseButton-secondary"]:hover,
+        [data-testid^="stBaseLinkButton-secondary"]:hover {{
+            border-color: {UP} !important;
+            color: {UP} !important;
+        }}
+        [data-testid^="stBaseButton-primary"],
+        [data-testid^="stBaseLinkButton-primary"] {{
+            background-color: {UP} !important;
+            color: #FFFFFF !important;
+            border: none !important;
+            border-radius: 12px !important;
+            font-weight: bold;
+        }}
+        [data-testid^="stBaseButton-primary"]:hover,
+        [data-testid^="stBaseLinkButton-primary"]:hover {{
+            filter: brightness(1.08);
+        }}
+        /* 按鈕裡的文字跟著按鈕走（要比上面「文字」那段更具體才蓋得過） */
+        .stApp [data-testid^="stBaseButton-secondary"] :is(p, div, span),
+        .stApp [data-testid^="stBaseLinkButton-secondary"] :is(p, div, span) {{
+            color: inherit !important;
+        }}
+        .stApp [data-testid^="stBaseButton-primary"] :is(p, div, span),
+        .stApp [data-testid^="stBaseLinkButton-primary"] :is(p, div, span) {{
+            color: #FFFFFF !important;
+        }}
+
+        /* ---------- 提示框 st.info / success / warning / error ---------- */
+        [data-testid="stAlertContainer"] {{
+            border: 1px solid {BORDER_COLOR} !important;
+        }}
+        {alert_css}
+
+        /* ---------- 展開區塊 st.expander ---------- */
+        [data-testid="stExpander"] details {{
+            background-color: {APP_BG} !important;
+            border-color: {BORDER_COLOR} !important;
+        }}
+        [data-testid="stExpander"] summary {{
+            background-color: {SECONDARY_BG} !important;
+            color: {TEXT_COLOR} !important;
+        }}
+        [data-testid="stExpander"] summary:hover {{
+            color: {UP} !important;
+        }}
+        .stApp [data-testid="stExpander"] summary :is(p, span, div) {{
+            color: inherit !important;
+        }}
+
+        /* ---------- 勾選框 ---------- */
+        [data-testid="stCheckbox"] label > div:not([data-testid]) {{
+            background-color: {APP_BG} !important;
+            border-color: {BORDER_STRONG} !important;
+        }}
+        [data-testid="stCheckbox"] label:has(input:checked) > div:not([data-testid]) {{
+            background-color: {UP} !important;
+            border-color: {UP} !important;
+        }}
+
+        /* ---------- 滑桿刻度文字、分頁標籤底線 ---------- */
+        [data-testid="stSliderTickBar"] {{
+            color: {TEXT_COLOR} !important;
+            opacity: 0.7;
+        }}
+        [data-baseweb="tab-border"] {{
+            background-color: {BORDER_COLOR} !important;
+        }}
+
+        /* ---------- 有外框的區塊（st.container(border=True)、表單） ---------- */
+        [data-testid="stVerticalBlock"],
+        [data-testid="stForm"] {{
+            border-color: {BORDER_COLOR} !important;
+        }}
+
+        /* ---------- 表格 ---------- */
+        [data-testid="stElementToolbarButtonContainer"] {{
             background-color: {SECONDARY_BG} !important;
         }}
-        div[data-testid="stDataFrame"] * {{
+        [data-testid="stElementToolbarButtonContainer"] button,
+        [data-testid="stElementToolbarButtonContainer"] svg {{
             color: {TEXT_COLOR} !important;
+            fill: {TEXT_COLOR} !important;
+        }}
+        {grid_css}
+        /* 表格儲存格編輯時跳出的輸入框、下拉清單：它們放在 #portal 裡、不在表格內，
+           上面的反相處理不到，要另外指定顏色 */
+        #portal .gdg-style,
+        #portal .gdg-style [class*="-control"],
+        #portal div:has(> [role="listbox"]) {{
+            background-color: {APP_BG} !important;
+            border-color: {BORDER_COLOR} !important;
+        }}
+        #portal .gdg-style,
+        #portal .gdg-style * {{
+            color: {TEXT_COLOR} !important;
+            -webkit-text-fill-color: {TEXT_COLOR} !important;
+        }}
+        [data-testid="stTable"] table, [data-testid="stTable"] th, [data-testid="stTable"] td {{
+            color: {TEXT_COLOR} !important;
+            border-color: {BORDER_COLOR} !important;
+        }}
+        [data-testid="stTable"] th {{
+            background-color: {TABLE_HEAD_BG} !important;
+        }}
+
+        /* ---------- 浮動說明（滑鼠移到 ? 上出現的框） ---------- */
+        [data-testid="stTooltipContent"] {{
+            background-color: {SECONDARY_BG} !important;
+            color: {TEXT_COLOR} !important;
+            border: 1px solid {BORDER_COLOR} !important;
+        }}
+        [data-testid="stTooltipIcon"] svg {{
+            color: {TEXT_COLOR} !important;
+            stroke: {TEXT_COLOR} !important;
+            opacity: 0.6;
         }}
 
         div[data-testid="stMetric"] {{
@@ -286,24 +545,7 @@ def inject_css():
             color: {TEXT_COLOR} !important;
         }}
 
-        .stButton > button {{
-            width: 100%;
-            border-radius: 12px;
-            font-weight: bold;
-            background-color: {SECONDARY_BG} !important;
-            color: {TEXT_COLOR} !important;
-            border: 1px solid {BORDER_COLOR} !important;
-        }}
-        .stButton > button:hover {{
-            border-color: {UP_COLOR} !important;
-            color: {UP_COLOR} !important;
-        }}
-        .stButton > button[kind="primary"] {{
-            background-color: {UP_COLOR} !important;
-            color: #FFFFFF !important;
-            border: none !important;
-        }}
-
+        /* ---------- 本系統自訂的區塊 ---------- */
         .metric-val {{
             font-family: 'Consolas', monospace;
             font-size: 3.5rem;
@@ -341,7 +583,7 @@ def inject_css():
         .feature-card:hover {{
             transform: translateY(-5px);
             box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-            border-color: {UP_COLOR};
+            border-color: {UP};
         }}
         .feature-title {{
             font-size: 1.5rem;
@@ -439,6 +681,7 @@ def inject_css():
         """,
         unsafe_allow_html=True,
     )
+
 
 # =============================================================
 # 通用小工具

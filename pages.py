@@ -18,7 +18,7 @@ import common
 from common import (
     APP_VERSION, ASSET_CATEGORIES, BASIC_INCOME_CAP, COLUMNS_ORDER,
     DIV_CREDIT_CAP, DIV_CREDIT_RATE, DIV_PAY_LAG_DAYS, DIV_SEPARATE_RATE,
-    DOWN_COLOR, FEE_RATE, NHI_RATE, NHI_THRESHOLD, TAX_CONFIG, UP_COLOR,
+    FEE_RATE, NHI_RATE, NHI_THRESHOLD, TAX_CONFIG,
     HTTP_TIMEOUT, YIELD_CHEAP, YIELD_FAIR, back_button, bottom_columns, go_to,
     greeting,
     label_spacer, lookup_bracket, preschool_amount, toggle_theme, tw_tz,
@@ -43,13 +43,16 @@ import requests
 
 
 # ===================== 小元件 =====================
-ZONE_COLORS = {
-    "極便宜": DOWN_COLOR,
-    "便宜": DOWN_COLOR,
-    "合理": "#ffbc4b",
-    "昂貴": UP_COLOR,
-    "極昂貴": UP_COLOR,
-}
+def zone_color(label):
+    """位階的顏色，跟著目前主題（淺色主題用較深的色，白底才看得清楚）。"""
+    p = common.palette()
+    return {
+        "極便宜": p["DOWN_COLOR"],
+        "便宜": p["DOWN_COLOR"],
+        "合理": p["WARN_COLOR"],
+        "昂貴": p["UP_COLOR"],
+        "極昂貴": p["UP_COLOR"],
+    }[label]
 
 
 def judge_pe_level(price, zones):
@@ -59,9 +62,9 @@ def judge_pe_level(price, zones):
     """
     for zone in zones:
         if zone["price_hi"] is None or price <= zone["price_hi"]:
-            return zone["label"], ZONE_COLORS[zone["label"]]
+            return zone["label"], zone_color(zone["label"])
     last = zones[-1]["label"]
-    return last, ZONE_COLORS[last]
+    return last, zone_color(last)
 
 
 def _range_text(lo, hi, unit=""):
@@ -73,7 +76,7 @@ def _range_text(lo, hi, unit=""):
     return f"{lo:.2f} ~ {hi:.2f}{unit}"
 
 def draw_compact_metric(label, ticker_code):
-    TEXT_COLOR = common.palette()["TEXT_COLOR"]
+    _, TEXT_COLOR, _, _, UP_COLOR, DOWN_COLOR, _, _ = _colors()
     p, c, pct = get_market_data(ticker_code)
     if p is None:
         st.markdown(
@@ -102,8 +105,8 @@ def draw_compact_metric(label, ticker_code):
     )
 
 def draw_turnover_card():
-    TEXT_COLOR = common.palette()["TEXT_COLOR"]
     """成交金額卡片，樣式與其他指數卡一致。"""
+    _, TEXT_COLOR, _, _, UP_COLOR, DOWN_COLOR, _, _ = _colors()
     amount, change, pct, date_txt = fetch_market_turnover()
     if amount is None:
         st.markdown(
@@ -157,8 +160,7 @@ def describe_finmind_token():
 
 
 def login_ui():
-    p = common.palette()
-    SECONDARY_BG, BORDER_COLOR, TEXT_COLOR = p["SECONDARY_BG"], p["BORDER_COLOR"], p["TEXT_COLOR"]
+    SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, _, _, _, _, _ = _colors()
     st.markdown(
         f"""
         <div style="max-width: 400px; margin: 40px auto 20px auto; padding: 25px;
@@ -237,9 +239,15 @@ def login_ui():
 
 # ===================== 側邊欄與路由 =====================
 def _colors():
-    """目前主題的顏色。每個畫面函式開頭取成區域變數，不能放模組全域（多人同時使用會互相蓋掉）。"""
+    """
+    目前主題的顏色。每個畫面函式開頭取成區域變數，不能放模組全域（多人同時使用會互相蓋掉）。
+    回傳：(次要底色, 文字, 框線, 圓環軌道, 上漲紅, 下跌綠, 警示琥珀, 強調藍)
+    """
     p = common.palette()
-    return p["SECONDARY_BG"], p["TEXT_COLOR"], p["BORDER_COLOR"], p["TRACK_COLOR"]
+    return (
+        p["SECONDARY_BG"], p["TEXT_COLOR"], p["BORDER_COLOR"], p["TRACK_COLOR"],
+        p["UP_COLOR"], p["DOWN_COLOR"], p["WARN_COLOR"], p["ACCENT_COLOR"],
+    )
 
 
 def render():
@@ -250,7 +258,8 @@ def render():
 
 
 def render_sidebar(page):
-    SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR = _colors()
+    (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
+     UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
     TOOLBOX_PAGES = {"home", "stock_query", "etf_query", "pk_tool", "portfolio", "market_index"}
     with st.sidebar:
         st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
@@ -330,7 +339,8 @@ def render_sidebar(page):
 
 
 def page_welcome():
-    SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR = _colors()
+    (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
+     UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
     user = st.session_state.current_user
     st.markdown(f"## {greeting()}，{user}")
     st.caption(datetime.now(tw_tz).strftime("台北時間 %Y-%m-%d %H:%M"))
@@ -393,7 +403,8 @@ def page_welcome():
 
 
 def page_home():
-    SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR = _colors()
+    (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
+     UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("<h3 style='opacity:0.7;'>請選擇功能進入：</h3>", unsafe_allow_html=True)
     st.divider()
@@ -422,7 +433,8 @@ def page_home():
 
 
 def page_watchlist():
-    SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR = _colors()
+    (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
+     UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
     back_button()
 
     st.title("我的關注清單")
@@ -510,7 +522,8 @@ def page_watchlist():
 
 
 def page_stock_query():
-    SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR = _colors()
+    (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
+     UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
     back_button()
     st.title("台股自動估價系統 (個股)")
 
@@ -731,7 +744,7 @@ def page_stock_query():
                         yaxis_title="股價",
                         margin=dict(t=20),
                     )
-                    st.plotly_chart(fig, width="stretch", key="pe_river")
+                    st.plotly_chart(common.style_plotly(fig), width="stretch", theme=None, key="pe_river")
 
                     st.caption(
                         f"取樣 {band['sample_start']} ~ {band['sample_end']}"
@@ -779,7 +792,8 @@ def page_stock_query():
 
 
 def page_etf_query():
-    SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR = _colors()
+    (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
+     UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
     back_button()
 
     st.title("ETF 專用")
@@ -1006,7 +1020,8 @@ def page_etf_query():
 
 
 def page_pk_tool():
-    SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR = _colors()
+    (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
+     UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
     back_button()
 
     st.title("ETF 對比工具")
@@ -1074,7 +1089,8 @@ def page_pk_tool():
 
 
 def page_portfolio():
-    SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR = _colors()
+    (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
+     UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
     back_button()
 
     st.title(f"{st.session_state.current_user} 的投資組合")
@@ -1258,7 +1274,7 @@ def page_portfolio():
                     )
                     fig1.update_layout(paper_bgcolor="rgba(0,0,0,0)", font_color=TEXT_COLOR, showlegend=False)
                     fig1.update_traces(textposition="inside", textinfo="label+percent")
-                    st.plotly_chart(fig1, width="stretch", key="portfolio_pie_individual")
+                    st.plotly_chart(common.style_plotly(fig1), width="stretch", theme=None, key="portfolio_pie_individual")
 
                 with col_pie2:
                     fig2 = px.pie(
@@ -1269,7 +1285,7 @@ def page_portfolio():
                         paper_bgcolor="rgba(0,0,0,0)", font_color=TEXT_COLOR,
                         legend=dict(orientation="h", y=-0.2),
                     )
-                    st.plotly_chart(fig2, width="stretch", key="portfolio_pie_category")
+                    st.plotly_chart(common.style_plotly(fig2), width="stretch", theme=None, key="portfolio_pie_category")
 
                 with col_table:
                     st.write("#### 詳細數據")
@@ -1319,7 +1335,8 @@ def page_portfolio():
 
 
 def page_market_index():
-    SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR = _colors()
+    (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
+     UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
     back_button()
 
     col_head, col_refresh = st.columns([4, 1])
@@ -1413,7 +1430,7 @@ def page_market_index():
             margin=dict(t=10, b=10),
             height=300,
         )
-        st.plotly_chart(fig_twii, width="stretch", key="twii_trend")
+        st.plotly_chart(common.style_plotly(fig_twii), width="stretch", theme=None, key="twii_trend")
 
         first, last = float(twii["close"].iloc[0]), float(twii["close"].iloc[-1])
         change_pct = (last / first - 1) * 100 if first else 0
@@ -1428,7 +1445,8 @@ def page_market_index():
 
 
 def page_tax_calc():
-    SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR = _colors()
+    (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
+     UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
     back_button()
 
     st.title("股利報稅與綜合所得稅試算")
@@ -1732,17 +1750,17 @@ def page_tax_calc():
                 )
                 st.markdown(
                     f"**全部扣除額及免稅額合計：** "
-                    f"<span style='float:right; color:#ffbc4b;'>- {case_a['total_deductions']:,.0f} 元</span>",
+                    f"<span style='float:right; color:{WARN_COLOR};'>- {case_a['total_deductions']:,.0f} 元</span>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
                     f"**基本生活費差額：** "
-                    f"<span style='float:right; color:#ffbc4b;'>- {case_a['basic_diff']:,.0f} 元</span>",
+                    f"<span style='float:right; color:{WARN_COLOR};'>- {case_a['basic_diff']:,.0f} 元</span>",
                     unsafe_allow_html=True,
                 )
                 st.markdown("---")
                 st.markdown(
-                    f"<h4 style='color:#4bc0ff; margin-top:0;'>➤ 綜合所得淨額： "
+                    f"<h4 style='color:{ACCENT_COLOR}; margin-top:0;'>➤ 綜合所得淨額： "
                     f"<span style='float:right;'>{case_a['net']:,.0f} 元</span></h4>",
                     unsafe_allow_html=True,
                 )
@@ -1791,7 +1809,7 @@ def page_tax_calc():
                     <th style="width:40%;">股利應納稅額</th></tr>
                 <tr><td>{div_total:,}</td><td class="operator">✕</td>
                     <td>{DIV_SEPARATE_RATE:.0%}</td><td class="operator">＝</td>
-                    <td style="font-weight:bold; font-size:18px; color:#ffbc4b;">{div_tax_b:,.0f}</td></tr>
+                    <td style="font-weight:bold; font-size:18px; color:{WARN_COLOR};">{div_tax_b:,.0f}</td></tr>
             </table>
             """,
             unsafe_allow_html=True,
@@ -1818,17 +1836,17 @@ def page_tax_calc():
                 )
                 st.markdown(
                     f"**全部扣除額及免稅額合計：** "
-                    f"<span style='float:right; color:#ffbc4b;'>- {case_b['total_deductions']:,.0f} 元</span>",
+                    f"<span style='float:right; color:{WARN_COLOR};'>- {case_b['total_deductions']:,.0f} 元</span>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
                     f"**基本生活費差額：** "
-                    f"<span style='float:right; color:#ffbc4b;'>- {case_b['basic_diff']:,.0f} 元</span>",
+                    f"<span style='float:right; color:{WARN_COLOR};'>- {case_b['basic_diff']:,.0f} 元</span>",
                     unsafe_allow_html=True,
                 )
                 st.markdown("---")
                 st.markdown(
-                    f"<h4 style='color:#4bc0ff; margin-top:0;'>➤ 本薪綜合所得淨額： "
+                    f"<h4 style='color:{ACCENT_COLOR}; margin-top:0;'>➤ 本薪綜合所得淨額： "
                     f"<span style='float:right;'>{case_b['net']:,.0f} 元</span></h4>",
                     unsafe_allow_html=True,
                 )
@@ -1838,7 +1856,7 @@ def page_tax_calc():
                 )
                 st.markdown(
                     f"**股利 {DIV_SEPARATE_RATE:.0%} 分開計稅額：** "
-                    f"<span style='float:right; color:#ffbc4b;'>+ {div_tax_b:,.0f} 元</span>",
+                    f"<span style='float:right; color:{WARN_COLOR};'>+ {div_tax_b:,.0f} 元</span>",
                     unsafe_allow_html=True,
                 )
                 st.markdown("---")
@@ -1864,7 +1882,8 @@ def page_tax_calc():
 
 
 def page_not_found():
-    SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR = _colors()
+    (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
+     UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
     st.warning("找不到這個頁面，請從左側選單重新選擇。")
     if st.button("回到首頁"):
         go_to("welcome")
