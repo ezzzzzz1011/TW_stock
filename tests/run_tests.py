@@ -330,6 +330,84 @@ try:
     check("日期格式不對時不採用", d._quote_date("abc") == "" and d._quote_date(1685338200) == "")
 
     # ================================================================
+    section("ETF 殖利率排行")
+    rank, rinfo = d.etf_yield_ranking()
+    check("排行有資料、上市上櫃都有", len(rank) > 150 and {"0056", "00679B"} <= set(rank["代號"]),
+          f"{len(rank)} 檔，錯誤 {rinfo['errors']}")
+    check("依近12個月殖利率由高到低排序",
+          rank["近12個月殖利率(%)"].is_monotonic_decreasing)
+    check("年化殖利率是數值欄（無法推估時顯示空白，不會出現 None）",
+          rank["年化殖利率(%)"].dtype.kind == "f")
+    row56 = rank[rank["代號"] == "0056"].iloc[0]
+    fm56 = d.fetch_dividend_history_super("0056")
+    start = rinfo["start"].strftime("%Y-%m-%d")
+    fm_ttm = round(sum(x["amount"] for x in fm56 if x["date"] >= start), 4)
+    check("0056 近12個月配息與 FinMind 一致", abs(row56["近12個月配息"] - fm_ttm) < 1e-6,
+          f"交易所 {row56['近12個月配息']} / FinMind {fm_ttm}")
+    check("0056 殖利率 = 配息 ÷ 收盤價",
+          abs(row56["近12個月殖利率(%)"] - round(row56["近12個月配息"] / row56["收盤價"] * 100, 2)) < 1e-9)
+    check("類型判斷：00679B 債券型、00981T 平衡型、00981D 債券型",
+          d.etf_type("00679B") == "債券型" and d.etf_type("00981T") == "平衡型" and d.etf_type("00981D", "主動中信非投等債") == "債券型")
+    check("民國日期三種寫法都能解析",
+          d._roc_text_to_date("1151105") == date(2026, 11, 5)
+          and d._roc_text_to_date("115年01月22日") == date(2026, 1, 22)
+          and d._roc_text_to_date("114/11/10") == date(2025, 11, 10))
+
+    # 櫃買中心連不上：要顯示提示，而且失敗不能被快取（恢復後重新整理就要有資料）
+    orig_tpex = d._tpex_exdiv_chunk
+
+    def broken(a, b):
+        raise RuntimeError("模擬櫃買中心連線失敗")
+
+    d._tpex_exdiv_chunk = broken
+    bad, bad_info = d.etf_yield_ranking()
+    d._tpex_exdiv_chunk = orig_tpex
+    good, good_info = d.etf_yield_ranking()
+    check("櫃買中心失敗時，上市 ETF 照樣列出並標示錯誤",
+          "櫃買中心" in bad_info["errors"] and "0056" in set(bad["代號"]) and "00679B" not in set(bad["代號"]))
+    check("恢復連線後立刻有上櫃 ETF（失敗沒有被快取）",
+          not good_info["errors"] and "00679B" in set(good["代號"]))
+
+    at = new_app()
+    login(at, "amy", "0000")
+    goto(at, "home")
+    check("工具箱有「進入殖利率排行」", "進入殖利率排行" in [b.label for b in at.button])
+    next(b for b in at.button if b.label == "進入殖利率排行").click()
+    at.run()
+    check("點進去是殖利率排行頁", at.session_state["page"] == "etf_rank" and not at.exception, errors(at))
+
+    def rank_table():
+        return next(f.value for f in at.dataframe)
+
+    t = rank_table()
+    check("預設顯示前 20 名", len(t) == 20 and list(t["排名"]) == list(range(1, 21)))
+    at.selectbox(key="etf_rank_size").select("前 50 名")
+    at.run()
+    check("選前 50 名顯示 50 檔", len(rank_table()) == 50)
+    at.selectbox(key="etf_rank_size").select("全部")
+    at.run()
+    check("選全部顯示所有 ETF", len(rank_table()) == len(good), f"{len(rank_table())} / {len(good)}")
+    at.selectbox(key="etf_rank_type").select("債券型")
+    at.run()
+    t = rank_table()
+    check("類型選債券型只剩債券型", len(t) > 50 and set(t["類型"]) == {"債券型"})
+    at.selectbox(key="etf_rank_type").select("全部")
+    at.selectbox(key="etf_rank_sort").select("年化殖利率（依最新配息推估）")
+    at.run()
+    t = rank_table()
+    check("依年化殖利率排序且沒有空值",
+          t["年化殖利率(%)"].notna().all() and t["年化殖利率(%)"].is_monotonic_decreasing)
+    at.selectbox(key="etf_rank_size").select("前 20 名")
+    at.run()
+    first = rank_table().iloc[0]["代號"]
+    at.selectbox(key="etf_rank_pick").select(at.selectbox(key="etf_rank_pick").options[0])
+    next(b for b in at.button if b.label == "用 ETF 分析檢視").click()
+    at.run()
+    check("「用 ETF 分析檢視」跳到 ETF 分析並帶入代號",
+          at.session_state["page"] == "etf_query" and at.session_state["etf_symbol_input"] == first
+          and not at.exception, f"{at.session_state['page']} {at.session_state['etf_symbol_input']} / {first}")
+
+    # ================================================================
     section("主題（深色／淺色）")
     import plotly.express as px
 

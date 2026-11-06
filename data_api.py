@@ -1314,6 +1314,268 @@ def generate_user_calendar(portfolio_df):
     result = pd.DataFrame(rows)
     return result if not result.empty else None
 
+# ===================== ETF 殖利率排行 =====================
+# 資料來源：證交所與櫃買中心的「除權除息計算結果表」（一次就能查一整年、全部標的），
+# 以及兩邊的每日收盤行情。FinMind 一次查全部標的需要付費會員，所以這裡不用它。
+# 已驗證（2026-11）：一年期查詢沒有筆數上限；0056、00878、00919、0050、00929、00679B
+# 的配息金額與 FinMind 一致。
+TWSE_EXDIV_URL = "https://www.twse.com.tw/rwd/zh/exRight/TWT49U"
+TPEX_EXDIV_URL = "https://www.tpex.org.tw/www/zh-tw/bulletin/exDailyQ"
+ETF_RANK_HISTORY_DAYS = 729     # 抓兩年（含今天剛好兩段各一年）：近一年算殖利率，兩年的除息間隔用來判斷配息頻率
+
+
+def _roc_text_to_date(raw):
+    """民國日期 → date。支援「115年01月22日」與「115/01/22」兩種寫法。"""
+    nums = re.findall(r"\d+", str(raw))
+    if len(nums) == 1 and len(nums[0]) in (6, 7):      # 1151105（證交所收盤行情）
+        t = nums[0]
+        nums = [t[:-4], t[-4:-2], t[-2:]]
+    if len(nums) != 3:
+        return None
+    try:
+        return datetime(int(nums[0]) + 1911, int(nums[1]), int(nums[2])).date()
+    except ValueError:
+        return None
+
+
+def _is_etf_code(code):
+    """台灣 ETF 代號都是 00 開頭（例如 0050、00919、00679B）。"""
+    return str(code).strip().startswith("00")
+
+
+def _year_chunks(start, end):
+    """把日期區間切成每段不超過一年，避免單次查詢太大。"""
+    chunks = []
+    cur = start
+    while cur <= end:
+        nxt = min(end, cur + timedelta(days=364))
+        chunks.append((cur, nxt))
+        cur = nxt + timedelta(days=1)
+    return chunks
+
+
+# 注意快取方式：每一次請求各自快取，請求失敗就丟出例外。
+# Streamlit 不會快取丟出例外的結果，所以偶發的斷線只會影響這一次，重新整理就會重試；
+# 如果把整包結果一起快取，斷線那次「缺了一個市場」的結果會被留 6 小時。
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _twse_exdiv_chunk(a, b):
+    """證交所：只有「權值+息值」一欄；ETF 只會配息，所以只取「權/息」為「息」的列。"""
+    res = requests.get(
+        TWSE_EXDIV_URL,
+        params={"startDate": a.strftime("%Y%m%d"), "endDate": b.strftime("%Y%m%d"), "response": "json"},
+        headers=UA_HEADER, timeout=20,
+    )
+    payload = res.json()
+    if payload.get("stat") != "OK":
+        raise RuntimeError(f"證交所回應 {payload.get('stat')}")
+    fields = payload.get("fields") or []
+    i_date, i_code, i_name = fields.index("資料日期"), fields.index("股票代號"), fields.index("股票名稱")
+    i_val, i_kind = fields.index("權值+息值"), fields.index("權/息")
+    return [
+        (row[i_code], row[i_name], _roc_text_to_date(row[i_date]), _to_float(row[i_val]))
+        for row in payload.get("data") or []
+        if str(row[i_kind]).strip() == "息"
+    ]
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _tpex_exdiv_chunk(a, b):
+    """櫃買中心：有獨立的「息值」欄。"""
+    res = requests.post(
+        TPEX_EXDIV_URL,
+        data={"startDate": a.strftime("%Y/%m/%d"), "endDate": b.strftime("%Y/%m/%d"), "response": "json"},
+        headers=UA_HEADER, timeout=20,
+    )
+    payload = res.json()
+    if str(payload.get("stat")).lower() != "ok":
+        raise RuntimeError(f"櫃買中心回應 {payload.get('stat')}")
+    table = (payload.get("tables") or [{}])[0]
+    fields = table.get("fields") or []
+    i_date, i_code, i_name, i_cash = (
+        fields.index("除權息日期"), fields.index("代號"), fields.index("名稱"), fields.index("息值"),
+    )
+    return [
+        (row[i_code], row[i_name], _roc_text_to_date(row[i_date]), _to_float(row[i_cash]))
+        for row in table.get("data") or []
+    ]
+
+
+def fetch_etf_cash_dividends(start, end):
+    """
+    上市、上櫃 ETF 在 [start, end] 期間的每一次現金配息。
+    回傳 {代號: {"name": 名稱, "events": [(除息日, 每股配息), ...]}, "_errors": [連不上的來源]}。
+    證交所、櫃買中心、每個年度同時查詢；其中一個失敗時，其他的照樣回傳。
+    """
+    out = {}
+    jobs = [(label, fn, a, b) for a, b in _year_chunks(start, end)
+            for label, fn in (("證交所", _twse_exdiv_chunk), ("櫃買中心", _tpex_exdiv_chunk))]
+
+    def run(job):
+        label, fn, a, b = job
+        try:
+            return label, fn(a, b), None
+        except Exception as e:
+            print(f"[etf_rank] {label} {a}~{b}: {e}")
+            return label, [], e
+
+    errors = []
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        for label, rows, err in pool.map(run, jobs):
+            if err is not None:
+                errors.append(label)
+            for code, name, day, cash in rows:
+                code = str(code).strip()
+                if not _is_etf_code(code) or day is None or cash is None or cash <= 0:
+                    continue
+                item = out.setdefault(code, {"name": str(name).strip(), "events": []})
+                item["events"].append((day, cash))
+
+    for item in out.values():
+        # 同一天重複的列只算一次；由新到舊排序
+        item["events"] = sorted(set(item["events"]), key=lambda x: x[0], reverse=True)
+    out["_errors"] = sorted(set(errors))
+    return out
+
+
+ETF_QUOTE_SOURCES = {
+    "證交所": ("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+              "Code", "Name", "ClosingPrice", "TradeVolume"),
+    "櫃買中心": ("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes",
+                "SecuritiesCompanyCode", "CompanyName", "Close", "TradingShares"),
+}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _etf_quotes_from(label):
+    url, code_f, name_f, close_f, vol_f = ETF_QUOTE_SOURCES[label]
+    rows = requests.get(url, headers=UA_HEADER, timeout=HTTP_TIMEOUT).json()
+    if not rows:
+        raise RuntimeError(f"{label} 收盤行情是空的")
+    quotes = {}
+    for row in rows:
+        code = str(row.get(code_f) or "").strip()
+        close = _to_float(row.get(close_f))
+        if not _is_etf_code(code) or not close or close <= 0:
+            continue
+        shares = _to_float(row.get(vol_f)) or 0
+        quotes[code] = {
+            "name": str(row.get(name_f) or "").strip(),
+            "close": close,
+            "lots": int(shares / 1000),
+            "date": _roc_text_to_date(row.get("Date")),
+        }
+    return quotes
+
+
+def fetch_etf_quotes():
+    """上市、上櫃 ETF 的最新收盤價與成交量（張）。回傳 ({代號: {name, close, lots, date}}, [連不上的來源])。"""
+    quotes, errors = {}, []
+    for label in ETF_QUOTE_SOURCES:
+        try:
+            quotes.update(_etf_quotes_from(label))
+        except Exception as e:
+            print(f"[etf_quotes] {label}: {e}")
+            errors.append(label)
+    return quotes, errors
+
+
+ETF_TYPES = ["股票型", "債券型", "平衡型", "期貨型", "槓桿／反向"]
+
+
+def etf_type(code, name=""):
+    """
+    依代號結尾與名稱判斷類型（2026-11 依全部上市櫃 ETF 實際代號整理）：
+      L、R＝槓桿／反向；U＝期貨型（黃金、原油等）；T 或名稱含「平衡」＝平衡型；
+      B、D（主動式債券）或名稱含「債」＝債券型；其餘（數字結尾、A 主動式股票、K 外幣級別）＝股票型。
+    """
+    code, name = str(code).upper(), str(name)
+    if code.endswith(("L", "R")):
+        return "槓桿／反向"
+    if code.endswith("U"):
+        return "期貨型"
+    if code.endswith("T") or "平衡" in name:
+        return "平衡型"
+    if code.endswith(("B", "D")) or "債" in name:
+        return "債券型"
+    return "股票型"
+
+
+def etf_yield_ranking(today=None):
+    """
+    所有近一年有配息的 ETF，計算：
+      近12個月殖利率 = 近 365 天現金配息合計 ÷ 最新收盤價
+      年化殖利率     = 依配息頻率推估的一年配息 ÷ 最新收盤價（算法與 ETF 分析頁相同）
+    回傳 (DataFrame, 說明資訊 dict)。DataFrame 依近12個月殖利率由高到低排序。
+    """
+    today = today or datetime.now(tw_tz).date()
+    divs = fetch_etf_cash_dividends(today - timedelta(days=ETF_RANK_HISTORY_DAYS), today)
+    quotes, quote_errors = fetch_etf_quotes()
+    errors = sorted(set(divs.get("_errors", [])) | set(quote_errors))
+    one_year_ago = today - timedelta(days=365)
+
+    rows = []
+    for code, item in divs.items():
+        if code == "_errors" or code not in quotes:
+            continue
+        events = item["events"]
+        recent = [(d, v) for d, v in events if d > one_year_ago]
+        if not recent:
+            continue                     # 近一年沒配息（停發或改為不配息）
+        q = quotes[code]
+        ttm = sum(v for _, v in recent)
+
+        # 配息頻率：用兩年內的除息間隔判斷；只配過一次就無法判斷
+        history = [{"date": d.strftime("%Y-%m-%d"), "amount": v} for d, v in events]
+        if len(history) >= 2:
+            multiplier, freq = infer_frequency(history)
+            annual = annualize([h["amount"] for h in history], multiplier)
+            freq_text = f"{freq}配"
+        else:
+            multiplier, annual, freq_text = None, None, "未知"
+
+        note = ""
+        if multiplier is None:
+            note = "目前只配過一次，無法判斷配息頻率，也無法推估年化殖利率"
+        elif len(recent) > multiplier:
+            note = "近一年配息次數多於頻率（除息日提前，一年內算到兩次），近12個月殖利率會偏高"
+        elif len(recent) < multiplier:
+            note = "近一年配息次數少於頻率（可能上市未滿一年或曾停發），近12個月殖利率會偏低"
+        elif (today - events[0][0]).days > 365 / multiplier + (100 if multiplier == 1 else 60):
+            note = "距上次配息已超過預期間隔，可能已停發"
+            annual = None
+
+        rows.append({
+            "代號": code,
+            "名稱": q["name"] or item["name"],
+            "類型": etf_type(code, q["name"] or item["name"]),
+            "收盤價": q["close"],
+            "近12個月配息": round(ttm, 4),
+            "近12個月殖利率(%)": round(ttm / q["close"] * 100, 2),
+            "年化殖利率(%)": round(annual / q["close"] * 100, 2) if annual else None,
+            "配息頻率": freq_text,
+            "近一年配息次數": len(recent),
+            "最新一次配息": events[0][1],
+            "最近除息日": events[0][0].strftime("%Y-%m-%d"),
+            "成交量(張)": q["lots"],
+            "備註": note,
+        })
+
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        # 無法推估的年化殖利率是 None；轉成數值欄（NaN），表格才會顯示空白而不是「None」
+        df["年化殖利率(%)"] = pd.to_numeric(df["年化殖利率(%)"], errors="coerce")
+        df = df.sort_values(["近12個月殖利率(%)", "代號"], ascending=[False, True]).reset_index(drop=True)
+    price_dates = [q["date"] for q in quotes.values() if q.get("date")]
+    info = {
+        "count": len(df),
+        "start": one_year_ago + timedelta(days=1),
+        "end": today,
+        "price_date": max(price_dates) if price_dates else None,
+        "errors": errors,
+    }
+    return df, info
+
+
 # ===================== 大盤 =====================
 MARKET_GROUPS = [
     ("台股", [("台股加權", "^TWII")]),

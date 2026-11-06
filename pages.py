@@ -24,7 +24,8 @@ from common import (
     label_spacer, lookup_bracket, preschool_amount, toggle_theme, tw_tz,
 )
 from data_api import (
-    EXCHANGE_NAMES, FINMIND_TOKEN, FINMIND_TOKEN_SOURCE, FINMIND_URL, FUGLE_TOKEN_SOURCE,
+    ETF_TYPES, EXCHANGE_NAMES, FINMIND_TOKEN, FINMIND_TOKEN_SOURCE, FINMIND_URL, FUGLE_TOKEN_SOURCE,
+    etf_yield_ranking,
     MARKET_GROUPS, analyze_pe_band, annualize, authenticate, clean_code, empty_portfolio,
     fetch_index_history, fetch_institutional_flow, fetch_many,
     fetch_market_turnover, format_market_value,
@@ -260,7 +261,7 @@ def render():
 def render_sidebar(page):
     (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
      UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
-    TOOLBOX_PAGES = {"home", "stock_query", "etf_query", "pk_tool", "portfolio", "market_index"}
+    TOOLBOX_PAGES = {"home", "stock_query", "etf_query", "pk_tool", "portfolio", "market_index", "etf_rank"}
     with st.sidebar:
         st.write(f"👤 當前使用者: **{st.session_state.current_user}**")
 
@@ -415,17 +416,20 @@ def page_home():
         ("⚔️ ETF 對比", "ETF 對比工具", "進入對比工具", "pk_tool"),
         ("💼 我的資產", "個人投資組合", "進入我的資產", "portfolio"),
         ("🌐 大盤指數", "市場整體趨勢與氣氛", "進入大盤指數", "market_index"),
+        ("💹 殖利率排行", "全部 ETF 殖利率排名", "進入殖利率排行", "etf_rank"),
     ]
 
-    for col, (title, desc, btn, target) in zip(st.columns(5), features):
-        with col:
-            st.markdown(
-                f'<div class="feature-card"><div class="feature-title">{title}</div>'
-                f'<div class="feature-desc">{desc}</div></div>',
-                unsafe_allow_html=True,
-            )
-            if st.button(btn, width="stretch", type="primary", key=f"btn_{target}"):
-                go_to(target)
+    # 每列 3 張卡片：6 張擠在一列會太窄
+    for row_start in range(0, len(features), 3):
+        for col, (title, desc, btn, target) in zip(st.columns(3), features[row_start:row_start + 3]):
+            with col:
+                st.markdown(
+                    f'<div class="feature-card"><div class="feature-title">{title}</div>'
+                    f'<div class="feature-desc">{desc}</div></div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button(btn, width="stretch", type="primary", key=f"btn_{target}"):
+                    go_to(target)
 
 # ------------------------------------------------------------------
 # 關注清單
@@ -1881,6 +1885,109 @@ def page_tax_calc():
     )
 
 
+# ------------------------------------------------------------------
+# ETF 殖利率排行
+# ------------------------------------------------------------------
+RANK_SIZES = {"前 20 名": 20, "前 50 名": 50, "全部": None}
+RANK_SORTS = {
+    "近 12 個月殖利率": "近12個月殖利率(%)",
+    "年化殖利率（依最新配息推估）": "年化殖利率(%)",
+}
+
+
+def page_etf_rank():
+    (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
+     UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
+    back_button()
+    st.title("ETF 殖利率排行")
+    st.caption("自動抓取全部上市、上櫃 ETF 近一年的現金配息，依殖利率由高到低排名。")
+
+    c_size, c_sort, c_type = st.columns([1, 1.4, 1])
+    with c_size:
+        size_label = st.selectbox("顯示名次", list(RANK_SIZES), key="etf_rank_size")
+    with c_sort:
+        sort_label = st.selectbox("排序依據", list(RANK_SORTS), key="etf_rank_sort")
+    with c_type:
+        type_label = st.selectbox("類型", ["全部"] + ETF_TYPES, key="etf_rank_type")
+
+    with st.spinner("抓取全部 ETF 的配息與收盤價中..."):
+        df, info = etf_yield_ranking()
+
+    if info["errors"]:
+        st.warning(f"{'、'.join(info['errors'])}暫時連不上，以下排行不含該市場的 ETF，請稍後再試。")
+    if df.empty:
+        st.info("目前取不到 ETF 配息資料，請稍後再試。")
+        return
+
+    sort_col = RANK_SORTS[sort_label]
+    view = df if type_label == "全部" else df[df["類型"] == type_label]
+    # 年化殖利率排序時，只配過一次（無法推估）的 ETF 不列入
+    view = view.dropna(subset=[sort_col]).sort_values([sort_col, "代號"], ascending=[False, True])
+    matched = len(view)
+    size = RANK_SIZES[size_label]
+    if size:
+        view = view.head(size)
+    view = view.reset_index(drop=True)
+    view.insert(0, "排名", range(1, len(view) + 1))
+
+    price_date = info["price_date"].strftime("%Y-%m-%d") if info["price_date"] else "－"
+    st.caption(
+        f"共 {matched} 檔符合條件，顯示 {len(view)} 檔　｜　"
+        f"配息期間 {info['start']:%Y-%m-%d} ~ {info['end']:%Y-%m-%d}　｜　收盤價日期 {price_date}"
+    )
+
+    if view.empty:
+        st.info("這個類型目前沒有符合條件的 ETF。")
+        return
+
+    st.dataframe(
+        view,
+        hide_index=True,
+        width="stretch",
+        # 20、50 名直接全部展開；「全部」最多顯示約 25 列高度，其餘捲動
+        height=min(len(view), 25) * 35 + 38,
+        column_config={
+            "排名": st.column_config.NumberColumn("排名", format="%d", width="small"),
+            "收盤價": st.column_config.NumberColumn("收盤價", format="%.2f"),
+            "近12個月配息": st.column_config.NumberColumn("近12個月配息", format="%.3f"),
+            "近12個月殖利率(%)": st.column_config.NumberColumn("近12個月殖利率", format="%.2f%%"),
+            "年化殖利率(%)": st.column_config.NumberColumn("年化殖利率", format="%.2f%%"),
+            "最新一次配息": st.column_config.NumberColumn("最新一次配息", format="%.3f"),
+            "成交量(張)": st.column_config.NumberColumn("成交量(張)", format="%d"),
+            "備註": st.column_config.TextColumn("備註", width="large"),
+        },
+    )
+
+    # 直接跳到 ETF 分析頁看詳細資料
+    (c_pick, c_go), need_spacer = bottom_columns([3, 1])
+    with c_pick:
+        options = [f"{r['代號']}　{r['名稱']}" for _, r in view.iterrows()]
+        picked = st.selectbox("選一檔查看詳細分析", options, key="etf_rank_pick")
+    with c_go:
+        if need_spacer:
+            label_spacer()
+        if st.button("用 ETF 分析檢視", type="primary", width="stretch", key="etf_rank_go"):
+            code = picked.split("　")[0]
+            st.session_state.etf_symbol_input = code
+            with st.spinner(f"分析 {code} 中..."):
+                st.session_state.data = get_safe_data_etf(code)
+            go_to("etf_query")
+
+    with st.expander("計算方式與注意事項"):
+        st.markdown(
+            """
+- **近 12 個月殖利率** ＝ 近 365 天的現金配息合計 ÷ 最近一個交易日的收盤價。
+- **年化殖利率** ＝ 依配息頻率推估的一年配息 ÷ 收盤價，算法與「ETF 分析」頁相同：
+  年配取最新一次、半年配取最近 2 次、季配取最近 4 次加總，月配以最近 4 次平均 × 12。
+  上市未滿一年的 ETF，近 12 個月的配息次數較少，看這一欄比較準。
+- **高殖利率不等於高報酬**：配息可能來自資本利得或收益平準金；股價下跌也會讓殖利率變高。
+  請搭配「ETF 分析」與「ETF 對比」一起評估。
+- **備註**欄會標示需要留意的情況，例如上市未滿一年、可能停發，或除息日提前導致一年內算到兩次。
+- 資料來源：證交所與櫃買中心的除權除息計算結果表、每日收盤行情。配息資料每 6 小時更新一次。
+            """
+        )
+
+
 def page_not_found():
     (SECONDARY_BG, TEXT_COLOR, BORDER_COLOR, TRACK_COLOR,
      UP_COLOR, DOWN_COLOR, WARN_COLOR, ACCENT_COLOR) = _colors()
@@ -1899,5 +2006,6 @@ PAGES = {
     "pk_tool": page_pk_tool,
     "portfolio": page_portfolio,
     "market_index": page_market_index,
+    "etf_rank": page_etf_rank,
     "tax_calc": page_tax_calc,
 }
