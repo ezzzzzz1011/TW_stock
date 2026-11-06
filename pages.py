@@ -174,7 +174,7 @@ def login_ui():
     _, col_theme, _ = st.columns([1, 1.2, 1])
     with col_theme:
         btn_label = "切換淺色模式" if common.current_theme() == "dark" else "切換深色模式"
-        if st.button(btn_label, use_container_width=True, key="login_theme_toggle"):
+        if st.button(btn_label, width="stretch", key="login_theme_toggle"):
             toggle_theme()
             st.rerun()
 
@@ -189,7 +189,7 @@ def login_ui():
                 u_id = st.text_input("帳號名稱", key="l_user", placeholder="請輸入帳號")
                 u_pw = st.text_input("存取密碼", type="password", key="l_pw", placeholder="請輸入密碼")
                 login_submitted = st.form_submit_button(
-                    "確認登入", use_container_width=True, type="primary"
+                    "確認登入", width="stretch", type="primary"
                 )
 
             if login_submitted:
@@ -209,7 +209,7 @@ def login_ui():
                 new_u = st.text_input("設定帳號", key="r_user").strip()
                 new_p = st.text_input("設定密碼", type="password", key="r_pw")
                 confirm_p = st.text_input("確認密碼", type="password", key="r_confirm")
-                reg_submitted = st.form_submit_button("提交註冊", use_container_width=True)
+                reg_submitted = st.form_submit_button("提交註冊", width="stretch")
 
             if reg_submitted:
                 if new_u in user_db:
@@ -248,7 +248,7 @@ def render():
             is_active = page in active_pages
             if st.button(
                 label,
-                use_container_width=True,
+                width="stretch",
                 type="primary" if is_active else "secondary",
                 key=f"nav_{target}",
             ):
@@ -257,13 +257,13 @@ def render():
         st.markdown(f"<hr style='margin:10px 0; border-color:{BORDER_COLOR};'>", unsafe_allow_html=True)
 
         theme_btn_label = "切換淺色模式" if common.current_theme() == "dark" else "切換深色模式"
-        if st.button(theme_btn_label, use_container_width=True):
+        if st.button(theme_btn_label, width="stretch"):
             toggle_theme()
             st.rerun()
 
         st.markdown(f"<hr style='margin:10px 0; border-color:{BORDER_COLOR};'>", unsafe_allow_html=True)
 
-        if st.button("登出系統", use_container_width=True):
+        if st.button("登出系統", width="stretch"):
             for k in ("logged_in", "current_user", "portfolio", "watchlist", "data"):
                 st.session_state[k] = False if k == "logged_in" else None
             # 一併清掉殘留的元件狀態，避免下一位使用者看到上一位的資料
@@ -281,7 +281,7 @@ def render():
                 f"　|　Fugle token：{FUGLE_TOKEN_SOURCE}"
             )
             st.caption(f"FinMind 身分：{describe_finmind_token()}")
-            if st.button("測試 FinMind 連線", use_container_width=True, key="diag_finmind"):
+            if st.button("測試 FinMind 連線", width="stretch", key="diag_finmind"):
                 try:
                     res = requests.get(
                         FINMIND_URL,
@@ -305,7 +305,7 @@ def render():
             admin_ok, admin_reason = admin_status(st.session_state.current_user)
             st.caption(f"管理員權限：{admin_reason}")
             if admin_ok:
-                if st.button("清除全站資料快取", use_container_width=True, key="diag_clear"):
+                if st.button("清除全站資料快取", width="stretch", key="diag_clear"):
                     st.cache_data.clear()
                     st.success("已清除，請重新查詢一次。")
 
@@ -366,7 +366,7 @@ def render():
         ]
         for col, (label, target) in zip(st.columns(4), shortcuts):
             with col:
-                if st.button(label, use_container_width=True, key=f"quick_{target}"):
+                if st.button(label, width="stretch", key=f"quick_{target}"):
                     go_to(target)
 
     # ------------------------------------------------------------------
@@ -392,7 +392,7 @@ def render():
                     f'<div class="feature-desc">{desc}</div></div>',
                     unsafe_allow_html=True,
                 )
-                if st.button(btn, use_container_width=True, type="primary", key=f"btn_{target}"):
+                if st.button(btn, width="stretch", type="primary", key=f"btn_{target}"):
                     go_to(target)
 
     # ------------------------------------------------------------------
@@ -412,9 +412,9 @@ def render():
                 "新增代碼", placeholder="例如：2330 或 00919", label_visibility="collapsed"
             )
         with col_btn:
-            add_clicked = st.button("加入", use_container_width=True, type="primary")
+            add_clicked = st.button("加入", width="stretch", type="primary")
         with col_refresh:
-            refresh_clicked = st.button("更新報價", use_container_width=True)
+            refresh_clicked = st.button("更新報價", width="stretch")
 
         if add_clicked:
             code = clean_code(new_code)
@@ -514,7 +514,7 @@ def render():
                             # 名稱要編碼，含 & 或空白等符號時連結才不會壞掉
                             "https://www.google.com/search?q="
                             + quote_plus(f"{info['name']} 公司官網"),
-                            use_container_width=True,
+                            width="stretch",
                         )
 
                     st.markdown(
@@ -661,7 +661,7 @@ def render():
                                                 for q in eps_detail["quarters"]
                                             ]
                                         ),
-                                        use_container_width=True,
+                                        width="stretch",
                                         hide_index=True,
                                     )
                                 if eps_detail.get("adjusted"):
@@ -703,7 +703,7 @@ def render():
                             yaxis_title="股價",
                             margin=dict(t=20),
                         )
-                        st.plotly_chart(fig, use_container_width=True, key="pe_river")
+                        st.plotly_chart(fig, width="stretch", key="pe_river")
 
                         st.caption(
                             f"取樣 {band['sample_start']} ~ {band['sample_end']}"
@@ -768,7 +768,7 @@ def render():
                     if need_spacer:
                         label_spacer()
                     etf_submitted = st.form_submit_button(
-                        "開始計算", type="primary", use_container_width=True
+                        "開始計算", type="primary", width="stretch"
                     )
 
             if etf_submitted:
@@ -1054,13 +1054,13 @@ def render():
                 "戰略屬性": st.column_config.SelectboxColumn("戰略屬性", options=ASSET_CATEGORIES),
             },
             num_rows="dynamic",
-            use_container_width=True,
+            width="stretch",
             key="portfolio_editor",
         )
 
         col_edit1, col_edit2 = st.columns(2)
         with col_edit1:
-            if st.button("自動帶入資訊", use_container_width=True):
+            if st.button("自動帶入資訊", width="stretch"):
                 temp_df = edited_df.copy()
                 codes = [
                     clean_code(c)
@@ -1084,7 +1084,7 @@ def render():
                 st.rerun()
 
         with col_edit2:
-            if st.button("儲存變更至資料庫", type="primary", use_container_width=True):
+            if st.button("儲存變更至資料庫", type="primary", width="stretch"):
                 save_df = edited_df[COLUMNS_ORDER].copy()
                 save_df["張數"] = pd.to_numeric(save_df["張數"], errors="coerce")
                 st.session_state.portfolio = save_df
@@ -1103,7 +1103,7 @@ def render():
         if valid_df.empty:
             st.info("請先在上方表格輸入股票代碼與持有張數。")
         else:
-            if st.button("開始計算當前市值", type="primary", use_container_width=True):
+            if st.button("開始計算當前市值", type="primary", width="stretch"):
                 # 同一檔分多列輸入時張數相加，不會只算到最後一列
                 lots_map, cat_map = sum_lots_by_code(valid_df)
                 codes = list(lots_map)
@@ -1211,7 +1211,7 @@ def render():
                         )
                         fig1.update_layout(paper_bgcolor="rgba(0,0,0,0)", font_color=TEXT_COLOR, showlegend=False)
                         fig1.update_traces(textposition="inside", textinfo="label+percent")
-                        st.plotly_chart(fig1, use_container_width=True, key="portfolio_pie_individual")
+                        st.plotly_chart(fig1, width="stretch", key="portfolio_pie_individual")
 
                     with col_pie2:
                         fig2 = px.pie(
@@ -1222,7 +1222,7 @@ def render():
                             paper_bgcolor="rgba(0,0,0,0)", font_color=TEXT_COLOR,
                             legend=dict(orientation="h", y=-0.2),
                         )
-                        st.plotly_chart(fig2, use_container_width=True, key="portfolio_pie_category")
+                        st.plotly_chart(fig2, width="stretch", key="portfolio_pie_category")
 
                     with col_table:
                         st.write("#### 詳細數據")
@@ -1235,7 +1235,7 @@ def render():
                                     "預估年領股息": "{:,.0f}",
                                 }
                             ),
-                            use_container_width=True,
+                            width="stretch",
                             hide_index=True,
                         )
 
@@ -1243,7 +1243,7 @@ def render():
             st.subheader("自動化領息排程月曆")
             horizon_days = st.slider("顯示未來幾天內的配息", 7, 120, DIV_PAY_LAG_DAYS * 2, step=7)
 
-            if st.button("生成我的專屬領息月曆", use_container_width=True, type="primary"):
+            if st.button("生成我的專屬領息月曆", width="stretch", type="primary"):
                 cal_df = generate_user_calendar()
 
                 if cal_df is None or cal_df.empty:
@@ -1259,7 +1259,7 @@ def render():
                         display_df = filtered.drop(columns=["_pay"]).copy()
                         display_df["每股配息"] = display_df["每股配息"].map(lambda v: f"${v:.3f}")
                         display_df["預估入帳金額"] = display_df["預估入帳金額"].map(lambda v: f"{v:,.0f}")
-                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                        st.dataframe(display_df, width="stretch", hide_index=True)
 
                         st.success(
                             f"這一波領息預計總入帳： **${filtered['預估入帳金額'].sum():,.0f}** 元"
@@ -1276,7 +1276,7 @@ def render():
         with col_head:
             st.markdown("### 大盤指數")
         with col_refresh:
-            if st.button("重新整理", use_container_width=True):
+            if st.button("重新整理", width="stretch"):
                 get_market_data.clear()
                 fetch_institutional_flow.clear()
                 fetch_index_history.clear()
@@ -1363,7 +1363,7 @@ def render():
                 margin=dict(t=10, b=10),
                 height=300,
             )
-            st.plotly_chart(fig_twii, use_container_width=True, key="twii_trend")
+            st.plotly_chart(fig_twii, width="stretch", key="twii_trend")
 
             first, last = float(twii["close"].iloc[0]), float(twii["close"].iloc[-1])
             change_pct = (last / first - 1) * 100 if first else 0

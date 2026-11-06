@@ -1,4 +1,4 @@
-streamlit>=1.36
+streamlit>=1.49        # width="stretch" 寫法從 1.49 起所有元件都支援
 pandas>=2.0
 numpy>=1.24
 plotly>=5.18

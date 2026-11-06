@@ -23,7 +23,7 @@ def setup_page():
 tw_tz = pytz.timezone("Asia/Taipei")
 
 # 版本標記：顯示在側邊欄「資料來源診斷」裡，用來確認雲端跑的是哪一版程式
-APP_VERSION = "2026-11-06 / admin-diag-v29"
+APP_VERSION = "2026-11-06 / width-stretch-v30"
 
 FEE_RATE = 0.001425          # 券商手續費率
 NHI_RATE = 0.0211            # 二代健保補充保費費率
@@ -482,5 +482,5 @@ def back_button(label="← 返回工具箱", target="home", key=None):
     """返回鍵放在窄欄位裡，不再橫跨整個畫面。"""
     col, _ = st.columns([1, 5])
     with col:
-        if st.button(label, key=key or f"back_{target}", use_container_width=True):
+        if st.button(label, key=key or f"back_{target}", width="stretch"):
             go_to(target)
